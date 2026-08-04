@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Omni-Tribo — Memória do Projeto
 
 ## O que é
@@ -39,9 +43,43 @@ Testes: JUnit 5 · Testcontainers · ArchUnit · Jest/RTL/MSW
 
 ## Comandos
 
+> `make` targets existem mas estão todos com `echo "não implementado ainda"` — use os comandos diretos abaixo.
+
+```bash
+# Backend
+cd services/api && ./mvnw verify                          # compila + todos os testes
+cd services/api && ./mvnw -Dtest=NomeDaClasseTest test    # um único teste
+
+# Mobile
+cd apps/mobile && npm run android       # inicia no emulador
+cd apps/mobile && npm run typecheck && npm run lint && npm test
+cd apps/mobile && npx jest --testPathPattern=nomeDoArquivo  # um único teste
+
+# Infra (quando implementado)
 make up / down / reset / logs / psql / seed
-cd services/api && ./mvnw verify
-cd apps/mobile && npm run android && npm run typecheck && npm test
+```
+
+## Skills e agentes disponíveis
+
+- `/verificar` — roda verificação completa (mvnw verify + typecheck + lint + test + docker compose ps) e reporta verde/vermelho. Use antes de abrir PR. **Nunca declare sucesso sem rodar isso.**
+- `/adr <assunto>` — cria `docs/adr/NNNN-<slug>.md` com o próximo número. Template exige Alternativas descartadas com motivo real.
+- Agente `revisor-seguranca` — revisa autenticação, autorização, endpoints de valor, webhooks, dados pessoais. Checar após implementar qualquer um desses.
+- Agente `revisor-testes` — avalia se a suíte realmente garante comportamento (não conta testes, avalia o que cobrem). Rodar ao fechar fase.
+
+## Convenções por camada
+
+**Backend** (`services/api/`):
+- DTOs são `record`. Entidade JPA nunca cruza fronteira do controller.
+- Exceções de domínio herdam de `DominioException` → mapeadas para status HTTP no handler global → resposta RFC 9457 `ProblemDetail`.
+- Teste de integração estende `TesteIntegracaoBase` (Testcontainers com `postgis/postgis`).
+- Query nativa PostGIS em `infra/` com `@Query(nativeQuery=true)` e parâmetros nomeados.
+
+**Mobile** (`apps/mobile/`):
+- `app/` — só rotas do Expo Router; tela é composição, sem lógica de negócio.
+- `src/features/<dominio>/` — hooks TanStack Query e lógica; `src/api/` é o único lugar que faz HTTP.
+- `src/components/` — design system, sem chamada de API; `src/stores/` — Zustand só para UI e sessão.
+- `src/theme/tokens.ts` — nenhum hex literal fora daqui.
+- `any` só com comentário justificando.
 
 ## Regras não negociáveis
 
