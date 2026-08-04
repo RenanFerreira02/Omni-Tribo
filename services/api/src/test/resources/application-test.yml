@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: ${DATASOURCE_URL:jdbc:postgresql://localhost:5432/omnitribo}
+    username: ${DATASOURCE_USERNAME:omnitribo}
+    password: ${DATASOURCE_PASSWORD:omnitribo_dev}
+
+springdoc:
+  swagger-ui:
+    enabled: false
+  api-docs:
+    enabled: false
+
+management:
+  server:
+    port: 0

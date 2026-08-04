@@ -43,7 +43,7 @@ Testes: JUnit 5 · Testcontainers · ArchUnit · Jest/RTL/MSW
 
 ## Comandos
 
-> `make` targets existem mas estão todos com `echo "não implementado ainda"` — use os comandos diretos abaixo.
+> `make seed` e `make test` ainda são stubs. Os demais targets (`up`, `down`, `reset`, `logs`, `ps`, `psql`) estão implementados.
 
 ```bash
 # Backend
@@ -55,8 +55,14 @@ cd apps/mobile && npm run android       # inicia no emulador
 cd apps/mobile && npm run typecheck && npm run lint && npm test
 cd apps/mobile && npx jest --testPathPattern=nomeDoArquivo  # um único teste
 
-# Infra (quando implementado)
-make up / down / reset / logs / psql / seed
+# Infra
+make up          # sobe PostgreSQL+PostGIS
+make down        # para containers (volume preservado)
+make reset       # destrói volume e recria do zero
+make logs        # tail nos logs do banco
+make ps          # status dos containers
+make psql        # abre psql conectado ao banco local
+# make seed / make test — ainda não implementados
 ```
 
 ## Skills e agentes disponíveis
@@ -144,4 +150,4 @@ Git
 
 ## Estado atual
 
-Fase: <<F0>> — ver docs/PROGRESSO.md
+Fase atual: F0 (Concluído) + F1 (Concluído) + Backend skeleton criado — F2 é a próxima fase. Ver docs/PROGRESSO.md
