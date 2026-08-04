@@ -1,0 +1,36 @@
+name: API CI
+
+on:
+  push:
+    paths:
+      - 'services/api/**'
+      - '.github/workflows/api.yml'
+  pull_request:
+    paths:
+      - 'services/api/**'
+      - '.github/workflows/api.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          cache-dependency-path: services/api/pom.xml
+
+      - name: Build e testes
+        run: cd services/api && ./mvnw verify
+
+      - name: Upload relatório JaCoCo
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jacoco-report
+          path: services/api/target/site/jacoco/
+          retention-days: 30

@@ -1,0 +1,30 @@
+spring:
+  datasource:
+    url: ${DATASOURCE_URL:jdbc:postgresql://localhost:5432/omnitribo}
+    username: ${DATASOURCE_USERNAME:omnitribo}
+    password: ${DATASOURCE_PASSWORD:omnitribo_dev}
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    out-of-order: false
+
+logging:
+  level:
+    com.omnitribo: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE
+
+springdoc:
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+
+management:
+  endpoint:
+    health:
+      show-details: always
