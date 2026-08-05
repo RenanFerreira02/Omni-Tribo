@@ -3,6 +3,10 @@ spring:
     url: ${DATASOURCE_URL:jdbc:postgresql://localhost:5432/omnitribo}
     username: ${DATASOURCE_USERNAME:omnitribo}
     password: ${DATASOURCE_PASSWORD:omnitribo_dev}
+  flyway:
+    locations:
+      - classpath:db/migration
+      - classpath:db/seed
 
 springdoc:
   swagger-ui:

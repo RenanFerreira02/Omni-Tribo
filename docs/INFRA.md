@@ -53,6 +53,23 @@ make reset
 O init script `docker/init/01-extensions.sql` reaplica as extensões. As migrations Flyway serão
 reaplicadas na próxima inicialização do backend.
 
+## Seed de Dev
+
+O V9 (`db/seed/V9__seed_dev.sql`) é carregado nos perfis `dev` e `test` automaticamente.
+**Nunca incluir em produção.** Senha de todos os usuários seed: `Senha@123`
+
+| handle  | e-mail                   | papel   | tribo           |
+|---------|--------------------------|---------|-----------------|
+| `admin` | admin@omnitribo.dev      | ADMIN   | Tribo Pinheiros |
+| `alice` | alice@omnitribo.dev      | USUARIO | Tribo Pinheiros |
+| `bob`   | bob@omnitribo.dev        | USUARIO | Tribo Vila Madalena |
+| `carol` | carol@omnitribo.dev      | USUARIO | Tribo Vila Madalena |
+| `diana` | diana@omnitribo.dev      | USUARIO | Tribo Jardim América |
+| `erik`  | erik@omnitribo.dev       | USUARIO | Tribo Jardim América |
+
+**Nota:** a V1 foi renomeada de `V1__extensions.sql` para `V1__extensoes.sql` nesta fase.
+Se o banco local já tinha V1 aplicada, execute `make reset` antes de subir o backend.
+
 ## Verificação rápida
 
 ```bash
@@ -62,5 +79,6 @@ Dentro do psql:
 ```sql
 SELECT postgis_version();   -- deve retornar 3.5.x
 SELECT gen_random_uuid();   -- verifica pgcrypto
+\d+ missao                  -- confirmar índices GiST em origem
 \q
 ```
