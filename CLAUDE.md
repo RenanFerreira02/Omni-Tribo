@@ -69,6 +69,13 @@ make psql        # abre psql conectado ao banco local
 
 Em dev: Swagger UI em `http://localhost:8080/swagger-ui.html`, OpenAPI em `/v3/api-docs`. Actuator (health, info, metrics) na porta **8081**, não 8080.
 
+## Automação
+
+- Hook `PreToolUse` (`.claude/hooks/checar-segredo.sh`) bloqueia `git commit` se o diff staged tiver
+  padrão de chave/senha/token — não é substituto de revisão manual, é uma segunda barreira.
+- CI (`.github/workflows/`): `api.yml` roda `./mvnw verify` a cada push/PR que toque `services/api/**`;
+  `security.yml` roda Gitleaks no histórico completo em todo push/PR.
+
 ## Skills e agentes disponíveis
 
 - `/verificar` — roda verificação completa (mvnw verify + typecheck + lint + test + docker compose ps) e reporta verde/vermelho. Use antes de abrir PR. **Nunca declare sucesso sem rodar isso.**
@@ -85,6 +92,8 @@ Em dev: Swagger UI em `http://localhost:8080/swagger-ui.html`, OpenAPI em `/v3/a
 - Teste de integração: use `TesteIntegracaoBase` (RANDOM_PORT + TestRestTemplate) para roundtrip HTTP real; use `TesteIntegracaoMvcBase` (WebEnvironment.MOCK + MockMvc) quando precisar inspecionar headers de resposta. Ambas estendem `ContainerConfig` (PostgreSQL+PostGIS singleton). Spring Boot 4.1 removeu `@AutoConfigureMockMvc` — não tente usá-lo.
 - Query nativa PostGIS em `infra/` com `@Query(nativeQuery=true)` e parâmetros nomeados.
 - Spotless (Google Java Format) é verificado no `verify`. Se falhar por formatação, rode `./mvnw spotless:apply`.
+- Jackson: Spring Boot 4.1 autoconfigura o mapper do **Jackson 3** (`tools.jackson`). Não existe bean de `com.fasterxml.jackson.databind.ObjectMapper` — injetá-lo impede o contexto de subir.
+- Mudança de status de missão passa SEMPRE por `MissaoStateMachine`. Nunca chame `missao.setStatus(...)` fora dela.
 
 **Mobile** (`apps/mobile/`):
 - `app/` — só rotas do Expo Router; tela é composição, sem lógica de negócio.
@@ -158,7 +167,16 @@ Git
 
 ## Estado atual
 
-Fase atual: F2 (Concluído) — F3 (Cadastro de Missões) é a próxima fase. Ver docs/PROGRESSO.md.
+Fase atual: F4 (Concluído, junto com F3) — F5 (Carteira e Economia) é a próxima fase. Ver docs/PROGRESSO.md.
+
+Módulo `missoes` implementado: máquina de estados em `StatusMissao` + `MissaoStateMachine`
+(9 estados, 12 transições, ver ADR 0006), endpoints em `/api/v1/missoes`, aceite com lock pessimista.
+Três endpoints publicam contrato e respondem **501** até suas fases: `checkin` (F6), `confirmar` e
+`resolver` (F7) — todos já validam 403 e 409 antes do 501, então F6/F7 só trocam o corpo do método.
+Crédito em carteira NÃO existe em nenhum caminho ainda: só a entrada em `CONCLUIDA` poderá creditar.
+
+Antes de rodar a suíte pela primeira vez num clone novo: `bash tools/gerar-chaves-dev.sh`
+(`services/api/keys/` é gitignored e os testes de `TesteIntegracaoBase` carregam o `JwtService` real).
 
 Usuários seed (perfis `dev` e `test`, carregados via `db/seed/V9__seed_dev.sql`, senha `Senha@123`):
 `admin@omnitribo.dev` (ADMIN) · `alice` e `carol` (USUARIO, Tribo Pinheiros e Vila Madalena) · `bob`, `diana`, `erik` (USUARIO). Ver docs/INFRA.md para lista completa com tribos.

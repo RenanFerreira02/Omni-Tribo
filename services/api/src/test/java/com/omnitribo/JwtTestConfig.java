@@ -69,6 +69,30 @@ public class JwtTestConfig {
     };
   }
 
+  /**
+   * Gera um JWT válido direto com a chave de teste, sem passar pelo endpoint de login.
+   *
+   * <p>Existe para testes que precisam de muitos usuários autenticados ao mesmo tempo (o aceite
+   * concorrente usa 50): fazer login HTTP para cada um esbarraria no limite de 5 tentativas por
+   * minuto do BloqueioLoginService e o teste falharia por 429, não pela regra em avaliação.
+   */
+  public static String gerarTokenValido(UUID usuarioId, String email, String papel) {
+    Instant agora = Instant.now();
+    return Jwts.builder()
+        .subject(usuarioId.toString())
+        .id(UUID.randomUUID().toString())
+        .claim("email", email)
+        .claim("papel", papel)
+        .issuer(ISSUER_TESTE)
+        .audience()
+        .add(AUDIENCE_TESTE)
+        .and()
+        .issuedAt(Date.from(agora))
+        .expiration(Date.from(agora.plus(TTL_TESTE)))
+        .signWith(TesteIntegracaoMvcBase.chavePrivadaTeste(), Jwts.SIG.RS256)
+        .compact();
+  }
+
   /** Gera um JWT já expirado usando a chave de teste, para testar rejeição de token expirado. */
   public static String gerarTokenExpirado(UUID usuarioId, String email, String papel) {
     Instant passado = Instant.now().minus(Duration.ofHours(1));
