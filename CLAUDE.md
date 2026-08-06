@@ -81,7 +81,8 @@ Em dev: Swagger UI em `http://localhost:8080/swagger-ui.html`, OpenAPI em `/v3/a
 **Backend** (`services/api/`):
 - DTOs são `record`. Entidade JPA nunca cruza fronteira do controller.
 - Exceções de domínio herdam de `DominioException` → mapeadas para status HTTP no handler global → resposta RFC 9457 `ProblemDetail`.
-- Teste de integração estende `TesteIntegracaoBase` (Testcontainers com `postgis/postgis:16-3.5`).
+- Identidade do usuário logado no controller: injete `@AuthenticationPrincipal AutenticadoPrincipal principal` — nunca extraia do corpo ou query string.
+- Teste de integração: use `TesteIntegracaoBase` (RANDOM_PORT + TestRestTemplate) para roundtrip HTTP real; use `TesteIntegracaoMvcBase` (WebEnvironment.MOCK + MockMvc) quando precisar inspecionar headers de resposta. Ambas estendem `ContainerConfig` (PostgreSQL+PostGIS singleton). Spring Boot 4.1 removeu `@AutoConfigureMockMvc` — não tente usá-lo.
 - Query nativa PostGIS em `infra/` com `@Query(nativeQuery=true)` e parâmetros nomeados.
 - Spotless (Google Java Format) é verificado no `verify`. Se falhar por formatação, rode `./mvnw spotless:apply`.
 
@@ -157,7 +158,7 @@ Git
 
 ## Estado atual
 
-Fase atual: F1 (Concluído) + Backend skeleton criado — F2 (Identidade e Autenticação) é a próxima fase. Ver docs/PROGRESSO.md.
+Fase atual: F2 (Concluído) — F3 (Cadastro de Missões) é a próxima fase. Ver docs/PROGRESSO.md.
 
 Usuários seed (perfis `dev` e `test`, carregados via `db/seed/V9__seed_dev.sql`, senha `Senha@123`):
-`admin@omnitribo.dev` (ADMIN), `alice` e `bob` (USUARIO, tribos diferentes). Ver docs/INFRA.md para lista completa.
+`admin@omnitribo.dev` (ADMIN) · `alice` e `carol` (USUARIO, Tribo Pinheiros e Vila Madalena) · `bob`, `diana`, `erik` (USUARIO). Ver docs/INFRA.md para lista completa com tribos.

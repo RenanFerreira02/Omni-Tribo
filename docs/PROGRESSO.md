@@ -16,3 +16,10 @@
 | F11  | App Mobile — Carteira       | ⬜ Pendente     | —   | —          |
 | F12  | Testes de Carga e Segurança | ⬜ Pendente     | —   | —          |
 | F13  | Entrega Final               | ⬜ Pendente     | —   | —          |
+
+## Notas de manutenção
+
+- **2026-08-05** — Verificação completa pós-F2: build verde (19 testes, 0 falhas/erros). Dois
+  *warnings* de build corrigidos — exclusão de `UserDetailsServiceAutoConfiguration` (senha-dev morta
+  a cada boot) e extração do `@TestConfiguration` aninhado para top-level (forward-compat Spring
+  Framework 7.1). Relatório com evidência: [`qualidade/verificacao-2026-08-05.md`](qualidade/verificacao-2026-08-05.md).
