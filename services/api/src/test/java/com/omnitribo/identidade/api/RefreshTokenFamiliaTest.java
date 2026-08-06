@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.omnitribo.JwtTestConfig;
 import com.omnitribo.TesteIntegracaoMvcBase;
 import com.omnitribo.identidade.infra.RefreshTokenRepository;
@@ -34,7 +33,6 @@ import org.springframework.test.web.servlet.MvcResult;
 class RefreshTokenFamiliaTest extends TesteIntegracaoMvcBase {
 
   @Autowired MockMvc mockMvc;
-  @Autowired ObjectMapper objectMapper;
   @Autowired RefreshTokenRepository refreshTokenRepository;
 
   @BeforeEach
@@ -55,10 +53,7 @@ class RefreshTokenFamiliaTest extends TesteIntegracaoMvcBase {
             .andReturn();
 
     String refreshToken =
-        objectMapper
-            .readTree(loginResult.getResponse().getContentAsString())
-            .path("refreshToken")
-            .asText();
+        JSON.readTree(loginResult.getResponse().getContentAsString()).path("refreshToken").asText();
 
     // 10 threads tentam rotacionar o mesmo token simultaneamente
     int numThreads = 10;

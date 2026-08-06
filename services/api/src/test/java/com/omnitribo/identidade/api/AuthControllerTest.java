@@ -10,10 +10,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.omnitribo.JwtTestConfig;
 import com.omnitribo.TesteIntegracaoMvcBase;
 import com.omnitribo.identidade.infra.RefreshTokenRepository;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,11 +30,10 @@ import org.springframework.test.web.servlet.MvcResult;
 class AuthControllerTest extends TesteIntegracaoMvcBase {
 
   @Autowired MockMvc mockMvc;
-  @Autowired ObjectMapper objectMapper;
   @Autowired RefreshTokenRepository refreshTokenRepository;
 
   private static final String ALICE_EMAIL = "alice@omnitribo.dev";
-  private static final String SENHA_ALICE = "Senha@123"; // seed V9 + V10 prefix {bcrypt}
+  private static final String SENHA_ALICE = "Senha@123"; // seed V900, hash já com prefixo {bcrypt}
 
   /**
    * IP único por instância de teste. BloqueioLoginService usa sha256(ip+email) como chave; IPs
@@ -67,7 +67,7 @@ class AuthControllerTest extends TesteIntegracaoMvcBase {
             .andReturn();
 
     // Token nunca deve aparecer como campo sensivelmente nomeado na resposta
-    verificarSemDadosSensiveis(result.getResponse().getContentAsString());
+    verificarSemDadosSensiveis(result.getResponse().getContentAsString(), SENHA_ALICE);
   }
 
   // ── 2 e 3. Login inválido: senha errada e email inexistente → MESMA mensagem ──
@@ -85,6 +85,8 @@ class AuthControllerTest extends TesteIntegracaoMvcBase {
             .andReturn();
     String detalhe = extrairDetalhe(result);
     assertThat(detalhe).isEqualTo("Credenciais inválidas");
+    // O 401 também não pode ecoar a senha tentada.
+    verificarSemDadosSensiveis(result.getResponse().getContentAsString(), "SenhaErrada!123456");
   }
 
   @Test
@@ -161,8 +163,7 @@ class AuthControllerTest extends TesteIntegracaoMvcBase {
 
     // Garantir que o novo refresh token é diferente do original
     LoginResponse rotacionado =
-        objectMapper.readValue(
-            rotacaoResult.getResponse().getContentAsString(), LoginResponse.class);
+        JSON.readValue(rotacaoResult.getResponse().getContentAsString(), LoginResponse.class);
     assertThat(rotacionado.refreshToken()).isNotEqualTo(refreshOriginal);
 
     // (c) Usar o refresh ANTIGO novamente → REJEIÇÃO (token já revogado)
@@ -190,8 +191,7 @@ class AuthControllerTest extends TesteIntegracaoMvcBase {
             .andExpect(status().isOk())
             .andReturn();
     String refreshV2 =
-        objectMapper
-            .readValue(rotacao1.getResponse().getContentAsString(), LoginResponse.class)
+        JSON.readValue(rotacao1.getResponse().getContentAsString(), LoginResponse.class)
             .refreshToken();
 
     // Rotação legítima: V2 → V3
@@ -259,6 +259,83 @@ class AuthControllerTest extends TesteIntegracaoMvcBase {
         .andExpect(status().isBadRequest());
   }
 
+  @Test
+  void registro_naoDevolveSenhaNemHash() throws Exception {
+    String senha = "SenhaLongaDeTeste@2026";
+    String sufixo = UUID.randomUUID().toString().substring(0, 8);
+
+    MvcResult result =
+        mockMvc
+            .perform(
+                post("/api/v1/auth/registrar")
+                    .header("X-Forwarded-For", ipTeste)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        json(
+                            "nome", "Teste " + sufixo,
+                            "email", "novo" + sufixo + "@omnitribo.dev",
+                            "handle", "handle" + sufixo,
+                            "senha", senha)))
+            .andExpect(status().isCreated())
+            .andReturn();
+
+    verificarSemDadosSensiveis(result.getResponse().getContentAsString(), senha);
+  }
+
+  @Test
+  void registro_comSenhaCurta_naoEcoaSenhaNoErro() throws Exception {
+    String senhaCurta = "abc123";
+
+    MvcResult result =
+        mockMvc
+            .perform(
+                post("/api/v1/auth/registrar")
+                    .header("X-Forwarded-For", ipTeste)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        json(
+                            "nome",
+                            "Teste Curto",
+                            "email",
+                            "curto" + UUID.randomUUID() + "@omnitribo.dev",
+                            "handle",
+                            "curto" + UUID.randomUUID().toString().substring(0, 8),
+                            "senha",
+                            senhaCurta)))
+            .andExpect(status().isBadRequest())
+            .andReturn();
+
+    // Guarda de regressão: mensagem de validação não pode devolver o valor rejeitado. Um
+    // ProblemDetail que ecoasse a senha a colocaria em log de proxy, APM e histórico do cliente.
+    assertThat(result.getResponse().getContentAsString()).doesNotContain(senhaCurta);
+  }
+
+  @Test
+  void accessToken_naoCarregaSenhaNoPayload_eTemOsClaimsExigidos() throws Exception {
+    LoginResponse tokens = realizarLogin();
+
+    // JWT é assinado, não criptografado: qualquer pessoa com o token lê o payload. O que estiver
+    // ali é público na prática — por isso senha jamais pode entrar, e por isso vale fixar o
+    // conjunto de claims que a spec exige (sub/jti/papel/iat/exp/iss/aud).
+    String[] partes = tokens.accessToken().split("\\.");
+    assertThat(partes).as("JWT deve ter header.payload.assinatura").hasSize(3);
+    String payload = new String(Base64.getUrlDecoder().decode(partes[1]), StandardCharsets.UTF_8);
+
+    assertThat(payload).doesNotContainIgnoringCase("senha");
+    assertThat(payload).doesNotContain(SENHA_ALICE);
+
+    var claims = JSON.readTree(payload);
+    assertThat(claims.hasNonNull("sub")).isTrue();
+    assertThat(claims.hasNonNull("jti")).isTrue();
+    assertThat(claims.path("papel").asText()).isEqualTo("USUARIO");
+    assertThat(claims.path("iss").asText()).isEqualTo("omnitribo");
+    assertThat(claims.path("aud").toString()).contains("omnitribo-app");
+    assertThat(claims.hasNonNull("iat")).isTrue();
+    assertThat(claims.hasNonNull("exp")).isTrue();
+    // TTL de 15 min (item 2 da spec): exp - iat = 900 s.
+    assertThat(claims.path("exp").asLong() - claims.path("iat").asLong()).isEqualTo(900L);
+  }
+
   // ── 11. Senha e token nunca aparecem em log ──────────────────────────────
 
   @Test
@@ -317,18 +394,25 @@ class AuthControllerTest extends TesteIntegracaoMvcBase {
                     .content(json("email", ALICE_EMAIL, "senha", SENHA_ALICE)))
             .andExpect(status().isOk())
             .andReturn();
-    return objectMapper.readValue(result.getResponse().getContentAsString(), LoginResponse.class);
+    return JSON.readValue(result.getResponse().getContentAsString(), LoginResponse.class);
   }
 
   private String extrairDetalhe(MvcResult result) throws Exception {
-    return objectMapper.readTree(result.getResponse().getContentAsString()).path("detail").asText();
+    return JSON.readTree(result.getResponse().getContentAsString()).path("detail").asText();
   }
 
-  private void verificarSemDadosSensiveis(String corpo) {
+  private void verificarSemDadosSensiveis(String corpo, String senhaEnviada) {
     // Tokens são válidos na resposta (são o produto esperado) mas não devem aparecer com campos
     // que indiquem dados internos.
     assertThat(corpo).doesNotContain("senhaHash");
     assertThat(corpo).doesNotContain("senha_hash");
+    // O que faltava: a senha em texto plano jamais volta ao cliente, nem ecoada de volta pelo
+    // próprio corpo que o cliente enviou. Sem esta assertion o teste passaria mesmo se a resposta
+    // devolvesse a senha inteira.
+    assertThat(corpo)
+        .as("Senha em texto plano não pode voltar na resposta")
+        .doesNotContain(senhaEnviada);
+    assertThat(corpo).doesNotContain("\"senha\"");
   }
 
   private String json(String... pares) {

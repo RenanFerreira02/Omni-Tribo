@@ -7,8 +7,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.omnitribo.JwtTestConfig;
 import com.omnitribo.TesteIntegracaoMvcBase;
 import java.time.Instant;
@@ -22,6 +20,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import tools.jackson.databind.JsonNode;
 
 /**
  * Contrato HTTP do módulo de missões.
@@ -41,7 +40,6 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
   private static final String BASE = "/api/v1/missoes";
 
   @Autowired MockMvc mockMvc;
-  @Autowired ObjectMapper objectMapper;
 
   // ─── Caminho feliz ─────────────────────────────────────────────────────────────────────────
 
@@ -445,7 +443,7 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
             .andExpect(status().isOk())
             .andReturn();
 
-    JsonNode pagina = objectMapper.readTree(resultado.getResponse().getContentAsString());
+    JsonNode pagina = JSON.readTree(resultado.getResponse().getContentAsString());
     for (JsonNode item : pagina.get("conteudo")) {
       assertThat(item.get("id").asText()).isNotEqualTo(missaoId.toString());
     }
@@ -492,7 +490,7 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
             .andExpect(status().isOk())
             .andReturn();
 
-    JsonNode pagina = objectMapper.readTree(resultado.getResponse().getContentAsString());
+    JsonNode pagina = JSON.readTree(resultado.getResponse().getContentAsString());
     assertThat(pagina.get("conteudo")).isNotEmpty();
     for (JsonNode item : pagina.get("conteudo")) {
       assertThat(item.get("criadorId").asText()).isEqualTo(ALICE_ID.toString());
@@ -526,7 +524,7 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
             .andReturn();
 
     return UUID.fromString(
-        objectMapper.readTree(resultado.getResponse().getContentAsString()).get("id").asText());
+        JSON.readTree(resultado.getResponse().getContentAsString()).get("id").asText());
   }
 
   private UUID criarEPublicar() throws Exception {
@@ -567,7 +565,7 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
   }
 
   private List<String> camposComErro(MvcResult resultado) throws Exception {
-    JsonNode raiz = objectMapper.readTree(resultado.getResponse().getContentAsString());
+    JsonNode raiz = JSON.readTree(resultado.getResponse().getContentAsString());
     List<String> campos = new ArrayList<>();
     for (JsonNode erro : raiz.get("errors")) {
       campos.add(erro.get("campo").asText());

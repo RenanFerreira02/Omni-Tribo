@@ -4,17 +4,18 @@
 -- Renomeia CRIADA→RASCUNHO e DISPONIVEL→ABERTA, introduz AGUARDANDO_CONFIRMACAO
 -- e EM_DISPUTA, e amplia as colunas de status.
 --
--- Por que V9 (seed) NÃO foi editado: o Flyway já aplicou V9 em todo banco de
--- desenvolvimento e gravou seu checksum em flyway_schema_history; alterar o
--- script quebraria o boot desses bancos com ValidateException. Como a ordem do
--- Flyway é por número de versão e não por pasta, em dev/test a sequência real é
--- V1..V8, V9(seed), V10(seed), V11 — logo V11 vê o seed já aplicado. Em prod o
--- seed nunca roda e os UPDATE abaixo não afetam linha alguma. Correto nos dois
--- cenários, sem condicional.
+-- Os UPDATE do passo (3) são hoje VESTIGIAIS em dev/test, e isso é deliberado.
+-- Quando esta migration foi escrita, o seed era V9 e rodava ANTES dela, com
+-- status 'DISPONIVEL'; os UPDATE existiam para reescrever aquelas linhas. O seed
+-- passou a ser V900 (ver o cabeçalho dele) e agora roda DEPOIS, já gravando
+-- 'ABERTA' — não há mais linha a renomear, aqui ou em produção, onde o seed nunca
+-- rodou. Mantidos porque continuam corretos e cobrem qualquer banco de
+-- desenvolvimento anterior a essa mudança; remover só traria risco, sem ganho.
 --
 -- ORDEM OBRIGATÓRIA: (1) derrubar o CHECK antigo → (2) alargar as colunas →
--- (3) reescrever os dados → (4) recriar o CHECK. Criar o CHECK novo antes do
--- UPDATE faria as linhas 'DISPONIVEL' do seed violarem a constraint.
+-- (3) reescrever os dados → (4) recriar o CHECK. A ordem importa para bancos
+-- legados: criar o CHECK novo antes do UPDATE faria linhas 'DISPONIVEL'
+-- preexistentes violarem a constraint.
 -- =============================================================================
 
 -- (1) V3 declarou os CHECK no nível da coluna, sem nome explícito; o PostgreSQL

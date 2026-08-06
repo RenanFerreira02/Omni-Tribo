@@ -13,9 +13,16 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
 /**
- * Substitui JwtService em testes por implementação que usa par RSA gerado em memória. O @Primary
- * garante que este bean tem precedência sobre o JwtService real (que tentaria carregar arquivos PEM
- * do disco, inexistentes no ambiente de CI).
+ * Substitui o JwtService <b>injetado</b> nos testes por uma implementação que assina com o par RSA
+ * gerado em memória por TesteIntegracaoMvcBase — o que permite forjar token válido, expirado ou mal
+ * assinado sem depender de arquivo em disco.
+ *
+ * <p>Atenção ao que o @Primary NÃO faz: ele apenas desempata a injeção quando há mais de um
+ * candidato. O bean real (@Service JwtService, nome "jwtService") continua sendo instanciado junto
+ * com este, e o @PostConstruct dele lê keys/private.pem de qualquer forma. Ou seja, a suíte exige
+ * as chaves em disco mesmo nas classes que importam esta configuração. É por isso que `bash
+ * tools/gerar-chaves-dev.sh` é pré-requisito do primeiro verify num clone novo, e um step dedicado
+ * em .github/workflows/api.yml.
  */
 @TestConfiguration
 public class JwtTestConfig {

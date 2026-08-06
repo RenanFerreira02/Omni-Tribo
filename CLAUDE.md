@@ -28,6 +28,19 @@ Cada um com api/ (controllers, DTOs), dominio/ (entidades, regras), infra/ (repo
 Regra verificada por ArchUnit: módulo só acessa outro por api/ pública ou evento. Nunca repositório
 ou entidade JPA alheia. carteira referencia missao_id como UUID puro, sem FK, deliberadamente.
 
+Maturidade real por módulo (o alvo é o de cima; o de hoje é este):
+- Três camadas completas: `compartilhado`, `identidade`, `missoes`.
+- Só `dominio/` + `infra/` — entidades e repositórios, nenhum controller: `carteira`,
+  `geolocalizacao`, `logistica`.
+- Vazio, só `.gitkeep`: `notificacoes`.
+
+O schema de TODOS já existe desde V4–V7: o banco está à frente do código. Encontrar tabela sem
+código correspondente é o estado esperado, não resíduo.
+
+`RegrasArquiteturaTest` aplica a regra aos 6 módulos de negócio; `compartilhado` é **isento** por
+ser shared por design (ver o array `MODULOS` no teste). Violação em `compartilhado` não é pega por
+teste nenhum — é só disciplina.
+
 ## Economia (três moedas)
 
 XP: reputação, não transferível, monotônico, sem ledger.
@@ -45,6 +58,13 @@ Testes: JUnit 5 · Testcontainers · ArchUnit · Jest/RTL/MSW
 
 > `make seed` e `make test` ainda são stubs. Os demais targets (`up`, `down`, `reset`, `logs`, `ps`, `psql`) estão implementados.
 
+Clone novo exige os dois passos abaixo ANTES de qualquer `make up` ou `./mvnw verify`:
+
+```bash
+cp .env.example .env            # docker-compose.yml usa env_file: .env — sem isso o make up falha
+bash tools/gerar-chaves-dev.sh  # services/api/keys/ é gitignored; sem PEM nenhum contexto Spring sobe
+```
+
 ```bash
 # Backend
 cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev  # sobe o servidor local (porta 8080; actuator na 8081)
@@ -52,10 +72,11 @@ cd services/api && ./mvnw verify                          # compila + todos os t
 cd services/api && ./mvnw spotless:apply                  # corrige formatação Google Java Format (rodar antes do verify se falhar em formatação)
 cd services/api && ./mvnw -Dtest=NomeDaClasseTest test    # um único teste
 
-# Mobile
-cd apps/mobile && npm run android       # inicia no emulador
-cd apps/mobile && npm run typecheck && npm run lint && npm test
-cd apps/mobile && npx jest --testPathPattern=nomeDoArquivo  # um único teste
+# Mobile — F9+, NENHUM destes comandos existe ainda.
+# apps/mobile/ contém só .gitkeep e CLAUDE.md; não há package.json.
+# cd apps/mobile && npm run android
+# cd apps/mobile && npm run typecheck && npm run lint && npm test
+# cd apps/mobile && npx jest --testPathPattern=nomeDoArquivo
 
 # Infra
 make up          # sobe PostgreSQL+PostGIS
@@ -79,6 +100,8 @@ Em dev: Swagger UI em `http://localhost:8080/swagger-ui.html`, OpenAPI em `/v3/a
 ## Skills e agentes disponíveis
 
 - `/verificar` — roda verificação completa (mvnw verify + typecheck + lint + test + docker compose ps) e reporta verde/vermelho. Use antes de abrir PR. **Nunca declare sucesso sem rodar isso.**
+  Hoje o passo 2 (mobile) falha no shell, porque `apps/mobile/` não tem `package.json` — os passos
+  1, 3 e 4 continuam válidos. Correção da skill está em Pendências conhecidas.
 - `/adr <assunto>` — cria `docs/adr/NNNN-<slug>.md` com o próximo número. Template exige Alternativas descartadas com motivo real.
 - Agente `revisor-seguranca` — revisa autenticação, autorização, endpoints de valor, webhooks, dados pessoais. Checar após implementar qualquer um desses.
 - Agente `revisor-testes` — avalia se a suíte realmente garante comportamento (não conta testes, avalia o que cobrem). Rodar ao fechar fase.
@@ -92,16 +115,27 @@ Em dev: Swagger UI em `http://localhost:8080/swagger-ui.html`, OpenAPI em `/v3/a
 - Teste de integração: use `TesteIntegracaoBase` (RANDOM_PORT + TestRestTemplate) para roundtrip HTTP real; use `TesteIntegracaoMvcBase` (WebEnvironment.MOCK + MockMvc) quando precisar inspecionar headers de resposta. Ambas estendem `ContainerConfig` (PostgreSQL+PostGIS singleton). Spring Boot 4.1 removeu `@AutoConfigureMockMvc` — não tente usá-lo.
 - Query nativa PostGIS em `infra/` com `@Query(nativeQuery=true)` e parâmetros nomeados.
 - Spotless (Google Java Format) é verificado no `verify`. Se falhar por formatação, rode `./mvnw spotless:apply`.
-- Jackson: Spring Boot 4.1 autoconfigura o mapper do **Jackson 3** (`tools.jackson`). Não existe bean de `com.fasterxml.jackson.databind.ObjectMapper` — injetá-lo impede o contexto de subir.
+- Jackson é **3** (`tools.jackson`) em todo o repositório, main e test. Spring Boot 4.1 autoconfigura
+  esse mapper e não existe bean de `com.fasterxml.jackson.databind.ObjectMapper` — injetá-lo impede
+  o contexto de subir. Quem precisa serializar constrói o próprio `JsonMapper`, sem injeção: veja
+  `MissaoService.MAPPER_TRILHA` no main e `TesteIntegracaoMvcBase.JSON` nos testes. Em teste novo,
+  use `JSON` — não declare bean de mapper.
+- AOP: `spring-boot-starter-aop` não existe no Boot 4.x. O suporte a `@Aspect` vem de
+  `aspectjweaver` declarado direto no `pom.xml`.
 - Mudança de status de missão passa SEMPRE por `MissaoStateMachine`. Nunca chame `missao.setStatus(...)` fora dela.
+- Ao escrever teste, saiba o que `application-test.yml` desliga de propósito — três coisas, todas
+  para não mascarar o que o teste mede:
+  - rate limit de leitura/escrita em 10000/min: um teste de rate limit precisa sobrescrever o valor;
+  - `app.agendamento.habilitado: false`: o job de expiração não roda, para não mudar status entre
+    arrange e assert. A regra é testada chamando `expirarLote()` direto;
+  - pool Hikari em 20, porque o teste de aceite concorrente dispara 50 threads.
+- Para autenticar em teste sem passar pelo `/auth/login`, use `JwtTestConfig.gerarTokenValido(...)`
+  e `gerarTokenExpirado(...)`. Login real esbarra no bloqueio de 5 tentativas/min, e um teste com
+  muitos usuários falharia por 429 em vez de pela regra em avaliação. Fixture de missão:
+  `MissaoFixture`.
 
-**Mobile** (`apps/mobile/`):
-- `app/` — só rotas do Expo Router; tela é composição, sem lógica de negócio.
-- `src/features/<dominio>/` — hooks TanStack Query e lógica; `src/api/` é o único lugar que faz HTTP.
-- `src/components/` — design system, sem chamada de API; `src/stores/` — Zustand só para UI e sessão.
-- `src/theme/tokens.ts` — nenhum hex literal fora daqui.
-- `any` só com comentário justificando.
-- Toda chamada de API tem estado de carregando, vazio e erro tratados na UI.
+**Mobile** (`apps/mobile/`): não iniciado (F9+), diretório vazio. As convenções vivem em
+`apps/mobile/CLAUDE.md`, que entra em contexto ao mexer lá — não duplicadas aqui.
 
 ## Regras não negociáveis
 
@@ -115,6 +149,17 @@ Banco
 
 - Flyway é a ÚNICA fonte de schema. ddl-auto é sempre validate. Nunca resolva divergência mudando
   ddl-auto — escreva migration.
+- **Versão de migration é sequência GLOBAL, não por diretório.** Duas faixas, separadas de propósito:
+  - `db/migration` — schema, V1–V11; único location do perfil default/prod. Próxima é **V12**.
+  - `db/seed` — só dev e test (via `application-dev.yml` / `application-test.yml`), faixa **900+**.
+  - A faixa 900+ garante por construção que o seed roda depois de todo schema. Seed novo usa
+    V901, V902… e NUNCA um número que o schema possa alcançar. Ver ADR 0006, Notas de manutenção.
+  - Como o seed é o último, ele grava dados em forma final: não conte com migration posterior para
+    corrigir valor de seed.
+  - **Ao RENOMEAR uma migration, rode `./mvnw clean`** (além do `make reset`). O Maven não remove de
+    `target/classes` o arquivo com o nome antigo, então o Flyway acha os dois e aplica os dois — o
+    sintoma é `duplicate key value violates unique constraint`, que não parece ter relação nenhuma
+    com renomear arquivo. CI não sofre disso: clona do zero.
 - Dinheiro: numeric(12,2) → BigDecimal. Tokens: bigint. Nunca double, nunca String.
 - Coordenada: geography(POINT,4326). Distância é derivada por PostGIS, nunca armazenada.
 - Extensões `postgis` e `pgcrypto` são habilitadas via `docker/init/01-extensions.sql` e `V1__extensoes.sql`. `pgcrypto` provê `gen_random_uuid()` no banco.
@@ -178,5 +223,15 @@ Crédito em carteira NÃO existe em nenhum caminho ainda: só a entrada em `CONC
 Antes de rodar a suíte pela primeira vez num clone novo: `bash tools/gerar-chaves-dev.sh`
 (`services/api/keys/` é gitignored e os testes de `TesteIntegracaoBase` carregam o `JwtService` real).
 
-Usuários seed (perfis `dev` e `test`, carregados via `db/seed/V9__seed_dev.sql`, senha `Senha@123`):
+Contagem de testes e evidência de build NÃO ficam neste arquivo — envelhecem a cada PR. Fonte:
+docs/PROGRESSO.md e docs/qualidade/.
+
+Usuários seed (perfis `dev` e `test`, carregados via `db/seed/V900__seed_dev.sql`, senha `Senha@123`):
 `admin@omnitribo.dev` (ADMIN) · `alice` e `carol` (USUARIO, Tribo Pinheiros e Vila Madalena) · `bob`, `diana`, `erik` (USUARIO). Ver docs/INFRA.md para lista completa com tribos.
+
+## Pendências conhecidas
+
+Nenhuma no momento. As quatro registradas em 2026-08-06 (numeração dos seeds, guarda de `.env`,
+skill `/verificar`, bean `ObjectMapper`) foram resolvidas — ver docs/PROGRESSO.md.
+
+Seção para armadilhas diagnosticadas e ainda não corrigidas. Ao resolver uma, remova-a daqui.

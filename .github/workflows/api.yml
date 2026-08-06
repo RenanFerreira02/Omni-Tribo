@@ -24,6 +24,13 @@ jobs:
           cache: 'maven'
           cache-dependency-path: services/api/pom.xml
 
+      # services/api/keys/ é gitignored: chave RSA nunca entra no repositório. Sem este passo o
+      # @PostConstruct de JwtService não acha o PEM, lança IllegalStateException e nenhum contexto
+      # Spring sobe — toda a suíte de integração falha. O runner parte da raiz do repo, que é onde
+      # o script espera gravar (KEY_DIR="services/api/keys").
+      - name: Gerar chaves RSA de desenvolvimento
+        run: bash tools/gerar-chaves-dev.sh
+
       - name: Build e testes
         run: cd services/api && ./mvnw verify
 

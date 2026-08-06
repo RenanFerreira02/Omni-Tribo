@@ -1,6 +1,7 @@
 package com.omnitribo.missoes.dominio;
 
 import com.omnitribo.compartilhado.api.PaginaResponse;
+import com.omnitribo.compartilhado.dominio.Auditavel;
 import com.omnitribo.compartilhado.dominio.Coordenadas;
 import com.omnitribo.compartilhado.dominio.RecursoNaoEncontradoException;
 import com.omnitribo.missoes.api.AtualizarMissaoRequest;
@@ -48,6 +49,10 @@ public class MissaoService {
     this.missaoEventoRepository = missaoEventoRepository;
   }
 
+  // A trilha de auditoria fica no serviço, não no controller: é onde a escrita acontece e onde o
+  // proxy do @Transactional já existe. Anotar o controller criaria um proxy CGLIB sobre o MVC sem
+  // ganho nenhum. Só escrita é auditada; leitura não.
+  @Auditavel(acao = "MISSAO_CRIADA", entidade = "missao")
   @Transactional
   public MissaoResponse criar(CriarMissaoRequest req, AtorMissao ator) {
     Instant agora = Instant.now();
@@ -119,6 +124,7 @@ public class MissaoService {
     return MissaoResponse.de(carregarVisivel(missaoId, ator));
   }
 
+  @Auditavel(acao = "MISSAO_ATUALIZADA", entidade = "missao")
   @Transactional
   public MissaoResponse atualizar(UUID missaoId, AtualizarMissaoRequest req, AtorMissao ator) {
     Missao missao =
@@ -158,31 +164,37 @@ public class MissaoService {
     return MissaoResponse.de(missaoRepository.save(missao));
   }
 
+  @Auditavel(acao = "MISSAO_PUBLICADA", entidade = "missao")
   @Transactional
   public MissaoResponse publicar(UUID missaoId, AtorMissao ator) {
     return aplicar(missaoId, EventoMissao.PUBLICAR, ator, null);
   }
 
+  @Auditavel(acao = "MISSAO_ACEITA", entidade = "missao")
   @Transactional
   public MissaoResponse aceitar(UUID missaoId, AtorMissao ator) {
     return aplicar(missaoId, EventoMissao.ACEITAR, ator, null);
   }
 
+  @Auditavel(acao = "MISSAO_INICIADA", entidade = "missao")
   @Transactional
   public MissaoResponse iniciar(UUID missaoId, AtorMissao ator) {
     return aplicar(missaoId, EventoMissao.INICIAR, ator, null);
   }
 
+  @Auditavel(acao = "MISSAO_DESISTIDA", entidade = "missao")
   @Transactional
   public MissaoResponse desistir(UUID missaoId, AtorMissao ator, String motivo) {
     return aplicar(missaoId, EventoMissao.DESISTIR, ator, payloadMotivo(motivo));
   }
 
+  @Auditavel(acao = "MISSAO_CANCELADA", entidade = "missao")
   @Transactional
   public MissaoResponse cancelar(UUID missaoId, AtorMissao ator, String motivo) {
     return aplicar(missaoId, EventoMissao.CANCELAR, ator, payloadMotivo(motivo));
   }
 
+  @Auditavel(acao = "MISSAO_CONTESTADA", entidade = "missao")
   @Transactional
   public MissaoResponse contestar(UUID missaoId, AtorMissao ator, String motivo) {
     return aplicar(missaoId, EventoMissao.CONTESTAR, ator, payloadMotivo(motivo));
@@ -192,6 +204,11 @@ public class MissaoService {
   // O contrato de erro já é o definitivo: 403 para ator errado, 409 para estado errado e só
   // então 501. Assim o app mobile pode integrar a ordem de checagens agora, e F6/F7 só trocam
   // o corpo do método.
+  //
+  // Sem @Auditavel de propósito: os três sempre lançam UnsupportedOperationException, e o aspecto é
+  // @AfterReturning — anotá-los agora criaria advice que nunca dispara. Entra junto com o corpo
+  // real
+  // em F6 (checkin) e F7 (confirmar, resolver).
 
   @Transactional(readOnly = true)
   public MissaoResponse registrarCheckin(

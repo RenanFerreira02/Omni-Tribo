@@ -1,5 +1,6 @@
 package com.omnitribo.missoes.api;
 
+import com.omnitribo.compartilhado.api.RecursoAuditavel;
 import com.omnitribo.compartilhado.dominio.Coordenadas;
 import com.omnitribo.missoes.dominio.CategoriaMissao;
 import com.omnitribo.missoes.dominio.Missao;
@@ -40,7 +41,17 @@ public record MissaoResponse(
     Instant criadaEm,
     Instant aceitaEm,
     Instant concluidaEm,
-    int versao) {
+    int versao)
+    implements RecursoAuditavel {
+
+  /**
+   * Id da missão para a trilha de auditoria. Não é componente novo do record nem getter no padrão
+   * getX/isX, então não entra na serialização JSON — o envelope da API continua idêntico.
+   */
+  @Override
+  public UUID idAuditoria() {
+    return id;
+  }
 
   public static MissaoResponse de(Missao m) {
     return new MissaoResponse(

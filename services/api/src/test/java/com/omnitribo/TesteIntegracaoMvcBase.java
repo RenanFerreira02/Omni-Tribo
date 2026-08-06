@@ -9,6 +9,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Base para testes de integração que usam MockMvc. Paralela à TesteIntegracaoBase (RANDOM_PORT +
@@ -26,6 +27,20 @@ import org.springframework.test.context.ActiveProfiles;
 @Import(MockMvcTestConfig.class)
 @ActiveProfiles("test")
 public abstract class TesteIntegracaoMvcBase extends ContainerConfig {
+
+  /**
+   * Mapper das assertions, construído aqui e não injetado — mesmo padrão e mesma razão do {@code
+   * MAPPER_TRILHA} do MissaoService.
+   *
+   * <p>Injetar exigiria um bean, e o único que existia era de {@code
+   * com.fasterxml.jackson.databind.ObjectMapper} (Jackson 2), enquanto a aplicação serializa com
+   * Jackson 3 (tools.jackson). A suíte afirmava sobre um JSON parseado por uma major diferente da
+   * que o produz. Construindo aqui, o teste lê com o mesmo Jackson que a API escreve e não depende
+   * de autoconfiguração alguma.
+   *
+   * <p>Thread-safe depois de construído — o teste de aceite concorrente usa 50 threads.
+   */
+  protected static final JsonMapper JSON = JsonMapper.builder().build();
 
   // Par RSA gerado programaticamente para testes: não sensível, não versionado em arquivo.
   // Permite criar JWTs válidos, expirados e com assinatura incorreta sem depender de arquivos PEM.

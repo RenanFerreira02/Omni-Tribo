@@ -1,7 +1,21 @@
 -- =============================================================================
--- V9 — Seed de desenvolvimento (domínio Leroy Merlin / Sociedade 5.0)
+-- V900 — Seed de desenvolvimento (domínio Leroy Merlin / Sociedade 5.0)
 -- Carregado APENAS nos perfis dev e test (ver application-dev.yml / application-test.yml).
 -- NÃO incluir em application.yml base (produção não carrega seed).
+--
+-- POR QUE 900, E NÃO 9: a versão do Flyway é uma sequência GLOBAL, não por pasta.
+-- Antes, este arquivo era V9 e ficava NO MEIO da faixa do schema — o V11 rodava
+-- depois dele e precisava reescrever os dados aqui inseridos, e um V9 novo em
+-- db/migration teria derrubado dev e test com "more than one migration with
+-- version 9". A faixa 900+ garante POR CONSTRUÇÃO que o seed é sempre o último a
+-- rodar, e libera db/migration para crescer V12, V13... sem colisão possível.
+--
+-- CONSEQUÊNCIA: rodando por último, o seed vê o schema já na forma final. Os dados
+-- abaixo são gravados em forma final também — status 'ABERTA' (nunca o antigo
+-- 'DISPONIVEL', que o CHECK do V11 rejeita) e senha já com o prefixo '{bcrypt}'
+-- que o DelegatingPasswordEncoder exige. Nenhuma migration posterior precisa
+-- corrigir este arquivo. (O antigo V10 existia só para adicionar esse prefixo;
+-- foi incorporado aqui.)
 --
 -- Credenciais dos usuários → docs/INFRA.md (seção "Seed de Dev")
 -- Senha de todos os usuários seed: Senha@123
@@ -17,13 +31,15 @@ INSERT INTO tribo (id, nome, bairro, criada_em) VALUES
     ('aaaaaaaa-0000-0000-0000-000000000003', 'Tribo Jardim América', 'Jardim América', NOW());
 
 -- -----------------------------------------------------------------------
--- Usuários (senha gerada via pgcrypto: crypt('Senha@123', gen_salt('bf',10)))
+-- Usuários. Hash via pgcrypto, com o prefixo de algoritmo que o
+-- DelegatingPasswordEncoder exige: '{bcrypt}' || crypt('Senha@123', gen_salt('bf',10)).
+-- Sem o prefixo o encoder não resolve o algoritmo e todo login do seed falha.
 -- -----------------------------------------------------------------------
 INSERT INTO usuario (id, nome, email, senha_hash, handle, tribo_id, xp, nivel, streak, rating, papel, status, criado_em, atualizado_em, versao) VALUES
     ('bbbbbbbb-0000-0000-0000-000000000001',
      'Administrador',
      'admin@omnitribo.dev',
-     crypt('Senha@123', gen_salt('bf', 10)),
+     '{bcrypt}' || crypt('Senha@123', gen_salt('bf', 10)),
      'admin',
      'aaaaaaaa-0000-0000-0000-000000000001',
      0, 1, 0, 0.0, 'ADMIN', 'ATIVO', NOW(), NOW(), 0),
@@ -31,7 +47,7 @@ INSERT INTO usuario (id, nome, email, senha_hash, handle, tribo_id, xp, nivel, s
     ('bbbbbbbb-0000-0000-0000-000000000002',
      'Alice Ferreira',
      'alice@omnitribo.dev',
-     crypt('Senha@123', gen_salt('bf', 10)),
+     '{bcrypt}' || crypt('Senha@123', gen_salt('bf', 10)),
      'alice',
      'aaaaaaaa-0000-0000-0000-000000000001',
      320, 3, 7, 4.8, 'USUARIO', 'ATIVO', NOW(), NOW(), 0),
@@ -39,7 +55,7 @@ INSERT INTO usuario (id, nome, email, senha_hash, handle, tribo_id, xp, nivel, s
     ('bbbbbbbb-0000-0000-0000-000000000003',
      'Bob Oliveira',
      'bob@omnitribo.dev',
-     crypt('Senha@123', gen_salt('bf', 10)),
+     '{bcrypt}' || crypt('Senha@123', gen_salt('bf', 10)),
      'bob',
      'aaaaaaaa-0000-0000-0000-000000000002',
      180, 2, 3, 4.5, 'USUARIO', 'ATIVO', NOW(), NOW(), 0),
@@ -47,7 +63,7 @@ INSERT INTO usuario (id, nome, email, senha_hash, handle, tribo_id, xp, nivel, s
     ('bbbbbbbb-0000-0000-0000-000000000004',
      'Carol Santos',
      'carol@omnitribo.dev',
-     crypt('Senha@123', gen_salt('bf', 10)),
+     '{bcrypt}' || crypt('Senha@123', gen_salt('bf', 10)),
      'carol',
      'aaaaaaaa-0000-0000-0000-000000000002',
      250, 2, 5, 4.7, 'USUARIO', 'ATIVO', NOW(), NOW(), 0),
@@ -55,7 +71,7 @@ INSERT INTO usuario (id, nome, email, senha_hash, handle, tribo_id, xp, nivel, s
     ('bbbbbbbb-0000-0000-0000-000000000005',
      'Diana Lima',
      'diana@omnitribo.dev',
-     crypt('Senha@123', gen_salt('bf', 10)),
+     '{bcrypt}' || crypt('Senha@123', gen_salt('bf', 10)),
      'diana',
      'aaaaaaaa-0000-0000-0000-000000000003',
      410, 4, 12, 5.0, 'USUARIO', 'ATIVO', NOW(), NOW(), 0),
@@ -63,7 +79,7 @@ INSERT INTO usuario (id, nome, email, senha_hash, handle, tribo_id, xp, nivel, s
     ('bbbbbbbb-0000-0000-0000-000000000006',
      'Erik Costa',
      'erik@omnitribo.dev',
-     crypt('Senha@123', gen_salt('bf', 10)),
+     '{bcrypt}' || crypt('Senha@123', gen_salt('bf', 10)),
      'erik',
      'aaaaaaaa-0000-0000-0000-000000000003',
      90, 1, 1, 4.2, 'USUARIO', 'ATIVO', NOW(), NOW(), 0);
@@ -170,7 +186,7 @@ VALUES
  'Entregar torneira de cozinha e kit de acessórios',
  'Pacote com torneira monocomando e kit de fixação na Leroy Merlin Pinheiros. '
  'Item de tamanho médio, sem risco de quebra se manuseado com cuidado.',
- 'DISPONIVEL',
+ 'ABERTA',
  50, 15.00, 0,
  ST_SetSRID(ST_MakePoint(-46.6934, -23.5640), 4326)::geography,  -- origem: LM Pinheiros
  ST_SetSRID(ST_MakePoint(-46.6880, -23.5620), 4326)::geography,
@@ -188,7 +204,7 @@ VALUES
  'Entregar kit de luminárias de teto — 3 peças',
  'Caixa com 3 luminárias spot LED embutidas. Parada no LOCKER Vila Madalena. '
  'Item frágil — transportar na posição vertical.',
- 'DISPONIVEL',
+ 'ABERTA',
  60, 20.00, 0,
  ST_SetSRID(ST_MakePoint(-46.6921, -23.5565), 4326)::geography,  -- origem: LOCKER Vila Madalena
  ST_SetSRID(ST_MakePoint(-46.6900, -23.5550), 4326)::geography,
@@ -244,7 +260,7 @@ VALUES
  'Retirar restos de drywall de obra pequena',
  'Dois sacos com restos de placa de drywall e gesso. Levar ao ponto de coleta de '
  'entulho da prefeitura no bairro. Necessário carro ou van pequena.',
- 'DISPONIVEL',
+ 'ABERTA',
  90, 0.00, 120,
  ST_SetSRID(ST_MakePoint(-46.6905, -23.5540), 4326)::geography,
  ST_SetSRID(ST_MakePoint(-46.6870, -23.5500), 4326)::geography,
@@ -284,7 +300,7 @@ VALUES
  'Material (trilho LED 5m + transformadores) custeado coletivamente pela tribo. '
  'Precisa de 2 pessoas e alguém com conhecimento básico de elétrica. '
  'Material entregue no local pelo organizador.',
- 'DISPONIVEL',
+ 'ABERTA',
  120, 0.00, 80,
  ST_SetSRID(ST_MakePoint(-46.6912, -23.5545), 4326)::geography,
  NULL,
@@ -302,7 +318,7 @@ VALUES
  'Mutirão: tampar buraco na calçada com concreto da tribo',
  'Buraco de ~30cm na calçada da R. Cardeal Arcoverde. Saco de concreto já '
  'adquirido com verba da tribo Jardim América. Precisamos de 4 pessoas e 2h.',
- 'DISPONIVEL',
+ 'ABERTA',
  100, 0.00, 60,
  ST_SetSRID(ST_MakePoint(-46.6730, -23.5720), 4326)::geography,
  NULL,
@@ -342,7 +358,7 @@ VALUES
  'Estante Leroy Merlin modelo Planck 5 módulos. Instruções incluídas na caixa. '
  'Precisa de 2 pessoas e ~2h. Chaves e parafusos fornecidos. '
  'A moradora é idosa e não consegue sozinha.',
- 'DISPONIVEL',
+ 'ABERTA',
  80, 25.00, 0,
  ST_SetSRID(ST_MakePoint(-46.6900, -23.5535), 4326)::geography,
  NULL,

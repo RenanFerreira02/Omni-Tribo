@@ -1,6 +1,42 @@
-# Segurança — Autenticação (F2)
+# Segurança — Autenticação
+
+> Implementado na F2 (identidade) e revisado na F4, quando a auditoria de escrita e os testes de
+> bloqueio progressivo, cabeçalhos e não-vazamento de senha foram fechados.
 
 ## Fluxos
+
+### Registro de conta
+
+```mermaid
+sequenceDiagram
+    participant C as Cliente
+    participant RL as RateLimitFilter
+    participant V as Bean Validation
+    participant AS as AutenticacaoService
+    participant DB as PostgreSQL
+
+    C->>RL: POST /auth/registrar {nome, email, handle, senha}
+    RL->>RL: Bucket de escrita por IP [Argon2id custa 16 MB e ~100 ms: rota é amplificador de DoS]
+    alt Limite atingido
+        RL-->>C: 429 Too Many Requests + Retry-After
+    end
+    RL->>V: valida corpo
+    V->>V: @Size(min=12) + @ValidSenhaNaoComum (senhas-comuns.txt, case-insensitive)
+    alt Senha curta ou comum
+        V-->>C: 400 ProblemDetail {errors:[{campo, mensagem}]} [sem devolver o valor rejeitado]
+    end
+    V->>AS: registrar(request, ip, userAgent)
+    AS->>AS: email.toLowerCase().trim() [normaliza: evita conta duplicada por capitalização]
+    AS->>DB: existsByEmail / existsByHandle
+    alt Já existe
+        AS-->>C: 409 mensagem vaga [não confirma que o email está cadastrado]
+    end
+    AS->>AS: passwordEncoder.encode(senha) → {argon2}...
+    AS->>DB: INSERT usuario (papel=USUARIO)
+    AS->>DB: INSERT auditoria (acao=USUARIO_REGISTRADO)
+    AS->>DB: INSERT refresh_token (nova familia_id)
+    AS-->>C: 201 {accessToken, refreshToken, tipoToken:"Bearer", expiresIn:900}
+```
 
 ### Login e uso de access token
 
@@ -105,6 +141,11 @@ sequenceDiagram
 | **CSRF desabilitado** com justificativa | Não aplicável: API stateless com Bearer header (não cookie) |
 | **Validação geoespacial e de saldo no servidor** | Manipulação de valores calculados no cliente |
 | **Senha mínimo 12 chars + lista senhas comuns** | Senhas fracas previsíveis; credential stuffing com top-N |
+| **Rate limit em `/auth/registrar`** (bucket de escrita por IP) | DoS por amplificação: sem limite, cada requisição comprava ~100 ms de CPU e 16 MB de RAM do servidor ao custo de um POST |
+| **404 em vez de 403** para rascunho de outro usuário | Enumeração de recursos — um 403 confirmaria que aquele id existe. Coberto por `MissaoControllerTest.rascunhoAlheioResponde404ENao403`; a regra está na própria consulta, então nem o total da paginação vaza rascunho alheio |
+| **Mass assignment bloqueado** (DTO declara só o editável) | Escalada de privilégio por campo forjado no corpo (`status`, `executorId`, `xpRecompensa`) |
+| **Auditoria append-only** (`REVOKE UPDATE, DELETE` na V2) | Adulteração da trilha por quem já comprometeu a aplicação. Ressalva honesta: o `REVOKE` incide sobre a role `omnitribo_app`; em dev e teste a conexão é do owner do banco, então a garantia só vale com o wiring de produção |
+| **Escritas de missão auditadas** (`@Auditavel` + `AuditoriaAspecto`) | Ação de escrita sem rastro de quem, de onde e sob qual correlation-id — impede reconstruir um incidente |
 
 ## Configuração de referência
 
@@ -125,11 +166,47 @@ Refresh token TTL: 30 dias (hardcoded em `AutenticacaoService.TTL_REFRESH`).
 
 ## Checklist de defesa em profundidade
 
-- [ ] Credencial em `expo-secure-store` no mobile (nunca `AsyncStorage`)
-- [ ] `Authorization: Bearer` extraído apenas no servidor via `JwtAuthFilter`
-- [ ] Nenhum log com senha, token, refresh, coordenada exata ou payload autenticado
-- [ ] Flyway como única fonte de schema; `ddl-auto: validate`
-- [ ] Erros retornam RFC 9457 ProblemDetail sem stack trace, SQL ou nome de classe
+Implementado e coberto por teste automatizado:
+
+- [x] Argon2id via `DelegatingPasswordEncoder` (`SenhaConfig`), com migração `{bcrypt}` → `{argon2}` sem exigir reset de senha
+- [x] JWT RS256 com chaves PEM fora do repositório (`services/api/keys/` no `.gitignore`, geradas por `tools/gerar-chaves-dev.sh` — inclusive no CI)
+- [x] Claims do access token fixados em teste: `sub`, `jti`, `papel`, `iss`, `aud`, `iat`, `exp`, com TTL de 900 s
+- [x] Refresh opaco de 256 bits, guardado só como `sha256`, com rotação e revogação de família no reuso — `AuthControllerTest`, `RefreshTokenFamiliaTest` (este último com 10 threads concorrentes)
+- [x] Rate limit de login: 5/min por `sha256(ip+email)` → 429 com `Retry-After`
+- [x] Rate limit de escrita aplicado a `/auth/registrar` — `RegistroRateLimitTest`
+- [x] Bloqueio progressivo 10 falhas / 15 min → 15 min, com `LOGIN_BLOQUEADO` na auditoria — `BloqueioProgressivoTest`
+- [x] HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, CSP — inclusive em resposta de erro — `CabecalhosSegurancaTest`
+- [x] `Authorization: Bearer` extraído apenas no servidor via `JwtAuthFilter`; identidade sempre do claim `sub`
+- [x] Nenhum log com senha, token ou refresh — `AuthControllerTest.senhaEToken_nuncaAparecemEmLog`
+- [x] Senha nunca volta no corpo da resposta, nem ecoada em erro de validação
+- [x] Flyway como única fonte de schema; `ddl-auto: validate`
+- [x] Erros retornam RFC 9457 ProblemDetail sem stack trace, SQL ou nome de classe
+- [x] `auditoria` append-only (`REVOKE UPDATE, DELETE` na V2) — ver ressalva na tabela acima
+- [x] 404 em vez de 403 para rascunho de outro usuário (anti-enumeração de recurso)
+- [x] Escritas de missão auditadas por AOP com ator, IP, user-agent e correlation-id — `AuditoriaMissaoTest`
+
+Pendente, por fase:
+
+- [ ] Credencial em `expo-secure-store` no mobile (nunca `AsyncStorage`) — F9 (o app ainda não existe: `apps/mobile/` só tem documentação)
 - [ ] Deep links validados (esquema + host + formato) antes de navegar — F9
-- [ ] Webhooks verificados por HMAC sobre corpo bruto em tempo constante — F10
+- [ ] Webhooks verificados por HMAC sobre corpo bruto em tempo constante — F10. Atenção: `/api/v1/webhooks/**` já está em `permitAll()` no `SecurityConfig` e ainda não tem controller; um controller criado nesse prefixo antes do HMAC nasce público
 - [ ] Transferências entre carteiras com lock em ordem determinística — F5
+- [ ] Auditar tentativas de escrita negadas (`@AfterThrowing`) — F12
+- [ ] Rate limit e bloqueio distribuídos (hoje `ConcurrentHashMap` em memória, single-instance) — F12
+
+## Limites conhecidos da suíte de testes
+
+O bloqueio progressivo **não** é exercitado por 10 requisições HTTP de login. O bucket de 5/min é
+consumido dentro de `BloqueioLoginService.verificar()`, e a partir da 6ª tentativa o
+`AutenticacaoService` lança `BloqueioException` **antes** de chamar `registrarFalha()` — ou seja, por
+HTTP só se acumulam 5 falhas por minuto, e chegar a 10 exigiria mais de dois minutos de espera real
+dentro do teste.
+
+`BloqueioProgressivoTest` semeia o contador chamando `registrarFalha()`, que é o mesmo método
+invocado no caminho de senha errada, e então verifica o efeito nas três pontas: o serviço recusa com
+`Retry-After` de ~900 s (contra os 60 s do bucket — é essa diferença que prova ser bloqueio e não
+rate limit), o endpoint real de login devolve 429, e a linha `LOGIN_BLOQUEADO` chega à tabela
+`auditoria`.
+
+O estado de bloqueio vive em memória e não sobrevive a restart do processo. É consequência aceita do
+MVP single-instance (ver ADR 0005); a migração para contador distribuído está em F12.

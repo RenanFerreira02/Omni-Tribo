@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.omnitribo.JwtTestConfig;
 import com.omnitribo.TesteIntegracaoMvcBase;
 import java.time.Instant;
@@ -51,7 +50,6 @@ class MissaoAceiteConcorrenteTest extends TesteIntegracaoMvcBase {
   private static final String BASE = "/api/v1/missoes";
 
   @Autowired MockMvc mockMvc;
-  @Autowired ObjectMapper objectMapper;
   @Autowired JdbcTemplate jdbcTemplate;
 
   private final List<UUID> candidatos = new ArrayList<>();
@@ -207,7 +205,7 @@ class MissaoAceiteConcorrenteTest extends TesteIntegracaoMvcBase {
 
     UUID missaoId =
         UUID.fromString(
-            objectMapper.readTree(criacao.getResponse().getContentAsString()).get("id").asText());
+            JSON.readTree(criacao.getResponse().getContentAsString()).get("id").asText());
 
     mockMvc
         .perform(post(BASE + "/{id}/publicar", missaoId).header("Authorization", bearer(ALICE_ID)))

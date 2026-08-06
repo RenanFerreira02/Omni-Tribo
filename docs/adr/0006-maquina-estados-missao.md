@@ -150,12 +150,22 @@ só trocam o corpo do método.
 
 ## Notas de manutenção
 
-- **Numeração de migrations:** `db/seed` (V9, V10) e `db/migration` são duas *locations* do mesmo
-  Flyway nos perfis `dev` e `test`, e a ordem é por número de versão, não por pasta. Todo script novo
-  em `db/seed` precisa de versão **maior** que a última de `db/migration`, ou o seed rodaria antes da
-  migration que ele pressupõe.
-- **V9 e V10 são intocáveis.** Editá-los mudaria o checksum em `flyway_schema_history` e todo banco de
-  desenvolvimento existente falharia no boot com `ValidateException`. A V11 corrige os dados.
+- **Numeração de migrations:** `db/seed` e `db/migration` são duas *locations* do mesmo Flyway nos
+  perfis `dev` e `test`, e a ordem é por número de versão, não por pasta. Todo script de `db/seed`
+  precisa de versão **maior** que a última de `db/migration`, ou o seed rodaria antes da migration
+  que ele pressupõe.
+- **ATUALIZADO em 2026-08-06 — a regra acima passou a ser garantida por construção.** Quando este
+  ADR foi escrito, o seed era `V9`/`V10`, no meio da faixa do schema, e as duas notas originais
+  diziam que ambos eram "intocáveis" porque editá-los quebraria o checksum de bancos existentes.
+  O arranjo era frágil por outro motivo: um `V9__*.sql` novo em `db/migration` derrubaria dev e
+  test com *"Found more than one migration with version 9"*, e o erro não apontaria para `db/seed`.
+  Os dois seeds foram então consolidados em **`V900__seed_dev.sql`**. A faixa 900+ mantém o seed
+  sempre por último, e `db/migration` pode crescer V12, V13... sem colisão possível.
+- **Efeito colateral aceito:** rodando por último, o seed grava dados em forma final (`'ABERTA'`,
+  senha já com `{bcrypt}`), então os `UPDATE` de renomeação da V11 não afetam mais nenhuma linha em
+  dev/test e nenhum teste exercita esse caminho. Foram mantidos por continuarem corretos para
+  bancos legados. A alternativa — preservar a cobertura de um caminho que não pode mais ocorrer —
+  custaria manter a armadilha de numeração.
 - **Privilégios do role `omnitribo_app` não são verificados por teste.** Dev e test conectam como dono
   do schema, então uma falta de `GRANT` jamais apareceria na suíte. Lacuna conhecida, candidata a F12.
 - **Jackson:** o Spring Boot 4.1 autoconfigura o mapper do Jackson 3 (`tools.jackson`). Não existe

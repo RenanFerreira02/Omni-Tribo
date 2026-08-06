@@ -47,9 +47,15 @@ public class RateLimitFilter extends OncePerRequestFilter {
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
       throws ServletException, IOException {
 
-    // Endpoints de auth e documentação: sem rate limit geral (BloqueioLoginService cuida do login)
+    // Isenção por rota EXATA, não por prefixo /api/v1/auth/. /login e /refresh têm controle próprio
+    // e mais fino no BloqueioLoginService (5/min por sha256(ip+email), com bloqueio progressivo).
+    // /registrar não tinha nenhum: como cada chamada executa um hash Argon2id (16 MB de memória e
+    // ~100 ms de CPU, por ADR 0005), a rota era um amplificador de DoS não autenticado — o atacante
+    // gasta uma requisição, o servidor gasta 100 ms. Agora cai no bucket geral de escrita, por IP,
+    // já que ainda não há token nessa altura.
     String path = request.getRequestURI();
-    if (path.startsWith("/api/v1/auth/")
+    if (path.equals("/api/v1/auth/login")
+        || path.equals("/api/v1/auth/refresh")
         || path.startsWith("/v3/api-docs")
         || path.startsWith("/swagger-ui")
         || path.equals("/api/v1/ping")) {

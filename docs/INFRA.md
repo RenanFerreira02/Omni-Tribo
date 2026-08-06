@@ -55,7 +55,8 @@ reaplicadas na próxima inicialização do backend.
 
 ## Seed de Dev
 
-O V9 (`db/seed/V9__seed_dev.sql`) é carregado nos perfis `dev` e `test` automaticamente.
+O seed (`db/seed/V900__seed_dev.sql`) é carregado nos perfis `dev` e `test` automaticamente.
+A faixa 900+ o mantém sempre depois de toda migration de schema — ver ADR 0006, Notas de manutenção.
 **Nunca incluir em produção.** Senha de todos os usuários seed: `Senha@123`
 
 | handle  | e-mail                   | papel   | tribo           |
