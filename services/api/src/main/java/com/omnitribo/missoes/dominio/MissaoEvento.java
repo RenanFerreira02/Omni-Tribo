@@ -34,10 +34,11 @@ public class MissaoEvento {
   @Column(name = "ator_id", updatable = false)
   private UUID atorId;
 
-  @Column(name = "de_status", updatable = false, length = 15)
+  // length = 30 acompanha a V11: 'AGUARDANDO_CONFIRMACAO' tem 22 caracteres.
+  @Column(name = "de_status", updatable = false, length = 30)
   private String deStatus;
 
-  @Column(name = "para_status", updatable = false, length = 15)
+  @Column(name = "para_status", updatable = false, length = 30)
   private String paraStatus;
 
   @JdbcTypeCode(SqlTypes.JSON)

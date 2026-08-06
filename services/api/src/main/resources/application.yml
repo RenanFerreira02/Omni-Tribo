@@ -13,6 +13,13 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  jackson:
+    deserialization:
+      # Decisão explícita, não default acidental: campo desconhecido no corpo é IGNORADO, não
+      # rejeitado. Os DTOs de request declaram só o que pode ser alterado — enviar status,
+      # executorId ou xpRecompensa num PATCH não tem efeito algum (proteção contra mass
+      # assignment). Rejeitar com 400 dificultaria evolução do app sem ganho de segurança.
+      fail-on-unknown-properties: false
 
 management:
   server:
@@ -57,3 +64,11 @@ app:
     falhas-para-bloqueio: 10     # falhas consecutivas antes de bloqueio progressivo
     janela-falhas-minutos: 15    # janela de observação para contar falhas
     duracao-bloqueio-minutos: 15 # duração do bloqueio após atingir o limiar
+  agendamento:
+    # Desligado no perfil de teste: um job mudando status em paralelo tornaria as assertions
+    # intermitentes. A regra de expiração continua testada chamando expirarLote() diretamente.
+    habilitado: true
+  missoes:
+    expiracao:
+      intervalo: PT5M            # de quanto em quanto tempo o job varre janelas vencidas
+      atraso-inicial: PT1M       # espera o boot estabilizar antes da primeira varredura

@@ -3,6 +3,11 @@ spring:
     url: ${DATASOURCE_URL:jdbc:postgresql://localhost:5432/omnitribo}
     username: ${DATASOURCE_USERNAME:omnitribo}
     password: ${DATASOURCE_PASSWORD:omnitribo_dev}
+    hikari:
+      # O teste de aceite concorrente dispara 50 threads simultâneas. Com o pool default de 10,
+      # threads esperariam além do connection-timeout e o resultado viraria 500 por timeout de
+      # conexão, mascarando o que o teste quer medir (1 vencedor, 49 conflitos).
+      maximum-pool-size: 20
   flyway:
     locations:
       - classpath:db/migration
@@ -11,6 +16,15 @@ spring:
 app:
   cors:
     origens-permitidas: http://localhost:8081
+  rate-limit:
+    # Rate limiting tem testes próprios em AuthControllerTest e é reavaliado em F12. Aqui um
+    # limite apertado só mascararia resultados de outros testes com 429.
+    escrita-por-minuto: 10000
+    leitura-por-minuto: 10000
+  agendamento:
+    # Job de expiração desligado: se disparasse no meio de um teste, mudaria o status de missões
+    # entre o arrange e o assert — flakiness intermitente e difícil de reproduzir.
+    habilitado: false
 
 springdoc:
   swagger-ui:

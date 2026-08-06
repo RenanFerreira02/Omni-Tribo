@@ -69,6 +69,9 @@ public class SecurityConfig {
                         "/api/v1/ping", // health check
                         "/v3/api-docs/**", // OpenAPI schema
                         "/swagger-ui/**", // Swagger UI
+                        // O atalho /swagger-ui.html não casa com /swagger-ui/** e voltava 401
+                        // antes de chegar ao redirect para /swagger-ui/index.html.
+                        "/swagger-ui.html",
                         "/api/v1/webhooks/**" // HMAC próprio implementado na F10
                         )
                     .permitAll()

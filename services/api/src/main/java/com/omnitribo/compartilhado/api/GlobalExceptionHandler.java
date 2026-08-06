@@ -13,6 +13,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -61,6 +63,57 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler(DominioException.class)
   ProblemDetail handleDominio(DominioException ex, HttpServletRequest request) {
     ProblemDetail pd = ProblemDetail.forStatusAndDetail(ex.getHttpStatus(), ex.getMessage());
+    pd.setInstance(URI.create(request.getRequestURI()));
+    pd.setProperty("traceId", MDC.get("correlationId"));
+    return pd;
+  }
+
+  /**
+   * 403 de @PreAuthorize.
+   *
+   * <p>O interceptor de method security lança AuthorizationDeniedException (subclasse de
+   * AccessDeniedException) DENTRO do proxy do controller, então ela é resolvida pelo
+   * DispatcherServlet antes de chegar ao ExceptionTranslationFilter do Spring Security. Sem este
+   * handler, o handleGenerico abaixo a capturaria e devolveria 500 com log de erro — mascarando um
+   * 403 legítimo como falha do servidor.
+   */
+  @ExceptionHandler(AccessDeniedException.class)
+  ProblemDetail handleAcessoNegadoSecurity(AccessDeniedException ex, HttpServletRequest request) {
+    // Sem detalhe: a resposta não confirma nem nega a existência do recurso.
+    ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "Acesso negado");
+    pd.setInstance(URI.create(request.getRequestURI()));
+    pd.setProperty("traceId", MDC.get("correlationId"));
+    return pd;
+  }
+
+  /**
+   * Endpoints com contrato publicado e implementação prevista para fase futura (F6/F7). Loga em
+   * info, e não em error: um 501 aqui é planejado, não é incidente.
+   */
+  @ExceptionHandler(UnsupportedOperationException.class)
+  ProblemDetail handleNaoImplementado(
+      UnsupportedOperationException ex, HttpServletRequest request) {
+    log.info("Endpoint ainda não implementado [{}]: {}", request.getRequestURI(), ex.getMessage());
+    ProblemDetail pd =
+        ProblemDetail.forStatusAndDetail(
+            HttpStatus.NOT_IMPLEMENTED, "Funcionalidade ainda não disponível nesta versão da API.");
+    pd.setInstance(URI.create(request.getRequestURI()));
+    pd.setProperty("traceId", MDC.get("correlationId"));
+    return pd;
+  }
+
+  /**
+   * Colisão de @Version nos caminhos que não travam a linha (ex.: PATCH de missão). O aceite
+   * concorrente NÃO passa por aqui — ele é serializado por SELECT ... FOR UPDATE e o perdedor
+   * recebe TransicaoInvalidaException. Este handler é a rede de segurança para o resto.
+   */
+  @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+  ProblemDetail handleConflitoConcorrencia(
+      ObjectOptimisticLockingFailureException ex, HttpServletRequest request) {
+    ProblemDetail pd =
+        ProblemDetail.forStatusAndDetail(
+            HttpStatus.CONFLICT,
+            "O recurso foi alterado por outra operação. Recarregue e tente de novo.");
     pd.setInstance(URI.create(request.getRequestURI()));
     pd.setProperty("traceId", MDC.get("correlationId"));
     return pd;

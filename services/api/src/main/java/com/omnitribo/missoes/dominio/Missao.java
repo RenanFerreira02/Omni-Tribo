@@ -38,8 +38,9 @@ public class Missao {
   @Column(nullable = false, columnDefinition = "TEXT")
   private String descricao;
 
+  // length = 30 acompanha a V11: 'AGUARDANDO_CONFIRMACAO' tem 22 caracteres.
   @Enumerated(EnumType.STRING)
-  @Column(nullable = false, length = 15)
+  @Column(nullable = false, length = 30)
   private StatusMissao status;
 
   @Column(name = "xp_recompensa", nullable = false)
@@ -107,6 +108,103 @@ public class Missao {
   private int versao;
 
   protected Missao() {}
+
+  /**
+   * Construtor de criação. Recebe tudo de uma vez em vez de expor um setter por campo: um setter
+   * por campo reabriria o caminho de mass assignment que este módulo existe para fechar.
+   */
+  @SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "Point de JTS é imutável após construção; cópia defensiva sem benefício")
+  public Missao(
+      UUID id,
+      UUID criadorId,
+      CategoriaMissao categoria,
+      String titulo,
+      String descricao,
+      StatusMissao status,
+      int xpRecompensa,
+      BigDecimal valorBrl,
+      long tokensRecompensa,
+      Point origem,
+      Point destino,
+      UUID pontoCustodiaId,
+      String cep,
+      String logradouro,
+      String bairro,
+      String cidade,
+      String uf,
+      int raioCheckinM,
+      BigDecimal pesoKg,
+      BigDecimal volumeL,
+      Instant janelaInicio,
+      Instant janelaFim,
+      Instant criadaEm) {
+    this.id = id;
+    this.criadorId = criadorId;
+    this.categoria = categoria;
+    this.titulo = titulo;
+    this.descricao = descricao;
+    this.status = status;
+    this.xpRecompensa = xpRecompensa;
+    this.valorBrl = valorBrl;
+    this.tokensRecompensa = tokensRecompensa;
+    this.origem = origem;
+    this.destino = destino;
+    this.pontoCustodiaId = pontoCustodiaId;
+    this.cep = cep;
+    this.logradouro = logradouro;
+    this.bairro = bairro;
+    this.cidade = cidade;
+    this.uf = uf;
+    this.raioCheckinM = raioCheckinM;
+    this.pesoKg = pesoKg;
+    this.volumeL = volumeL;
+    this.janelaInicio = janelaInicio;
+    this.janelaFim = janelaFim;
+    this.criadaEm = criadaEm;
+  }
+
+  /**
+   * Edição dos campos descritivos e logísticos (PATCH).
+   *
+   * <p>Recompensa (BRL, tokens, XP), categoria, criador, executor e status ficam deliberadamente de
+   * fora: alterar a recompensa com a missão já ABERTA mudaria o contrato sob os pés de quem está
+   * prestes a aceitar, e status/executor só mudam pela máquina de estados.
+   */
+  @SuppressFBWarnings(
+      value = "EI_EXPOSE_REP2",
+      justification = "Point de JTS é imutável após construção; cópia defensiva sem benefício")
+  public void editarRascunho(
+      String titulo,
+      String descricao,
+      String cep,
+      String logradouro,
+      String bairro,
+      String cidade,
+      String uf,
+      Point origem,
+      Point destino,
+      Instant janelaInicio,
+      Instant janelaFim,
+      int raioCheckinM,
+      BigDecimal pesoKg,
+      BigDecimal volumeL) {
+    this.titulo = titulo;
+    this.descricao = descricao;
+    this.cep = cep;
+    this.logradouro = logradouro;
+    this.bairro = bairro;
+    this.cidade = cidade;
+    this.uf = uf;
+    this.origem = origem;
+    this.destino = destino;
+    this.janelaInicio = janelaInicio;
+    this.janelaFim = janelaFim;
+    this.raioCheckinM = raioCheckinM;
+    this.pesoKg = pesoKg;
+    this.volumeL = volumeL;
+  }
 
   public UUID getId() {
     return id;
