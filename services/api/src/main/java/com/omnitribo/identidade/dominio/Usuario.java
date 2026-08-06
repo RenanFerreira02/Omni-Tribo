@@ -67,6 +67,30 @@ public class Usuario {
 
   protected Usuario() {}
 
+  public Usuario(
+      UUID id,
+      String nome,
+      String email,
+      String senhaHash,
+      String handle,
+      UUID triboId,
+      Instant criadoEm) {
+    this.id = id;
+    this.nome = nome;
+    this.email = email;
+    this.senhaHash = senhaHash;
+    this.handle = handle;
+    this.triboId = triboId;
+    this.xp = 0;
+    this.nivel = 1;
+    this.streak = 0;
+    this.rating = BigDecimal.ZERO;
+    this.papel = PapelUsuario.USUARIO;
+    this.status = StatusUsuario.ATIVO;
+    this.criadoEm = criadoEm;
+    this.atualizadoEm = criadoEm;
+  }
+
   public UUID getId() {
     return id;
   }

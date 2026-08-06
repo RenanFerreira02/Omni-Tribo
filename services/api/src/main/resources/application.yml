@@ -36,3 +36,24 @@ server:
 logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] [%X{correlationId}] %-5level %logger{36} - %msg%n"
+
+app:
+  jwt:
+    # Paths relativos ao diretório de trabalho do processo (services/api/).
+    # Sobrescreva com JWT_PRIVATE_KEY_PATH e JWT_PUBLIC_KEY_PATH em produção.
+    chave-privada-caminho: ${JWT_PRIVATE_KEY_PATH:keys/private.pem}
+    chave-publica-caminho: ${JWT_PUBLIC_KEY_PATH:keys/public.pem}
+    ttl-access: PT15M       # Access token: 15 minutos (curto — limita janela de exploração)
+    issuer: omnitribo
+    audience: omnitribo-app
+  cors:
+    # Lista explícita de origens — nunca wildcard.
+    # Wildcard em CORS anularia a proteção same-origin em browsers.
+    origens-permitidas: ${CORS_ORIGENS:http://localhost:8081,exp://localhost:8082}
+  rate-limit:
+    login-por-minuto: 5          # tentativas de login por IP+email antes de 429
+    escrita-por-minuto: 100      # POST/PUT/PATCH/DELETE por usuário autenticado
+    leitura-por-minuto: 300      # GET por usuário autenticado
+    falhas-para-bloqueio: 10     # falhas consecutivas antes de bloqueio progressivo
+    janela-falhas-minutos: 15    # janela de observação para contar falhas
+    duracao-bloqueio-minutos: 15 # duração do bloqueio após atingir o limiar

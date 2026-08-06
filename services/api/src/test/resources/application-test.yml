@@ -8,6 +8,10 @@ spring:
       - classpath:db/migration
       - classpath:db/seed
 
+app:
+  cors:
+    origens-permitidas: http://localhost:8081
+
 springdoc:
   swagger-ui:
     enabled: false

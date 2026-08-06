@@ -25,9 +25,57 @@
     <spotbugs.version>4.10.3.0</spotbugs.version>
     <!-- Versão gerenciada pelo Spring Boot parent; declarada aqui para suprimir warning do Maven -->
     <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
+    <!-- Segurança: não gerenciadas pelo Spring Boot BOM -->
+    <jjwt.version>0.12.6</jjwt.version>
+    <bouncycastle.version>1.80</bouncycastle.version>
+    <bucket4j.version>8.10.1</bucket4j.version>
   </properties>
 
   <dependencies>
+    <!-- Segurança -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+    <!-- Argon2PasswordEncoder usa BouncyCastle para o algoritmo Argon2id.
+         Declarada explicitamente: não é transitiva do spring-security-crypto. -->
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcpkix-jdk18on</artifactId>
+      <version>${bouncycastle.version}</version>
+    </dependency>
+    <!-- JWT RS256: api em compile, impl e jackson em runtime (SPI loading) -->
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-api</artifactId>
+      <version>${jjwt.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-impl</artifactId>
+      <version>${jjwt.version}</version>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-jackson</artifactId>
+      <version>${jjwt.version}</version>
+      <scope>runtime</scope>
+    </dependency>
+    <!-- Rate limiting token-bucket em memória (sem Redis — single instance MVP) -->
+    <dependency>
+      <groupId>com.bucket4j</groupId>
+      <artifactId>bucket4j-core</artifactId>
+      <version>${bucket4j.version}</version>
+    </dependency>
+    <!-- Aspecto de auditoria (@Aspect / @AfterReturning).
+         Em Spring Boot 4.x, AOP é ativado via aspectjweaver diretamente
+         (spring-boot-starter-aop foi removido nesta versão). -->
+    <dependency>
+      <groupId>org.aspectj</groupId>
+      <artifactId>aspectjweaver</artifactId>
+    </dependency>
+
     <!-- Web -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -98,6 +146,11 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-test</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>

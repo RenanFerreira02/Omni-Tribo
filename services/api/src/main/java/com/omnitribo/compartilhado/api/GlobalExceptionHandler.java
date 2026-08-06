@@ -1,5 +1,6 @@
 package com.omnitribo.compartilhado.api;
 
+import com.omnitribo.compartilhado.dominio.BloqueioException;
 import com.omnitribo.compartilhado.dominio.DominioException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
@@ -42,6 +43,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     pd.setProperty("traceId", MDC.get("correlationId"));
     pd.setProperty("errors", erros);
     return ResponseEntity.status(status).headers(headers).body(pd);
+  }
+
+  @ExceptionHandler(BloqueioException.class)
+  ResponseEntity<ProblemDetail> handleBloqueio(BloqueioException ex, HttpServletRequest request) {
+    ProblemDetail pd =
+        ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
+    pd.setInstance(URI.create(request.getRequestURI()));
+    pd.setProperty("traceId", MDC.get("correlationId"));
+    pd.setProperty("retryAfter", ex.getSegundosRestantes());
+    // Retry-After: RFC 7231 §7.1.3 — informa ao cliente quanto tempo esperar.
+    return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+        .header("Retry-After", String.valueOf(ex.getSegundosRestantes()))
+        .body(pd);
   }
 
   @ExceptionHandler(DominioException.class)

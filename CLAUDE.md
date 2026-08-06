@@ -47,7 +47,9 @@ Testes: JUnit 5 · Testcontainers · ArchUnit · Jest/RTL/MSW
 
 ```bash
 # Backend
-cd services/api && ./mvnw verify                          # compila + todos os testes
+cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev  # sobe o servidor local (porta 8080; actuator na 8081)
+cd services/api && ./mvnw verify                          # compila + todos os testes + spotless + spotbugs
+cd services/api && ./mvnw spotless:apply                  # corrige formatação Google Java Format (rodar antes do verify se falhar em formatação)
 cd services/api && ./mvnw -Dtest=NomeDaClasseTest test    # um único teste
 
 # Mobile
@@ -58,12 +60,14 @@ cd apps/mobile && npx jest --testPathPattern=nomeDoArquivo  # um único teste
 # Infra
 make up          # sobe PostgreSQL+PostGIS
 make down        # para containers (volume preservado)
-make reset       # destrói volume e recria do zero
+make reset       # destrói volume e recria do zero (necessário ao trocar migration de nome)
 make logs        # tail nos logs do banco
 make ps          # status dos containers
 make psql        # abre psql conectado ao banco local
 # make seed / make test — ainda não implementados
 ```
+
+Em dev: Swagger UI em `http://localhost:8080/swagger-ui.html`, OpenAPI em `/v3/api-docs`. Actuator (health, info, metrics) na porta **8081**, não 8080.
 
 ## Skills e agentes disponíveis
 
@@ -77,8 +81,9 @@ make psql        # abre psql conectado ao banco local
 **Backend** (`services/api/`):
 - DTOs são `record`. Entidade JPA nunca cruza fronteira do controller.
 - Exceções de domínio herdam de `DominioException` → mapeadas para status HTTP no handler global → resposta RFC 9457 `ProblemDetail`.
-- Teste de integração estende `TesteIntegracaoBase` (Testcontainers com `postgis/postgis`).
+- Teste de integração estende `TesteIntegracaoBase` (Testcontainers com `postgis/postgis:16-3.5`).
 - Query nativa PostGIS em `infra/` com `@Query(nativeQuery=true)` e parâmetros nomeados.
+- Spotless (Google Java Format) é verificado no `verify`. Se falhar por formatação, rode `./mvnw spotless:apply`.
 
 **Mobile** (`apps/mobile/`):
 - `app/` — só rotas do Expo Router; tela é composição, sem lógica de negócio.
@@ -86,6 +91,7 @@ make psql        # abre psql conectado ao banco local
 - `src/components/` — design system, sem chamada de API; `src/stores/` — Zustand só para UI e sessão.
 - `src/theme/tokens.ts` — nenhum hex literal fora daqui.
 - `any` só com comentário justificando.
+- Toda chamada de API tem estado de carregando, vazio e erro tratados na UI.
 
 ## Regras não negociáveis
 
@@ -101,6 +107,7 @@ Banco
   ddl-auto — escreva migration.
 - Dinheiro: numeric(12,2) → BigDecimal. Tokens: bigint. Nunca double, nunca String.
 - Coordenada: geography(POINT,4326). Distância é derivada por PostGIS, nunca armazenada.
+- Extensões `postgis` e `pgcrypto` são habilitadas via `docker/init/01-extensions.sql` e `V1__extensoes.sql`. `pgcrypto` provê `gen_random_uuid()` no banco.
 - timestamptz, nunca timestamp. Enum: varchar + CHECK + EnumType.STRING, nunca ordinal.
 - lancamento e auditoria são APPEND-ONLY. Correção por ESTORNO, nunca UPDATE.
 - Toda consulta geoespacial fica isolada em uma classe de repositório (permite trocar PostGIS por
@@ -150,4 +157,7 @@ Git
 
 ## Estado atual
 
-Fase atual: F0 (Concluído) + F1 (Concluído) + Backend skeleton criado — F2 é a próxima fase. Ver docs/PROGRESSO.md
+Fase atual: F1 (Concluído) + Backend skeleton criado — F2 (Identidade e Autenticação) é a próxima fase. Ver docs/PROGRESSO.md.
+
+Usuários seed (perfis `dev` e `test`, carregados via `db/seed/V9__seed_dev.sql`, senha `Senha@123`):
+`admin@omnitribo.dev` (ADMIN), `alice` e `bob` (USUARIO, tribos diferentes). Ver docs/INFRA.md para lista completa.

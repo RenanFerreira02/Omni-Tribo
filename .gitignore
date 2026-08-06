@@ -30,6 +30,8 @@ GoogleService-Info.plist
 *.p8
 *.keystore
 *.p12
+# Chaves RSA geradas por tools/gerar-chaves-dev.sh — nunca versionar
+services/api/keys/
 
 # ── IDEs ──────────────────────────────────────────────────────────────────────
 .idea/
