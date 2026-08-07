@@ -75,7 +75,18 @@ public final class MissaoStateMachine {
     }
   }
 
-  private static void validarAutorizacao(Missao missao, EventoMissao evento, AtorMissao ator) {
+  /**
+   * Só a autorização (403), sem checar a transição (409).
+   *
+   * <p>Pública porque a conclusão precisa sondar a idempotência ANTES de olhar o status: um retry
+   * de {@code POST /confirmar} numa missão já CONCLUIDA é a mesma operação, não conflito, e chamar
+   * {@link #validar} primeiro devolveria 409 para um cliente que só perdeu a resposta na rede. A
+   * ordem correta lá é autorizar → sondar replay → validar transição.
+   *
+   * <p>Continua valendo a regra geral: 403 sempre ANTES de 409, senão a diferença entre as duas
+   * respostas revela o status de uma missão alheia.
+   */
+  public static void validarAutorizacao(Missao missao, EventoMissao evento, AtorMissao ator) {
     boolean autorizado =
         switch (evento.atorEsperado()) {
           case CRIADOR -> ator.ehMesmo(missao.getCriadorId());

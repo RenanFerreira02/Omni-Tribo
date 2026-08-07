@@ -4,10 +4,17 @@ spring:
     username: ${DATASOURCE_USERNAME:omnitribo}
     password: ${DATASOURCE_PASSWORD:omnitribo_dev}
     hikari:
-      # O teste de aceite concorrente dispara 50 threads simultâneas. Com o pool default de 10,
-      # threads esperariam além do connection-timeout e o resultado viraria 500 por timeout de
-      # conexão, mascarando o que o teste quer medir (1 vencedor, 49 conflitos).
-      maximum-pool-size: 20
+      # Dimensionado pelo teste mais pesado, que hoje é ConclusaoConcorrenteTest com 100 threads —
+      # não mais o aceite concorrente com 50. Com o pool default de 10, threads esperariam além do
+      # connection-timeout e o resultado viraria 500 por timeout de conexão, mascarando o que o
+      # teste quer medir.
+      #
+      # 40 e não 100: as 100 threads serializam atrás de um único SELECT ... FOR UPDATE na linha da
+      # missão, então a maioria está bloqueada no lock e não consumindo conexão por muito tempo. O
+      # que 40 compra é margem para que um runner de CI lento não transforme espera de lock em
+      # SQLTransientConnectionException — que apareceria como 500 e seria lido como bug de
+      # concorrência, e não como o problema de infraestrutura que é.
+      maximum-pool-size: 40
   flyway:
     locations:
       - classpath:db/migration

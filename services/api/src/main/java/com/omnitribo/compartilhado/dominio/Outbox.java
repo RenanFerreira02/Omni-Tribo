@@ -38,6 +38,22 @@ public class Outbox {
   @Column(nullable = false)
   private int tentativas;
 
+  // Instante a partir do qual o drenador pode tentar de novo. NOT NULL com default
+  // NOW() no banco: evento nunca tentado é elegível já. Ver V14__outbox_backoff.sql.
+  @Column(name = "proxima_tentativa_em", nullable = false)
+  private Instant proximaTentativaEm;
+
+  // Diagnóstico do último despacho falho. Sem isto, um evento parado em tentativas=5
+  // não diz por quê e o operador só descobre reproduzindo.
+  @Column(name = "ultimo_erro", columnDefinition = "TEXT")
+  private String ultimoErro;
+
+  /**
+   * Corte da mensagem de erro. Um stack trace inteiro por linha inflaria a tabela sem acrescentar
+   * diagnóstico: a causa está sempre nos primeiros caracteres.
+   */
+  private static final int LIMITE_ERRO = 1000;
+
   protected Outbox() {}
 
   public Outbox(UUID id, String tipoEvento, UUID agregadoId, String payload, Instant criadoEm) {
@@ -47,14 +63,29 @@ public class Outbox {
     this.payload = payload;
     this.criadoEm = criadoEm;
     this.tentativas = 0;
+    // Elegível desde já — o drenador decide quando varrer, não esta linha.
+    this.proximaTentativaEm = criadoEm;
   }
 
-  public void marcarPublicado() {
-    this.publicadoEm = Instant.now();
+  /**
+   * Instante recebido, e não {@code Instant.now()} interno, pelo mesmo motivo de {@code criadoEm}:
+   * o chamador já tem o relógio da operação, e duas leituras de relógio na mesma unidade de
+   * trabalho produzem instantes diferentes sem nenhum ganho.
+   */
+  public void marcarPublicado(Instant agora) {
+    this.publicadoEm = agora;
+    this.ultimoErro = null;
   }
 
-  public void incrementarTentativas() {
+  /**
+   * Conta a falha e adia a próxima tentativa. Contar sem adiar faria o evento voltar no lote
+   * seguinte imediatamente, e o drenador giraria em falso contra a mesma linha a cada varredura.
+   */
+  public void registrarFalha(String erro, Instant proximaTentativaEm) {
     this.tentativas++;
+    this.proximaTentativaEm = proximaTentativaEm;
+    this.ultimoErro =
+        erro == null || erro.length() <= LIMITE_ERRO ? erro : erro.substring(0, LIMITE_ERRO);
   }
 
   public UUID getId() {
@@ -83,5 +114,13 @@ public class Outbox {
 
   public int getTentativas() {
     return tentativas;
+  }
+
+  public Instant getProximaTentativaEm() {
+    return proximaTentativaEm;
+  }
+
+  public String getUltimoErro() {
+    return ultimoErro;
   }
 }

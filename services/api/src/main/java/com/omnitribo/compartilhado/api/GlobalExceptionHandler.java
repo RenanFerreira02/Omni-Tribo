@@ -3,6 +3,8 @@ package com.omnitribo.compartilhado.api;
 import com.omnitribo.compartilhado.dominio.BloqueioException;
 import com.omnitribo.compartilhado.dominio.DominioException;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 import java.net.URI;
 import java.util.List;
 import org.slf4j.Logger;
@@ -45,6 +47,48 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     pd.setProperty("traceId", MDC.get("correlationId"));
     pd.setProperty("errors", erros);
     return ResponseEntity.status(status).headers(headers).body(pd);
+  }
+
+  /**
+   * 400 para violação de constraint em parâmetro de método (header, path, query).
+   *
+   * <p>Existe por causa de uma sutileza do Spring MVC: num controller anotado com
+   * {@code @Validated} — hoje {@code CarteiraController} e {@code TriboFinanciamentoController},
+   * por causa do {@code @NotBlank @Size} no header {@code Idempotency-Key} — a validação de método
+   * embutida do MVC é DESLIGADA e passa a vir do proxy AOP, que lança {@code
+   * ConstraintViolationException} em vez de {@code HandlerMethodValidationException}.
+   *
+   * <p>Sem este handler ela caía no handleGenerico: 500 com {@code log.error} e stack trace para
+   * uma requisição meramente malformada. Qualquer cliente autenticado produziria incidente falso à
+   * vontade mandando {@code Idempotency-Key: abc}, e o contrato do OpenAPI, que promete 400,
+   * estaria mentindo.
+   */
+  @ExceptionHandler(ConstraintViolationException.class)
+  ProblemDetail handleViolacaoDeParametro(
+      ConstraintViolationException ex, HttpServletRequest request) {
+
+    List<ErroCampo> erros =
+        ex.getConstraintViolations().stream()
+            .map(v -> new ErroCampo(nomeDoParametro(v), v.getMessage()))
+            .toList();
+
+    ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+    pd.setTitle("Requisição inválida");
+    pd.setDetail("Um ou mais parâmetros falharam na validação.");
+    pd.setInstance(URI.create(request.getRequestURI()));
+    pd.setProperty("traceId", MDC.get("correlationId"));
+    pd.setProperty("errors", erros);
+    return pd;
+  }
+
+  /**
+   * O propertyPath de um parâmetro de método vem como {@code metodo.argumento}; só o último
+   * segmento interessa ao cliente — o nome do método é detalhe interno.
+   */
+  private static String nomeDoParametro(ConstraintViolation<?> violacao) {
+    String caminho = violacao.getPropertyPath().toString();
+    int ultimoPonto = caminho.lastIndexOf('.');
+    return ultimoPonto < 0 ? caminho : caminho.substring(ultimoPonto + 1);
   }
 
   @ExceptionHandler(BloqueioException.class)

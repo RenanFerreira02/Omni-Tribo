@@ -34,6 +34,9 @@ class MissaoStateMachineTest {
 
   static {
     ESPERADAS.put(chave(StatusMissao.RASCUNHO, EventoMissao.PUBLICAR), StatusMissao.ABERTA);
+    // Saída de rascunho financiado: sem ela, o pote de uma missão comunitária abandonada antes da
+    // publicação ficaria preso, porque o estorno só roda em CANCELADA e EXPIRADA.
+    ESPERADAS.put(chave(StatusMissao.RASCUNHO, EventoMissao.CANCELAR), StatusMissao.CANCELADA);
     ESPERADAS.put(chave(StatusMissao.ABERTA, EventoMissao.ACEITAR), StatusMissao.ACEITA);
     ESPERADAS.put(chave(StatusMissao.ABERTA, EventoMissao.CANCELAR), StatusMissao.CANCELADA);
     ESPERADAS.put(chave(StatusMissao.ABERTA, EventoMissao.EXPIRAR), StatusMissao.EXPIRADA);

@@ -23,6 +23,9 @@ public record MissaoResponse(
     int xpRecompensa,
     BigDecimal valorBrl,
     long tokensRecompensa,
+    // Tokens já financiados e em custódia. Aditivo no envelope: nenhum cliente existente quebra,
+    // e o app precisa dele para mostrar o quanto falta financiar antes de a missão ser publicável.
+    long poteTokens,
     BigDecimal origemLat,
     BigDecimal origemLon,
     BigDecimal destinoLat,
@@ -65,6 +68,7 @@ public record MissaoResponse(
         m.getXpRecompensa(),
         m.getValorBrl(),
         m.getTokensRecompensa(),
+        m.getPoteTokens(),
         Coordenadas.latitude(m.getOrigem()),
         Coordenadas.longitude(m.getOrigem()),
         Coordenadas.latitude(m.getDestino()),

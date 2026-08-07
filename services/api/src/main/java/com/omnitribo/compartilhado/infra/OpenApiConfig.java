@@ -60,6 +60,12 @@ public class OpenApiConfig {
                 .addResponses(
                     "Conflito", problema("Operação incompatível com o estado atual da missão."))
                 .addResponses(
+                    "RegraNegocioViolada",
+                    problema(
+                        "Corpo bem formado, mas recusado pela validação de negócio no servidor"
+                            + " (ex.: saldo insuficiente, transferência para outra tribo, teto"
+                            + " excedido). Nenhum efeito colateral é gravado."))
+                .addResponses(
                     "LimiteExcedido",
                     problema("Limite de requisições excedido. Veja o header Retry-After."))
                 .addResponses(

@@ -19,9 +19,23 @@ import org.testcontainers.utility.DockerImageName;
  */
 abstract class ContainerConfig {
 
+  /**
+   * {@code max_connections} elevado de 100 (padrão) para 300.
+   *
+   * <p>O limite não é por pool, é por SERVIDOR, e a suíte mantém VÁRIOS contextos Spring vivos ao
+   * mesmo tempo — o cache de contexto do Spring não os descarta entre classes, e {@code
+   * ConclusaoRollbackTest} tem contexto próprio por causa do {@code @MockitoBean}. Cada contexto
+   * carrega o seu HikariPool inteiro, então o consumo é (nº de contextos × maximum-pool-size), não
+   * o tamanho de um pool.
+   *
+   * <p>Sem isto, subir o pool para acomodar o teste de 100 threads derruba o contexto de outra
+   * classe com {@code FATAL: sorry, too many clients already} — uma falha que se apresenta como
+   * "Failed to load ApplicationContext" e não aponta em nada para a causa real.
+   */
   static final PostgreSQLContainer<?> POSTGRES =
       new PostgreSQLContainer<>(
-          DockerImageName.parse("postgis/postgis:16-3.5").asCompatibleSubstituteFor("postgres"));
+              DockerImageName.parse("postgis/postgis:16-3.5").asCompatibleSubstituteFor("postgres"))
+          .withCommand("postgres", "-c", "max_connections=300");
 
   static {
     POSTGRES.start();

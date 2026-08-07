@@ -72,3 +72,17 @@ app:
     expiracao:
       intervalo: PT5M            # de quanto em quanto tempo o job varre janelas vencidas
       atraso-inicial: PT1M       # espera o boot estabilizar antes da primeira varredura
+  carteira:
+    # Os tetos não existem para limitar uso legítimo — existem para limitar o DANO de uma conta
+    # comprometida. Quem rouba um access token pode transferir; o teto por transação impede
+    # esvaziar a carteira num único POST, e o teto por janela impede o mesmo esvaziamento fatiado
+    # em N requisições. Um sem o outro é contornável de forma trivial.
+    transferencia-teto-por-transacao: 500      # tokens por transferência
+    transferencia-teto-por-janela: 2000        # tokens somados na janela abaixo
+    transferencia-janela: PT24H
+    saque-minimo-brl: 10.00                    # abaixo disso a taxa do gateway inviabiliza
+  outbox:
+    intervalo: PT10S             # varredura frequente: é latência de notificação, não de dados
+    atraso-inicial: PT30S
+    maximo-tentativas: 5         # depois disso o evento sai do lote e espera intervenção
+    backoff-base: PT30S          # exponencial: 30s, 1min, 2min, 4min, 8min

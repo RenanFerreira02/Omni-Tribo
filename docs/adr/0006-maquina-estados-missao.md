@@ -125,8 +125,13 @@ só trocam o corpo do método.
   repositório e no service, mas depende de disciplina.
 - O lock pessimista serializa aceites da mesma missão. Irrelevante nesta escala; num cenário de
   milhares de aceites simultâneos na mesma linha, viraria gargalo.
-- `RASCUNHO` não tem transição de cancelamento — a máquina implementa apenas as 12 transições
-  especificadas. Um rascunho se edita ou se abandona; `DELETE /missoes/{id}` ficou fora do escopo.
+- ~~`RASCUNHO` não tem transição de cancelamento — a máquina implementa apenas as 12 transições
+  especificadas. Um rascunho se edita ou se abandona; `DELETE /missoes/{id}` ficou fora do escopo.~~
+  **Revisto na F5 (2026-08-07): `RASCUNHO --CANCELAR--> CANCELADA` foi acrescentada, e a máquina
+  passou a ter 13 transições.** O motivo é econômico, não de usabilidade: missão comunitária é
+  financiada ANTES de publicar (a publicação exige pote cobrindo a recompensa), então "abandonar um
+  rascunho" deixou de ser gratuito — prenderia os tokens dos co-financiadores para sempre, já que o
+  estorno do pote só roda em `CANCELADA` e `EXPIRADA`. Ver ADR 0008.
 - A regra econômica TRIBO/COLETA sem BRL está em dois lugares: no validador de classe (400 com o
   campo apontado) e em `ck_missao_economia` (V3). Duplicação deliberada — a segunda é a barreira que
   sobrevive a um bug de aplicação —, mas as duas precisam mudar juntas.
