@@ -1,7 +1,9 @@
 # 0002 — PostgreSQL + PostGIS em vez de Cloud Firestore
 
 **Data:** 2026-08-04  
-**Status:** Aceito
+**Status:** Aceito — a regra de isolamento geoespacial foi substituída pelo
+[ADR 0007](0007-consultas-geoespaciais-centralizadas.md) (uma classe única em `compartilhado`, e não
+uma por módulo). A escolha de PostgreSQL+PostGIS segue valendo integralmente.
 
 ---
 
@@ -27,6 +29,11 @@ O banco roda em Docker local; o schema é gerenciado exclusivamente pelo Flyway 
 **Isolamento geoespacial:** toda consulta que usa funções PostGIS (`ST_DWithin`, `ST_Distance`,
 `ST_SetSRID`, etc.) fica isolada em uma única classe de repositório por módulo. Isso cria um
 anti-corruption layer que torna a troca do motor geoespacial uma mudança de arquivo único.
+
+> **Revisado pelo ADR 0007 (2026-08-07).** "Uma classe por módulo" não sobreviveu à segunda consulta:
+> as duas consultas geoespaciais da F6 pertencem a módulos diferentes, e a regra direcional do
+> ArchUnit espalharia `ST_*` por dois arquivos — quebrando justamente a promessa de arquivo único.
+> Hoje a classe é uma só, `compartilhado.infra.ConsultasGeoespaciais`.
 
 **Parceria FIAP-Oracle:** a FIAP mantém parceria com a Oracle. Se essa parceria vier a ser usada
 no projeto, a migração para Oracle Spatial é viável exatamente porque o isolamento acima já existe —

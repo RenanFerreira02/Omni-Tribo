@@ -3,6 +3,8 @@ package com.omnitribo.missoes.dominio;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.omnitribo.TesteIntegracaoBase;
+import com.omnitribo.missoes.infra.CacheMissoesProximas;
+import com.omnitribo.missoes.infra.ChaveProximidade;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -24,6 +26,7 @@ class ExpiracaoMissoesServiceTest extends TesteIntegracaoBase {
 
   @Autowired ExpiracaoMissoesService expiracaoMissoesService;
   @Autowired JdbcTemplate jdbcTemplate;
+  @Autowired CacheMissoesProximas cacheMissoesProximas;
 
   @Test
   void abertaComJanelaVencidaViraExpiradaERegistraEventoDoSistema() {
@@ -49,6 +52,31 @@ class ExpiracaoMissoesServiceTest extends TesteIntegracaoBase {
       assertThat(eventos.get(0).get("para_status")).isEqualTo("EXPIRADA");
       // Evento do sistema: sem ator humano, a coluna fica NULL.
       assertThat(eventos.get(0).get("ator_id")).isNull();
+    } finally {
+      limpar(vencida);
+    }
+  }
+
+  /**
+   * Este serviço chama MissaoStateMachine.transicionar direto, sem passar por MissaoService.aplicar
+   * — é o único ponto de invalidação de cache fora daquele caminho. Apagar a chamada a
+   * invalidarAposCommit deixaria missões já EXPIRADAS aparecendo no radar por até 30 s, e nenhum
+   * outro teste perceberia.
+   */
+  @Test
+  void expirarLoteInvalidaOCacheDeProximidade() {
+    UUID vencida = inserirMissao("ABERTA", Instant.now().minus(3, ChronoUnit.HOURS));
+
+    try {
+      // Aquece o cache com uma entrada qualquer, para poder observar que ela some.
+      cacheMissoesProximas.obter(
+          new ChaveProximidade("6vjyrk0", 2000, null, 50), chave -> List.of());
+      assertThat(cacheMissoesProximas.tamanho()).isEqualTo(1);
+
+      expiracaoMissoesService.expirarLote(200);
+
+      // invalidarAposCommit roda no afterCommit da transação de expirarLote, que já terminou aqui.
+      assertThat(cacheMissoesProximas.tamanho()).isZero();
     } finally {
       limpar(vencida);
     }

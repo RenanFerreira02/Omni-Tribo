@@ -50,8 +50,8 @@ public final class MissaoStateMachine {
   }
 
   /**
-   * Só valida, não muta. Usada pelos endpoints stub de F6/F7, para que o contrato de erro deles já
-   * seja o definitivo: 403 e 409 corretos, e só então 501.
+   * Só valida, não muta. Usada pelo check-in (F6) e pelos endpoints stub de F7, para que o contrato
+   * de erro seja o definitivo: 403 e 409 corretos antes de qualquer efeito.
    */
   public static void validar(Missao missao, EventoMissao evento, AtorMissao ator) {
     // Autorização (403) ANTES da transição (409). Na ordem inversa, um estranho descobriria o
@@ -75,7 +75,15 @@ public final class MissaoStateMachine {
     }
   }
 
-  private static void validarAutorizacao(Missao missao, EventoMissao evento, AtorMissao ator) {
+  /**
+   * Só a metade de autorização do {@link #validar}, sem a checagem de transição.
+   *
+   * <p>Pública para o check-in idempotente: entre o 403 e o 409 é preciso sondar a chave de
+   * idempotência, porque um replay legítimo chega com a missão já em AGUARDANDO_CONFIRMACAO e
+   * levaria 409 se a transição fosse checada antes. A autorização continua estritamente primeiro —
+   * sondar antes dela permitiria devolver dados da missão a quem não é mais o executor.
+   */
+  public static void validarAutorizacao(Missao missao, EventoMissao evento, AtorMissao ator) {
     boolean autorizado =
         switch (evento.atorEsperado()) {
           case CRIADOR -> ator.ehMesmo(missao.getCriadorId());

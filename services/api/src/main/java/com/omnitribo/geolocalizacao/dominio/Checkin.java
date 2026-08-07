@@ -59,6 +59,15 @@ public class Checkin {
   @Column(name = "motivo_rejeicao", updatable = false, length = 500)
   private String motivoRejeicao;
 
+  // Cinemática implausível: aceito, porém marcado. Ver V12 e AvaliacaoAntifraude.
+  // Não confundir com valido=false — suspeito=true transiciona a missão normalmente.
+  @Column(nullable = false, updatable = false)
+  private boolean suspeito;
+
+  // sha256(usuario_id|missao_id|chave_do_cliente) — nunca a chave crua do cliente. Ver V12.
+  @Column(name = "chave_idempotencia", updatable = false, length = 100)
+  private String chaveIdempotencia;
+
   @Column(name = "criado_em", nullable = false, updatable = false)
   private Instant criadoEm;
 
@@ -79,6 +88,8 @@ public class Checkin {
       BigDecimal velocidadeImplicitaKmh,
       boolean valido,
       String motivoRejeicao,
+      boolean suspeito,
+      String chaveIdempotencia,
       Instant criadoEm) {
     this.id = id;
     this.missaoId = missaoId;
@@ -91,6 +102,8 @@ public class Checkin {
     this.velocidadeImplicitaKmh = velocidadeImplicitaKmh;
     this.valido = valido;
     this.motivoRejeicao = motivoRejeicao;
+    this.suspeito = suspeito;
+    this.chaveIdempotencia = chaveIdempotencia;
     this.criadoEm = criadoEm;
   }
 
@@ -139,6 +152,14 @@ public class Checkin {
 
   public String getMotivoRejeicao() {
     return motivoRejeicao;
+  }
+
+  public boolean isSuspeito() {
+    return suspeito;
+  }
+
+  public String getChaveIdempotencia() {
+    return chaveIdempotencia;
   }
 
   public Instant getCriadoEm() {

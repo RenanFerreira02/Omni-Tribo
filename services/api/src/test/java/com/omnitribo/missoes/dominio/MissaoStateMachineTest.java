@@ -233,7 +233,7 @@ class MissaoStateMachineTest {
 
   @Test
   void validarNaoMutaAMissao() {
-    // Contrato dos stubs F6/F7: validam 403/409 sem tocar no agregado antes de lançar 501.
+    // Contrato do stub de F7: valida 403/409 sem tocar no agregado antes de lançar 501.
     Missao missao = MissaoFixture.no(StatusMissao.AGUARDANDO_CONFIRMACAO);
 
     MissaoStateMachine.validar(
