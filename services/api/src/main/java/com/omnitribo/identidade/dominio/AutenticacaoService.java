@@ -1,5 +1,6 @@
 package com.omnitribo.identidade.dominio;
 
+import com.omnitribo.carteira.api.ProvisionamentoCarteira;
 import com.omnitribo.compartilhado.dominio.BloqueioException;
 import com.omnitribo.compartilhado.dominio.DominioException;
 import com.omnitribo.compartilhado.infra.BloqueioLoginService;
@@ -39,6 +40,7 @@ public class AutenticacaoService {
   private final JwtService jwtService;
   private final BloqueioLoginService bloqueioLoginService;
   private final PasswordEncoder passwordEncoder;
+  private final ProvisionamentoCarteira provisionamentoCarteira;
   private final SecureRandom secureRandom = new SecureRandom();
 
   @Value("${app.jwt.ttl-access:PT15M}")
@@ -50,13 +52,15 @@ public class AutenticacaoService {
       AuditoriaService auditoriaService,
       JwtService jwtService,
       BloqueioLoginService bloqueioLoginService,
-      PasswordEncoder passwordEncoder) {
+      PasswordEncoder passwordEncoder,
+      ProvisionamentoCarteira provisionamentoCarteira) {
     this.usuarioRepository = usuarioRepository;
     this.refreshTokenRepository = refreshTokenRepository;
     this.auditoriaService = auditoriaService;
     this.jwtService = jwtService;
     this.bloqueioLoginService = bloqueioLoginService;
     this.passwordEncoder = passwordEncoder;
+    this.provisionamentoCarteira = provisionamentoCarteira;
   }
 
   @Transactional
@@ -85,6 +89,12 @@ public class AutenticacaoService {
             agora);
 
     usuarioRepository.save(usuario);
+
+    // Carteira nasce junto com o usuário, na MESMA transação. Sem isto, todo usuário novo ficaria
+    // sem carteira e o primeiro crédito de missão — ou qualquer transferência para ele — falharia
+    // com 404. Criar sob demanda no primeiro crédito seria pior: aconteceria dentro de uma
+    // transação que já segura locks, e dois créditos simultâneos disputariam a criação.
+    provisionamentoCarteira.garantirCarteira(usuario.getId());
 
     auditoriaService.gravar(
         usuario.getId(),

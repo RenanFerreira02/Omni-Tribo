@@ -45,9 +45,24 @@ public class Carteira {
     this.saldoTokens += valorTokens;
   }
 
+  /**
+   * Débito com guarda de saldo.
+   *
+   * <p>A guarda NÃO é a recusa que o usuário vê. Quem chama já comparou o saldo sob {@code SELECT
+   * ... FOR UPDATE} e respondeu 422 antes de escrever qualquer coisa — é lá que mora a regra de
+   * negócio, porque só lá dá para recusar sem efeito colateral. Esta exceção é a segunda de três
+   * camadas (serviço → entidade → {@code ck_carteira_saldo_nao_negativo} no banco) e significa que
+   * o invariante "todo débito é precedido de verificação sob lock" deixou de valer: um 500 alto é
+   * melhor que um saldo negativo silencioso num ledger financeiro.
+   */
   public void debitar(BigDecimal valorBrl, long valorTokens) {
-    this.saldoBrl = this.saldoBrl.subtract(valorBrl);
-    this.saldoTokens -= valorTokens;
+    BigDecimal novoBrl = this.saldoBrl.subtract(valorBrl);
+    long novoTokens = this.saldoTokens - valorTokens;
+    if (novoBrl.signum() < 0 || novoTokens < 0) {
+      throw new IllegalStateException("Débito excede o saldo da carteira " + this.id + ".");
+    }
+    this.saldoBrl = novoBrl;
+    this.saldoTokens = novoTokens;
   }
 
   public UUID getId() {

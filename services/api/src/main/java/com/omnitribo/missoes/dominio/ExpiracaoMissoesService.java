@@ -54,6 +54,18 @@ public class ExpiracaoMissoesService {
       trilha.add(
           MissaoStateMachine.transicionar(
               missao, EventoMissao.EXPIRAR, AtorMissao.sistema(), null, agora));
+
+      // Estorno do pote, obrigatoriamente AQUI e não só em MissaoService.aplicar. Este é o ÚNICO
+      // caminho que leva uma missão a EXPIRADA — o job é quem dispara EXPIRAR, e ele não passa por
+      // aplicar(). Sem esta chamada os tokens de quem financiou ficariam presos numa missão morta,
+      // e o pior: a reconciliação continuaria respondendo integro=true, porque ledger e projeção
+      // seguem batendo. A perda seria invisível justamente para o endpoint que existe para achá-la.
+      //
+      // A ordem global de lock é respeitada: buscarAbertasVencidas já travou a linha da missão
+      // (PESSIMISTIC_WRITE + SKIP LOCKED), então missao → carteira continua valendo.
+      if (missao.getPoteTokens() > 0) {
+        estornoFinanciamentoService.estornarPote(missao, agora);
+      }
     }
 
     missaoRepository.saveAll(vencidas);

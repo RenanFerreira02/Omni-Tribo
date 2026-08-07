@@ -66,6 +66,11 @@ public class Lancamento {
   @Column(name = "saldo_apos_tokens", nullable = false, updatable = false)
   private long saldoAposTokens;
 
+  // Mensagem opcional da transferência P2P. Imutável como o resto da linha: é o que
+  // o remetente escreveu no momento da transferência, não um campo editável depois.
+  @Column(updatable = false, length = 200)
+  private String mensagem;
+
   @Column(name = "criado_em", nullable = false, updatable = false)
   private Instant criadoEm;
 
@@ -83,6 +88,7 @@ public class Lancamento {
       String chaveIdempotencia,
       BigDecimal saldoAposBrl,
       long saldoAposTokens,
+      String mensagem,
       Instant criadoEm) {
     this.id = id;
     this.carteiraId = carteiraId;
@@ -95,6 +101,7 @@ public class Lancamento {
     this.chaveIdempotencia = chaveIdempotencia;
     this.saldoAposBrl = saldoAposBrl;
     this.saldoAposTokens = saldoAposTokens;
+    this.mensagem = mensagem;
     this.criadoEm = criadoEm;
   }
 
@@ -140,6 +147,10 @@ public class Lancamento {
 
   public long getSaldoAposTokens() {
     return saldoAposTokens;
+  }
+
+  public String getMensagem() {
+    return mensagem;
   }
 
   public Instant getCriadoEm() {

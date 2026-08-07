@@ -36,6 +36,11 @@ public enum StatusMissao {
   // reference). O bloco static roda depois de todas as constantes existirem.
   static {
     de(RASCUNHO, EventoMissao.PUBLICAR, ABERTA);
+    // Cancelar rascunho existe por causa do pote: missão comunitária é financiada ANTES de publicar
+    // (a publicação exige pote cobrindo a recompensa), então sem esta saída um rascunho financiado
+    // e abandonado prenderia os tokens dos financiadores para sempre — de RASCUNHO só se saía por
+    // PUBLICAR. Com ela, o estorno de MissaoService.aplicar devolve o pote.
+    de(RASCUNHO, EventoMissao.CANCELAR, CANCELADA);
 
     de(ABERTA, EventoMissao.ACEITAR, ACEITA);
     de(ABERTA, EventoMissao.CANCELAR, CANCELADA);

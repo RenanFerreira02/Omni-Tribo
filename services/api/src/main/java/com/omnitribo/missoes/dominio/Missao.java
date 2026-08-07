@@ -103,6 +103,13 @@ public class Missao {
   @Column(name = "concluida_em")
   private Instant concluidaEm;
 
+  // Tokens já financiados por membros da tribo, em custódia até a conclusão pagar o
+  // executor. NÃO é recompensa: `tokensRecompensa` é quanto a missão promete pagar,
+  // `poteTokens` é quanto de fato existe para pagar. Concluir uma missão TRIBO/COLETA
+  // debita daqui em vez de cunhar token novo — é o que conserva a oferta da moeda.
+  @Column(name = "pote_tokens", nullable = false)
+  private long poteTokens;
+
   @Version
   @Column(nullable = false)
   private int versao;
@@ -330,6 +337,42 @@ public class Missao {
 
   public void setConcluidaEm(Instant concluidaEm) {
     this.concluidaEm = concluidaEm;
+  }
+
+  public long getPoteTokens() {
+    return poteTokens;
+  }
+
+  /** Financiamento recebido de um membro da tribo. Chamado sob o lock da linha da missão. */
+  public void creditarPote(long tokens) {
+    if (tokens <= 0) {
+      throw new IllegalArgumentException("Crédito no pote precisa ser positivo.");
+    }
+    this.poteTokens += tokens;
+  }
+
+  /**
+   * Pagamento saindo do pote na conclusão.
+   *
+   * <p>A guarda é de erro de programação, não a recusa que o usuário vê: quem chama já verificou o
+   * saldo do pote sob o lock e respondeu 422 antes de escrever qualquer coisa. Se esta exceção
+   * subir, o invariante "todo débito é precedido de verificação sob lock" deixou de valer, e um 500
+   * alto é melhor que um pote negativo silencioso.
+   */
+  public void debitarPote(long tokens) {
+    if (tokens <= 0) {
+      throw new IllegalArgumentException("Débito do pote precisa ser positivo.");
+    }
+    if (tokens > this.poteTokens) {
+      throw new IllegalStateException(
+          "Débito de " + tokens + " excede o pote de " + this.poteTokens + ".");
+    }
+    this.poteTokens -= tokens;
+  }
+
+  /** Zera o pote ao estornar todos os financiadores em CANCELADA/EXPIRADA. */
+  public void zerarPote() {
+    this.poteTokens = 0;
   }
 
   public int getVersao() {

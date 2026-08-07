@@ -148,13 +148,18 @@ public class MissaoController {
   @PostMapping("/{id}/publicar")
   @Operation(
       summary = "Publicar missão",
-      description = "RASCUNHO → ABERTA. Só o criador. A partir daqui a missão é visível a todos.")
+      description =
+          "RASCUNHO → ABERTA. Só o criador. A partir daqui a missão é visível a todos. Missão "
+              + "TRIBO/COLETA com recompensa em tokens exige o pote já financiado, senão 422: como "
+              + "a conclusão paga DO pote, publicar sem cobertura criaria uma missão que ninguém "
+              + "consegue concluir.")
   @ApiResponses({
     @ApiResponse(responseCode = "200", description = "Missão publicada"),
     @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
     @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
     @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
     @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito"),
+    @ApiResponse(responseCode = "422", ref = "#/components/responses/RegraNegocioViolada"),
     @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
   })
   public MissaoResponse publicar(
@@ -270,9 +275,9 @@ public class MissaoController {
     return missaoService.contestar(id, ator(principal, autenticacao), motivo(corpo));
   }
 
-  // ─── Contratos publicados, implementação em fase futura ────────────────────────────────────
-  // Estes três validam autorização (403) e transição (409) antes de responder 501: o contrato de
-  // erro já é o definitivo, então o app mobile integra a ordem de checagens agora.
+  // ─── Contrato publicado, implementação em fase futura ──────────────────────────────────────
+  // Só o check-in continua pendente (F6). Ele valida autorização (403) e transição (409) antes de
+  // responder 501: o contrato de erro já é o definitivo, então o app mobile integra agora.
 
   @PostMapping("/{id}/checkin")
   @Operation(
@@ -320,16 +325,20 @@ public class MissaoController {
 
   @PostMapping("/{id}/confirmar")
   @Operation(
-      summary = "Confirmar conclusão (F7)",
+      summary = "Confirmar conclusão",
       description =
           "AGUARDANDO_CONFIRMACAO → CONCLUIDA. Só o criador. É o ÚNICO caminho que credita "
-              + "carteira, e por isso depende de F7. Autorização e transição já são validadas.")
+              + "carteira: BRL, tokens e XP do executor entram na mesma transação da transição. "
+              + "Idempotente por missão, sem header — repetir devolve o estado atual em vez de 409, "
+              + "porque um retry de rede é a mesma operação. Missão TRIBO/COLETA paga do pote "
+              + "financiado; pote insuficiente responde 422.")
   @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Missão concluída e executor creditado"),
     @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
     @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
     @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
     @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito"),
-    @ApiResponse(responseCode = "501", ref = "#/components/responses/NaoImplementado")
+    @ApiResponse(responseCode = "422", ref = "#/components/responses/RegraNegocioViolada")
   })
   public MissaoResponse confirmar(
       @PathVariable UUID id,
@@ -341,17 +350,19 @@ public class MissaoController {
   @PostMapping("/{id}/resolver")
   @PreAuthorize("hasRole('ADMIN')")
   @Operation(
-      summary = "Resolver disputa (F7)",
+      summary = "Resolver disputa",
       description =
-          "EM_DISPUTA → CONCLUIDA ou CANCELADA. Exclusivo de ADMIN. Autorização e transição já são "
-              + "validadas; o efeito na carteira chega em F7.")
+          "EM_DISPUTA → CONCLUIDA ou CANCELADA. Exclusivo de ADMIN. CONCLUIR credita o executor "
+              + "pelo mesmo caminho da confirmação; CANCELAR não credita ninguém e estorna o pote "
+              + "aos financiadores, se houver.")
   @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Disputa resolvida"),
     @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
     @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
     @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
     @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
     @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito"),
-    @ApiResponse(responseCode = "501", ref = "#/components/responses/NaoImplementado")
+    @ApiResponse(responseCode = "422", ref = "#/components/responses/RegraNegocioViolada")
   })
   public MissaoResponse resolver(
       @PathVariable UUID id,

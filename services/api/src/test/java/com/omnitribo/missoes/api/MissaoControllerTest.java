@@ -221,10 +221,10 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
     mockMvc.perform(get(BASE)).andExpect(status().isUnauthorized());
   }
 
-  // ─── Ordem 403 → 409 → 501 nos stubs ───────────────────────────────────────────────────────
+  // ─── Ordem 403 → 409 → efeito ──────────────────────────────────────────────────────────────
 
   @Test
-  void stubConfirmarValidaAutorizacaoDepoisTransicaoDepoisResponde501() throws Exception {
+  void confirmarValidaAutorizacaoDepoisTransicaoDepoisCredita() throws Exception {
     UUID missaoId = criarEPublicar();
 
     // (1) ator errado numa missão ABERTA → 403, sem revelar o estado
@@ -237,16 +237,24 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
         .perform(post(BASE + "/{id}/confirmar", missaoId).header("Authorization", bearer(ALICE_ID)))
         .andExpect(status().isConflict());
 
-    // (3) criador correto e estado correto → 501, porque o crédito em carteira é F7
+    // (3) criador correto e estado correto → 200, com o crédito efetivado. A ordem 403 → 409
+    //     continua sendo a mesma de quando este caminho era um stub 501; o que mudou é o desfecho.
     UUID aguardando = criarMissaoEm("AGUARDANDO_CONFIRMACAO");
     mockMvc
         .perform(
             post(BASE + "/{id}/confirmar", aguardando).header("Authorization", bearer(ALICE_ID)))
-        .andExpect(status().isNotImplemented());
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("CONCLUIDA"))
+        .andExpect(jsonPath("$.concluidaEm").isNotEmpty());
+
+    Long lancamentos =
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM lancamento WHERE missao_id = ?", Long.class, aguardando);
+    assertThat(lancamentos).as("CONCLUIDA é o único estado que credita").isEqualTo(1L);
   }
 
   @Test
-  void stubResolverComAdminEmDisputaResponde501() throws Exception {
+  void resolverComAdminEmDisputaConcluiECredita() throws Exception {
     UUID emDisputa = criarMissaoEm("EM_DISPUTA");
 
     mockMvc
@@ -256,7 +264,35 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     "{\"resultado\":\"CONCLUIR\",\"justificativa\":\"Comprovantes conferem\"}"))
-        .andExpect(status().isNotImplemented());
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("CONCLUIDA"));
+
+    Long lancamentos =
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM lancamento WHERE missao_id = ?", Long.class, emDisputa);
+    assertThat(lancamentos)
+        .as("RESOLVER_CONCLUIR reusa o mesmo caminho de crédito da confirmação")
+        .isEqualTo(1L);
+  }
+
+  @Test
+  void resolverCancelandoNaoCreditaNinguem() throws Exception {
+    UUID emDisputa = criarMissaoEm("EM_DISPUTA");
+
+    mockMvc
+        .perform(
+            post(BASE + "/{id}/resolver", emDisputa)
+                .header("Authorization", bearer(ADMIN_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"resultado\":\"CANCELAR\",\"justificativa\":\"Entrega não comprovada\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("CANCELADA"));
+
+    Long lancamentos =
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM lancamento WHERE missao_id = ?", Long.class, emDisputa);
+    assertThat(lancamentos).as("disputa cancelada não paga ninguém").isZero();
   }
 
   @Test
