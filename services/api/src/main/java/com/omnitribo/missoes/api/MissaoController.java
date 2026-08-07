@@ -1,6 +1,7 @@
 package com.omnitribo.missoes.api;
 
 import com.omnitribo.compartilhado.api.PaginaResponse;
+import com.omnitribo.compartilhado.dominio.RegraNegocioVioladaException;
 import com.omnitribo.identidade.api.AutenticadoPrincipal;
 import com.omnitribo.missoes.dominio.AtorMissao;
 import com.omnitribo.missoes.dominio.MissaoService;
@@ -10,6 +11,9 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -21,6 +25,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -54,6 +59,29 @@ public class MissaoController {
       @AuthenticationPrincipal AutenticadoPrincipal principal,
       Authentication autenticacao) {
     return missaoService.listar(filtro, ator(principal, autenticacao));
+  }
+
+  // Segmento literal antes de /{id}: o PathPattern do Spring MVC ordena literal acima de variável,
+  // então /proximas nunca é capturado pelo handler de /{id} — independe da ordem de declaração.
+  @GetMapping("/proximas")
+  @Operation(
+      summary = "Buscar missões próximas (radar)",
+      description =
+          "Missões ABERTA dentro do raio, da mais próxima para a mais distante. A distância é "
+              + "medida no servidor por PostGIS (ST_DWithin + ST_Distance) sobre a coordenada "
+              + "informada; valor calculado no cliente é ignorado. Raio default 2000 m, máximo "
+              + "20000 m. O resultado é cacheado por 30 s por célula de ~150 m.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Missões ordenadas por distância crescente"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public List<MissaoProximaResponse> proximas(
+      @Valid @ModelAttribute MissaoProximaFiltroRequest filtro) {
+    // Sem AtorMissao: a busca só devolve missões ABERTA, que são visíveis a qualquer autenticado.
+    // Nada aqui depende de quem pergunta — é o que permite o cache compartilhado entre usuários.
+    return missaoService.buscarProximas(filtro);
   }
 
   @PostMapping
@@ -253,25 +281,46 @@ public class MissaoController {
 
   @PostMapping("/{id}/checkin")
   @Operation(
-      summary = "Registrar check-in geolocalizado (F6)",
+      summary = "Registrar check-in geolocalizado",
       description =
           "EM_ANDAMENTO → AGUARDANDO_CONFIRMACAO. A distância até a origem é calculada no servidor "
               + "por PostGIS e comparada com raio_checkin_m — valor vindo do cliente é ignorado. "
-              + "Autorização e transição já são validadas; a implementação chega em F6.")
+              + "Rejeições respondem 422 e FICAM REGISTRADAS na tabela checkin com o motivo: a "
+              + "trilha é evidência antifraude, não subproduto do sucesso. O header "
+              + "Idempotency-Key é obrigatório; repetir a mesma chave devolve o mesmo resultado "
+              + "sem gravar novo registro.")
   @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Check-in aceito; missão transicionada"),
     @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
     @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
     @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
     @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
     @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito"),
-    @ApiResponse(responseCode = "501", ref = "#/components/responses/NaoImplementado")
+    @ApiResponse(responseCode = "422", ref = "#/components/responses/RegraNegocioViolada"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
   })
   public MissaoResponse checkin(
       @PathVariable UUID id,
       @Valid @RequestBody RegistrarCheckinRequest request,
+      // required=true: a ausência vira 400 pelo próprio framework, sem exceção de domínio.
+      // O @Size não protege o banco (a coluna guarda o sha256, de tamanho fixo) — protege o
+      // cliente de si mesmo: chave vazia ou constante o prenderia para sempre no replay do
+      // primeiro check-in daquela missão, inclusive no de uma rejeição.
+      @RequestHeader("Idempotency-Key") @NotBlank @Size(min = 8, max = 200)
+          String chaveIdempotencia,
       @AuthenticationPrincipal AutenticadoPrincipal principal,
       Authentication autenticacao) {
-    return missaoService.registrarCheckin(id, ator(principal, autenticacao), request);
+    ResultadoRegistroCheckin resultado =
+        missaoService.registrarCheckin(
+            id, ator(principal, autenticacao), request, chaveIdempotencia);
+
+    // O 422 é lançado AQUI, fora da transação, e não lá dentro. Lançar de dentro faria rollback da
+    // linha que acabou de ser gravada em `checkin` — e essa linha é a trilha antifraude, que
+    // precisa sobreviver justamente às tentativas recusadas. Ver ResultadoRegistroCheckin.
+    if (!resultado.aceito()) {
+      throw new RegraNegocioVioladaException(resultado.motivoRejeicao());
+    }
+    return resultado.missao();
   }
 
   @PostMapping("/{id}/confirmar")

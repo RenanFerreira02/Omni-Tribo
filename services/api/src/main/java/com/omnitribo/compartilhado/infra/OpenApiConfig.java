@@ -63,8 +63,7 @@ public class OpenApiConfig {
                     "RegraNegocioViolada",
                     problema(
                         "Corpo bem formado, mas recusado pela validação de negócio no servidor"
-                            + " (ex.: saldo insuficiente, transferência para outra tribo, teto"
-                            + " excedido). Nenhum efeito colateral é gravado."))
+                            + " (ex.: check-in fora do raio). A tentativa fica registrada."))
                 .addResponses(
                     "LimiteExcedido",
                     problema("Limite de requisições excedido. Veja o header Retry-After."))

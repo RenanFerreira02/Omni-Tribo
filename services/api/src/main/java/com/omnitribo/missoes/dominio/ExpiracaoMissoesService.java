@@ -1,5 +1,6 @@
 package com.omnitribo.missoes.dominio;
 
+import com.omnitribo.missoes.infra.CacheMissoesProximas;
 import com.omnitribo.missoes.infra.MissaoEventoRepository;
 import com.omnitribo.missoes.infra.MissaoRepository;
 import java.time.Instant;
@@ -15,15 +16,15 @@ public class ExpiracaoMissoesService {
 
   private final MissaoRepository missaoRepository;
   private final MissaoEventoRepository missaoEventoRepository;
-  private final EstornoFinanciamentoService estornoFinanciamentoService;
+  private final CacheMissoesProximas cacheMissoesProximas;
 
   public ExpiracaoMissoesService(
       MissaoRepository missaoRepository,
       MissaoEventoRepository missaoEventoRepository,
-      EstornoFinanciamentoService estornoFinanciamentoService) {
+      CacheMissoesProximas cacheMissoesProximas) {
     this.missaoRepository = missaoRepository;
     this.missaoEventoRepository = missaoEventoRepository;
-    this.estornoFinanciamentoService = estornoFinanciamentoService;
+    this.cacheMissoesProximas = cacheMissoesProximas;
   }
 
   /**
@@ -70,6 +71,10 @@ public class ExpiracaoMissoesService {
     missaoRepository.saveAll(vencidas);
     // Mesma transação do lote: status e trilha não têm como divergir.
     missaoEventoRepository.saveAll(trilha);
+
+    // Este serviço NÃO passa por MissaoService.aplicar — chama a máquina de estados direto. Sem
+    // este gancho, missões ABERTA→EXPIRADA continuariam aparecendo no radar por até 30 s.
+    cacheMissoesProximas.invalidarAposCommit();
 
     return vencidas.size();
   }

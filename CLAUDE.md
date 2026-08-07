@@ -22,7 +22,8 @@ deliberadamente cortados do MVP. Se achar que algum é necessário, me pergunte 
 
 ## Arquitetura
 
-Monólito modular (ver docs/adr/0001). Módulos:
+Monólito modular (ver docs/adr/0001). Raiz do pacote Java: `com.omnitribo` — sem prefixo `br.`.
+Um pacote por módulo, `com.omnitribo.<modulo>.{api,dominio,infra}`:
 compartilhado · identidade · missoes · geolocalizacao · carteira · logistica · notificacoes
 Cada um com api/ (controllers, DTOs), dominio/ (entidades, regras), infra/ (repositórios, clientes).
 Regra verificada por ArchUnit: módulo só acessa outro por api/ pública ou evento. Nunca repositório

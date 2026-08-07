@@ -50,8 +50,8 @@ public final class MissaoStateMachine {
   }
 
   /**
-   * Só valida, não muta. Usada pelos endpoints stub de F6/F7, para que o contrato de erro deles já
-   * seja o definitivo: 403 e 409 corretos, e só então 501.
+   * Só valida, não muta. Usada pelo check-in (F6) e pelos endpoints stub de F7, para que o contrato
+   * de erro seja o definitivo: 403 e 409 corretos antes de qualquer efeito.
    */
   public static void validar(Missao missao, EventoMissao evento, AtorMissao ator) {
     // Autorização (403) ANTES da transição (409). Na ordem inversa, um estranho descobriria o
@@ -76,15 +76,12 @@ public final class MissaoStateMachine {
   }
 
   /**
-   * Só a autorização (403), sem checar a transição (409).
+   * Só a metade de autorização do {@link #validar}, sem a checagem de transição.
    *
-   * <p>Pública porque a conclusão precisa sondar a idempotência ANTES de olhar o status: um retry
-   * de {@code POST /confirmar} numa missão já CONCLUIDA é a mesma operação, não conflito, e chamar
-   * {@link #validar} primeiro devolveria 409 para um cliente que só perdeu a resposta na rede. A
-   * ordem correta lá é autorizar → sondar replay → validar transição.
-   *
-   * <p>Continua valendo a regra geral: 403 sempre ANTES de 409, senão a diferença entre as duas
-   * respostas revela o status de uma missão alheia.
+   * <p>Pública para o check-in idempotente: entre o 403 e o 409 é preciso sondar a chave de
+   * idempotência, porque um replay legítimo chega com a missão já em AGUARDANDO_CONFIRMACAO e
+   * levaria 409 se a transição fosse checada antes. A autorização continua estritamente primeiro —
+   * sondar antes dela permitiria devolver dados da missão a quem não é mais o executor.
    */
   public static void validarAutorizacao(Missao missao, EventoMissao evento, AtorMissao ator) {
     boolean autorizado =
