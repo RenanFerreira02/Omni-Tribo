@@ -16,8 +16,13 @@ spring:
 logging:
   level:
     com.omnitribo: DEBUG
+    # SQL sim, PARÂMETROS não. org.hibernate.orm.jdbc.bind em TRACE imprime todo valor bindado, o
+    # que a partir da F6 significa derramar lat/lon exatos de cada check-in e de cada busca do
+    # radar no console — e já derramava o hash de senha no login. Contradiz a regra do projeto
+    # ("nunca logue senha, token, refresh, coordenada exata ou payload autenticado"), e dev é
+    # justamente o perfil que sobe numa demo com plateia. Para depurar bind pontualmente, ligue na
+    # linha de comando: -Dlogging.level.org.hibernate.orm.jdbc.bind=TRACE
     org.hibernate.SQL: DEBUG
-    org.hibernate.orm.jdbc.bind: TRACE
 
 springdoc:
   swagger-ui:

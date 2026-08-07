@@ -7,8 +7,17 @@ help: ## Exibe esta ajuda
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
 
 # Alvo de ARQUIVO, não .PHONY — é o que dá a semântica "só roda quando falta".
-# docker-compose.yml declara env_file: .env, então TODO comando que lê o compose
-# falha sem ele, com erro de Docker que não aponta para a causa real.
+#
+# docker-compose.yml declara env_file: .env. Medido no Compose v5.3.1: sem o
+# arquivo, `up` e `config` saem com exit 1 ("env file ... not found"); `down`,
+# `logs` e `ps` funcionam, porque operam sobre containers já rotulados e não
+# precisam resolver a definição do serviço. Ou seja, quem quebra num clone novo
+# é justamente `make up` e `make reset`.
+#
+# O erro do Docker é claro, então isto não existe para decifrar mensagem: existe
+# para eliminar o passo manual. Clone novo roda `make up` e sobe, sem ler doc.
+# O pré-requisito está em todos os alvos por consistência — criar o .env cedo
+# nunca atrapalha, e evita depender de qual subcomando resolve o quê.
 .env:
 	@cp .env.example .env
 	@echo ".env criado a partir de .env.example — ajuste as credenciais se necessário."

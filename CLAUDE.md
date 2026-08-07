@@ -22,7 +22,8 @@ deliberadamente cortados do MVP. Se achar que algum é necessário, me pergunte 
 
 ## Arquitetura
 
-Monólito modular (ver docs/adr/0001). Módulos:
+Monólito modular (ver docs/adr/0001). Raiz do pacote Java: `com.omnitribo` — sem prefixo `br.`.
+Um pacote por módulo, `com.omnitribo.<modulo>.{api,dominio,infra}`:
 compartilhado · identidade · missoes · geolocalizacao · carteira · logistica · notificacoes
 Cada um com api/ (controllers, DTOs), dominio/ (entidades, regras), infra/ (repositórios, clientes).
 Regra verificada por ArchUnit: módulo só acessa outro por api/ pública ou evento. Nunca repositório
@@ -30,9 +31,14 @@ ou entidade JPA alheia. carteira referencia missao_id como UUID puro, sem FK, de
 
 Maturidade real por módulo (o alvo é o de cima; o de hoje é este):
 - Três camadas completas: `compartilhado`, `identidade`, `missoes`.
-- Só `dominio/` + `infra/` — entidades e repositórios, nenhum controller: `carteira`,
-  `geolocalizacao`, `logistica`.
+- `api/` + `dominio/` + `infra/`, mas sem controller próprio — expõe porta consumida por outro
+  módulo: `geolocalizacao` (`RegistroCheckin`, implementada em F6).
+- Só `dominio/` + `infra/` — entidades e repositórios, nenhum controller: `carteira`, `logistica`.
 - Vazio, só `.gitkeep`: `notificacoes`.
+
+Módulo só fala com outro pela `api/` pública. O check-in é o exemplo canônico: `MissaoService`
+(em `missoes.dominio`) injeta a **interface** `geolocalizacao.api.RegistroCheckin` — nunca a
+implementação —, e só records de tipos da JDK atravessam a fronteira nos dois sentidos.
 
 O schema de TODOS já existe desde V4–V7: o banco está à frente do código. Encontrar tabela sem
 código correspondente é o estado esperado, não resíduo.
@@ -58,12 +64,15 @@ Testes: JUnit 5 · Testcontainers · ArchUnit · Jest/RTL/MSW
 
 > `make seed` e `make test` ainda são stubs. Os demais targets (`up`, `down`, `reset`, `logs`, `ps`, `psql`) estão implementados.
 
-Clone novo exige os dois passos abaixo ANTES de qualquer `make up` ou `./mvnw verify`:
+Clone novo exige UM passo antes de `./mvnw verify` ou de subir o servidor:
 
 ```bash
-cp .env.example .env            # docker-compose.yml usa env_file: .env — sem isso o make up falha
 bash tools/gerar-chaves-dev.sh  # services/api/keys/ é gitignored; sem PEM nenhum contexto Spring sobe
 ```
+
+O `.env` NÃO precisa mais ser copiado à mão: todo target do Makefile que lê o compose tem `.env`
+como pré-requisito de arquivo e o cria a partir do `.env.example`. Só ajuste credenciais se o
+default (`omnitribo`/`omnitribo_dev`) não servir.
 
 ```bash
 # Backend
@@ -113,7 +122,13 @@ Em dev: Swagger UI em `http://localhost:8080/swagger-ui.html`, OpenAPI em `/v3/a
 - Exceções de domínio herdam de `DominioException` → mapeadas para status HTTP no handler global → resposta RFC 9457 `ProblemDetail`.
 - Identidade do usuário logado no controller: injete `@AuthenticationPrincipal AutenticadoPrincipal principal` — nunca extraia do corpo ou query string.
 - Teste de integração: use `TesteIntegracaoBase` (RANDOM_PORT + TestRestTemplate) para roundtrip HTTP real; use `TesteIntegracaoMvcBase` (WebEnvironment.MOCK + MockMvc) quando precisar inspecionar headers de resposta. Ambas estendem `ContainerConfig` (PostgreSQL+PostGIS singleton). Spring Boot 4.1 removeu `@AutoConfigureMockMvc` — não tente usá-lo.
-- Query nativa PostGIS em `infra/` com `@Query(nativeQuery=true)` e parâmetros nomeados.
+- **Toda função PostGIS vive em `compartilhado/infra/ConsultasGeoespaciais` — uma classe só, no
+  repositório inteiro** (ADR 0007, que substitui a regra "um repo geo por módulo" do ADR 0002). Usa
+  `JdbcClient`, não `@Query(nativeQuery=true)`: este exige interface ligada a uma `@Entity`, e a
+  única visível de `compartilhado` seria `Outbox`. Parâmetros nomeados seguem obrigatórios, zero
+  concatenação. A classe **não pode importar tipo de módulo** (a regra ArchUnit é direcional):
+  filtros entram como String, o retorno é um par neutro id+distância. Query nativa que NÃO seja
+  geoespacial continua em `infra/` do próprio módulo, com `@Query(nativeQuery=true)`.
 - Spotless (Google Java Format) é verificado no `verify`. Se falhar por formatação, rode `./mvnw spotless:apply`.
 - Jackson é **3** (`tools.jackson`) em todo o repositório, main e test. Spring Boot 4.1 autoconfigura
   esse mapper e não existe bean de `com.fasterxml.jackson.databind.ObjectMapper` — injetá-lo impede
@@ -150,7 +165,12 @@ Banco
 - Flyway é a ÚNICA fonte de schema. ddl-auto é sempre validate. Nunca resolva divergência mudando
   ddl-auto — escreva migration.
 - **Versão de migration é sequência GLOBAL, não por diretório.** Duas faixas, separadas de propósito:
-  - `db/migration` — schema, V1–V11; único location do perfil default/prod. Próxima é **V12**.
+  - `db/migration` — schema; único location do perfil default/prod. Existem V1–V8, V11 e V12.
+    Próxima é **V13**. **V9 e V10 são buracos permanentes, não arquivos faltando**: eram o seed antigo, hoje
+    consolidado em `V900__seed_dev.sql`. Nunca reaproveite esses números: `out-of-order` é `false`
+    (explícito em `application-dev.yml`, default nos demais), então um V9 novo faz o Flyway FALHAR
+    na validação em qualquer banco que já passou da V11 — enquanto o CI, que clona do zero, aplica
+    e passa. Divergência que só aparece na sua máquina.
   - `db/seed` — só dev e test (via `application-dev.yml` / `application-test.yml`), faixa **900+**.
   - A faixa 900+ garante por construção que o seed roda depois de todo schema. Seed novo usa
     V901, V902… e NUNCA um número que o schema possa alcançar. Ver ADR 0006, Notas de manutenção.
@@ -165,8 +185,9 @@ Banco
 - Extensões `postgis` e `pgcrypto` são habilitadas via `docker/init/01-extensions.sql` e `V1__extensoes.sql`. `pgcrypto` provê `gen_random_uuid()` no banco.
 - timestamptz, nunca timestamp. Enum: varchar + CHECK + EnumType.STRING, nunca ordinal.
 - lancamento e auditoria são APPEND-ONLY. Correção por ESTORNO, nunca UPDATE.
-- Toda consulta geoespacial fica isolada em uma classe de repositório (permite trocar PostGIS por
-  Oracle Spatial em um arquivo, se a parceria FIAP-Oracle vier a ser usada).
+- Toda consulta geoespacial fica isolada em UMA classe, `compartilhado/infra/ConsultasGeoespaciais`
+  (permite trocar PostGIS por Oracle Spatial em um arquivo, se a parceria FIAP-Oracle vier a ser
+  usada). Ver ADR 0007 — a regra antiga, "uma por módulo", produzia dois arquivos com `ST_*`.
 
 Segurança
 
@@ -212,13 +233,22 @@ Git
 
 ## Estado atual
 
-Fase atual: F4 (Concluído, junto com F3) — F5 (Carteira e Economia) é a próxima fase. Ver docs/PROGRESSO.md.
+Fase atual: F6 (Concluído). **F5 (Carteira e Economia) segue PENDENTE** — a F6 foi feita fora de
+ordem. F5 e F7 são as próximas. Ver docs/PROGRESSO.md.
 
 Módulo `missoes` implementado: máquina de estados em `StatusMissao` + `MissaoStateMachine`
 (9 estados, 12 transições, ver ADR 0006), endpoints em `/api/v1/missoes`, aceite com lock pessimista.
-Três endpoints publicam contrato e respondem **501** até suas fases: `checkin` (F6), `confirmar` e
-`resolver` (F7) — todos já validam 403 e 409 antes do 501, então F6/F7 só trocam o corpo do método.
+Dois endpoints ainda publicam contrato e respondem **501**: `confirmar` e `resolver` (F7) — validam
+403 e 409 antes do 501, então a F7 só troca o corpo do método.
 Crédito em carteira NÃO existe em nenhum caminho ainda: só a entrada em `CONCLUIDA` poderá creditar.
+
+F6 entregou o radar (`GET /missoes/proximas`) e o check-in geolocalizado. Três coisas que valem
+saber antes de mexer:
+- Todo `ST_*` do repositório está em `compartilhado/infra/ConsultasGeoespaciais` (ADR 0007).
+- O check-in grava a linha em transação `REQUIRES_NEW`, e é isso que faz a trilha de auditoria
+  sobreviver ao 422 da rejeição. Não "simplifique" para uma transação só — a rejeição some.
+- O cache de proximidade invalida em `afterCommit`, não durante a transação, e tem **cinco** pontos
+  de invalidação. `ExpiracaoMissoesService` é um deles e não passa por `MissaoService.aplicar`.
 
 Antes de rodar a suíte pela primeira vez num clone novo: `bash tools/gerar-chaves-dev.sh`
 (`services/api/keys/` é gitignored e os testes de `TesteIntegracaoBase` carregam o `JwtService` real).

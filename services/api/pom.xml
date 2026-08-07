@@ -68,6 +68,15 @@
       <artifactId>bucket4j-core</artifactId>
       <version>${bucket4j.version}</version>
     </dependency>
+    <!-- Cache em memória da busca por proximidade (TTL 30s). Sem Redis, mesma decisão do
+         bucket4j acima: instância única no MVP.
+         Sem <version>: gerenciada pelo BOM do Spring Boot 4.1 (caffeine.version = 3.2.4).
+         Sem spring-boot-starter-cache de propósito — @CacheEvict dispara DENTRO da transação,
+         e a invalidação precisa acontecer depois do commit. Ver CacheMissoesProximas. -->
+    <dependency>
+      <groupId>com.github.ben-manes.caffeine</groupId>
+      <artifactId>caffeine</artifactId>
+    </dependency>
     <!-- Aspecto de auditoria (@Aspect / @AfterReturning).
          Em Spring Boot 4.x, AOP é ativado via aspectjweaver diretamente
          (spring-boot-starter-aop foi removido nesta versão). -->

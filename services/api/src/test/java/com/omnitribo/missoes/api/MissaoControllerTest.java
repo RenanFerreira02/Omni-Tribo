@@ -44,7 +44,7 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
   // ─── Caminho feliz ─────────────────────────────────────────────────────────────────────────
 
   @Test
-  void cicloCompleto_criarPublicarAceitarIniciar_ateOStubDeCheckin() throws Exception {
+  void cicloCompleto_criarPublicarAceitarIniciarCheckin() throws Exception {
     UUID missaoId = criarMissao(ALICE_ID, corpoEntregaValido());
 
     // Nasce em RASCUNHO — nunca no estado que o cliente pedir.
@@ -74,16 +74,23 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("EM_ANDAMENTO"));
 
-    // Check-in é contrato publicado sem implementação: 501, não 500.
+    // Check-in na própria origem da missão: distância ~0, dentro do raio de 50 m. Implementado em
+    // F6 — o detalhe das regras antifraude fica em CheckinControllerTest; aqui só se o ciclo fecha.
     mockMvc
         .perform(
             post(BASE + "/{id}/checkin", missaoId)
                 .header("Authorization", bearer(BOB_ID))
+                .header("Idempotency-Key", "ciclo-completo-" + missaoId)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"lat\":-23.5629,\"lon\":-46.6996,\"acuraciaM\":8.0}"))
-        .andExpect(status().isNotImplemented())
-        .andExpect(
-            jsonPath("$.detail").value("Funcionalidade ainda não disponível nesta versão da API."));
+                .content("{\"lat\":-23.5629,\"lon\":-46.6996,\"acuraciaM\":8.0,\"mocked\":false}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("AGUARDANDO_CONFIRMACAO"));
+
+    // Esta é a única linha em `checkin` que esta classe gera, e ela precisa sair daqui. A tabela é
+    // compartilhada por toda a suíte e alimenta a checagem de plausibilidade cinemática: uma linha
+    // órfã do BOB em Pinheiros faria um check-in futuro dele em outra classe ser marcado suspeito
+    // sem motivo. Limpar aqui é responsabilidade de quem sujou.
+    jdbcTemplate.update("DELETE FROM checkin WHERE missao_id = ?", missaoId);
   }
 
   @Test
