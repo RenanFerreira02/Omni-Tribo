@@ -86,6 +86,10 @@ public class MissaoService {
   // por isso pode ser injetado como classe concreta.
   private final EstornoFinanciamentoService estornoFinanciamentoService;
 
+  // Calibração da fórmula de recompensa. Injetada como record de properties para que ajustar os
+  // números não exija recompilar — a FÓRMULA é código, os NÚMEROS são configuração.
+  private final ParametrosRecompensa parametrosRecompensa;
+
   public MissaoService(
       MissaoRepository missaoRepository,
       MissaoEventoRepository missaoEventoRepository,
@@ -95,7 +99,8 @@ public class MissaoService {
       CreditoRecompensa creditoRecompensa,
       ProgressaoUsuario progressaoUsuario,
       PublicadorEventos publicadorEventos,
-      EstornoFinanciamentoService estornoFinanciamentoService) {
+      EstornoFinanciamentoService estornoFinanciamentoService,
+      ParametrosRecompensa parametrosRecompensa) {
     this.missaoRepository = missaoRepository;
     this.missaoEventoRepository = missaoEventoRepository;
     this.consultasGeoespaciais = consultasGeoespaciais;
@@ -105,6 +110,7 @@ public class MissaoService {
     this.progressaoUsuario = progressaoUsuario;
     this.publicadorEventos = publicadorEventos;
     this.estornoFinanciamentoService = estornoFinanciamentoService;
+    this.parametrosRecompensa = parametrosRecompensa;
   }
 
   // A trilha de auditoria fica no serviço, não no controller: é onde a escrita acontece e onde o
@@ -114,6 +120,11 @@ public class MissaoService {
   @Transactional
   public MissaoResponse criar(CriarMissaoRequest req, AtorMissao ator) {
     Instant agora = Instant.now();
+
+    // A recompensa é DERIVADA aqui, não recebida: até o ADR 0009 ela vinha do corpo, e uma missão
+    // trivial podia nascer valendo o teto. Congelada junto com a versão da fórmula — ver o javadoc
+    // de CalculadoraDeRecompensa.
+    CalculadoraDeRecompensa.Recompensa recompensa = calcularRecompensa(req);
 
     // Toda missão nasce RASCUNHO, e o criador é sempre o dono do JWT. Nenhum dos dois é
     // aceito do corpo da requisição.
@@ -125,9 +136,8 @@ public class MissaoService {
             req.titulo(),
             req.descricao(),
             StatusMissao.RASCUNHO,
-            req.xpRecompensa(),
+            recompensa,
             req.valorBrl(),
-            req.tokensRecompensa(),
             Coordenadas.ponto(req.origemLat(), req.origemLon()),
             Coordenadas.ponto(req.destinoLat(), req.destinoLon()),
             req.pontoCustodiaId(),
@@ -151,6 +161,27 @@ public class MissaoService {
     cacheMissoesProximas.invalidarAposCommit();
 
     return MissaoResponse.de(salva);
+  }
+
+  /**
+   * Monta os insumos e chama a calculadora.
+   *
+   * <p>A distância só é medida quando há destino — TRIBO nunca tem, e uma consulta ao PostGIS para
+   * descobrir isso seria ida ao banco para receber zero. Quem mede é {@code
+   * ConsultasGeoespaciais.distanciaMetros}, que recebe quatro escalares e não toca a tabela.
+   */
+  public CalculadoraDeRecompensa.Recompensa calcularRecompensa(CriarMissaoRequest req) {
+    Double distanciaM = null;
+    if (req.destinoLat() != null && req.destinoLon() != null) {
+      distanciaM =
+          consultasGeoespaciais.distanciaMetros(
+              req.origemLat(), req.origemLon(), req.destinoLat(), req.destinoLon());
+    }
+
+    return CalculadoraDeRecompensa.calcular(
+        new CalculadoraDeRecompensa.Insumos(
+            req.categoria(), req.complexidade(), req.pesoKg(), req.volumeL(), distanciaM),
+        parametrosRecompensa);
   }
 
   @Transactional(readOnly = true)

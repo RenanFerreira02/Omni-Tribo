@@ -1,6 +1,7 @@
 package com.omnitribo.missoes.api;
 
 import com.omnitribo.missoes.dominio.CategoriaMissao;
+import com.omnitribo.missoes.dominio.ComplexidadeMissao;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -21,6 +22,14 @@ import java.util.UUID;
  * <p>Não existem campos status, executorId nem criadorId: o status inicial é sempre RASCUNHO e o
  * criador vem do JWT. Aceitá-los aqui seria mass assignment — o cliente escolheria em que estado a
  * missão nasce e a quem ela pertence.
+ *
+ * <p><b>Também não existem xpRecompensa nem tokensRecompensa</b>, e a razão é a mesma: eram o
+ * caminho pelo qual o criador escolhia quanto a própria missão valia. Medido antes da remoção: uma
+ * missão sem peso, sem volume e sem destino foi criada com 5.000 XP e 1.000 tokens, o teto que o
+ * {@code @Max} permitia. Hoje quem calcula é {@code CalculadoraDeRecompensa}, a partir de
+ * categoria, complexidade, distância, peso e volume — e o valor é congelado com a versão da
+ * fórmula. Enviar os campos mesmo assim é inofensivo: {@code fail-on-unknown-properties: false} os
+ * descarta em silêncio, como já acontece com status e executorId.
  */
 @CriacaoMissaoVerificador.MissaoCriacaoConsistente
 @Schema(description = "Dados para criar uma missão. A missão nasce em RASCUNHO.")
@@ -37,12 +46,11 @@ public record CriarMissaoRequest(
         @DecimalMax(value = "500.00", message = "Valor em BRL não pode passar de R$ 500,00")
         @Digits(integer = 12, fraction = 2, message = "Valor em BRL deve ter no máximo 2 decimais")
         BigDecimal valorBrl,
-    @Min(value = 0, message = "Tokens não podem ser negativos")
-        @Max(value = 1000, message = "Máximo de 1000 tokens por missão")
-        long tokensRecompensa,
-    @Min(value = 0, message = "XP não pode ser negativo")
-        @Max(value = 5000, message = "Máximo de 5000 XP por missão")
-        int xpRecompensa,
+    @Schema(
+            description =
+                "Esforço da missão. Informe APENAS quando não houver peso e volume — com os dois"
+                    + " presentes o servidor deriva, e um valor aqui é recusado com 400.")
+        ComplexidadeMissao complexidade,
     @NotNull(message = "Latitude de origem é obrigatória")
         @DecimalMin(value = "-90.0", message = "Latitude deve estar entre -90 e 90")
         @DecimalMax(value = "90.0", message = "Latitude deve estar entre -90 e 90")

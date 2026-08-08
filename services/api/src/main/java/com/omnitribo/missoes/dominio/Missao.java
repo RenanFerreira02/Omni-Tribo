@@ -53,6 +53,29 @@ public class Missao {
   @Column(name = "tokens_recompensa", nullable = false)
   private long tokensRecompensa;
 
+  // length = 7 casa com o VARCHAR(7) da V16 — ddl-auto é validate e reprova divergência.
+  @Enumerated(EnumType.STRING)
+  @Column(length = 7)
+  private ComplexidadeMissao complexidade;
+
+  /**
+   * Versão da calibração que produziu xpRecompensa e tokensRecompensa.
+   *
+   * <p>Congelada na criação e NUNCA recalculada. É o que permite responder, meses depois, se um
+   * crédito estava certo quando foi feito — sem ela, mudar um parâmetro reinterpreta
+   * retroativamente toda missão já aceita. Nula em missões anteriores à V16, que não vieram de
+   * fórmula alguma.
+   */
+  @Column(name = "versao_formula")
+  private Integer versaoFormula;
+
+  /**
+   * Reservado para a F11. Nenhum código lê ou escreve hoje; entrou junto para que o congelamento da
+   * recompensa já nascesse completo.
+   */
+  @Column(name = "multiplicador_risco", precision = 4, scale = 2)
+  private BigDecimal multiplicadorRisco;
+
   @Column(nullable = false, columnDefinition = "geography(POINT,4326)")
   private Point origem;
 
@@ -130,9 +153,8 @@ public class Missao {
       String titulo,
       String descricao,
       StatusMissao status,
-      int xpRecompensa,
+      CalculadoraDeRecompensa.Recompensa recompensa,
       BigDecimal valorBrl,
-      long tokensRecompensa,
       Point origem,
       Point destino,
       UUID pontoCustodiaId,
@@ -153,9 +175,15 @@ public class Missao {
     this.titulo = titulo;
     this.descricao = descricao;
     this.status = status;
-    this.xpRecompensa = xpRecompensa;
+    // Recompensa chega como UM objeto, e não como três parâmetros soltos, de propósito: neste
+    // construtor de 20+ posições, xpRecompensa (int) e raioCheckinM (int) são intercambiáveis para
+    // o
+    // compilador, e uma inversão passaria silenciosa. O record torna a troca impossível.
+    this.xpRecompensa = recompensa.xp();
+    this.tokensRecompensa = recompensa.tokens();
+    this.complexidade = recompensa.complexidade();
+    this.versaoFormula = recompensa.versaoFormula();
     this.valorBrl = valorBrl;
-    this.tokensRecompensa = tokensRecompensa;
     this.origem = origem;
     this.destino = destino;
     this.pontoCustodiaId = pontoCustodiaId;
@@ -259,6 +287,18 @@ public class Missao {
 
   public long getTokensRecompensa() {
     return tokensRecompensa;
+  }
+
+  public ComplexidadeMissao getComplexidade() {
+    return complexidade;
+  }
+
+  public Integer getVersaoFormula() {
+    return versaoFormula;
+  }
+
+  public BigDecimal getMultiplicadorRisco() {
+    return multiplicadorRisco;
   }
 
   @SuppressFBWarnings(

@@ -69,8 +69,21 @@ retorno é `AlvoProximo`, um par neutro id+distância que o chamador reidrata.
 ## Economia (três moedas)
 
 **Quem cria a missão NÃO paga.** Essa é a premissa do produto, e o ADR 0009 a registrou depois de
-ela ter sido violada em silêncio pelo ADR 0004. A recompensa é XP + TOKEN, dimensionada por
-complexidade e tipo.
+ela ter sido violada em silêncio pelo ADR 0004. A recompensa é XP + TOKEN, **calculada pelo servidor
+e congelada na criação** — o DTO de criação NÃO tem `xpRecompensa` nem `tokensRecompensa`.
+
+`CalculadoraDeRecompensa` (`missoes/dominio`) é função pura: recebe categoria, complexidade,
+distância, peso e volume, e devolve XP + tokens + complexidade efetiva + `versaoFormula`. Calibração
+em `app.missoes.recompensa.*` — a FÓRMULA é código, os NÚMEROS são configuração.
+
+**Mudou parâmetro no YAML? Suba `versao` junto.** `CalculadoraDeRecompensaTest.douradoV1` falha de
+propósito para forçar a decisão: sem isso, missões antigas passam a ser explicadas por uma calibração
+que não as produziu, e some a resposta para "este crédito estava certo quando foi feito?".
+
+**Complexidade: derivada onde há dado.** ENTREGA e COLETA exigem peso e volume, e o servidor deriva —
+declarar junto é 400. TRIBO e AJUDA declaram, porque não movem objeto. A conclusão LÊ o congelado,
+nunca recalcula. `POST /missoes/previa-recompensa` mostra o valor sem criar nada; o app nunca duplica
+a fórmula.
 
 XP: reputação, não transferível, monotônico, sem ledger. Nível é DERIVADO do XP por `RegraNivel`,
 nunca incrementado — a coluna `usuario.nivel` é cache recalculado a cada concessão.
@@ -153,7 +166,8 @@ relatório de cobertura em `services/api/target/site/jacoco/`, publicado como ar
 
 `/api/v1/auth` — `POST registrar` · `POST login` · `POST refresh` · `POST logout` · `GET me`
 
-`/api/v1/missoes` — `GET` (lista paginada com filtro) · `GET /proximas` (radar geoespacial) · `POST`
+`/api/v1/missoes` — `GET` (lista paginada com filtro) · `GET /proximas` (radar geoespacial) ·
+`POST /previa-recompensa` (calcula sem criar) · `POST`
 · `GET /{id}` · `PATCH /{id}`, mais as ações `POST /{id}/{acao}`: `publicar`, `aceitar`, `iniciar`,
 `desistir`, `cancelar`, `contestar`, `checkin`, `confirmar` e `resolver` (este último só ADMIN).
 **Nenhuma ação responde 501 desde o merge de F5+F6** — o handler de `UnsupportedOperationException`
@@ -181,7 +195,10 @@ volta da linha 335) afirmando que `confirmar`/`resolver` ainda são stubs. Não 
 
 - `docs/PROGRESSO.md` — tabela de fases e **Notas de manutenção**: o log de por que cada correção
   estrutural foi feita. Primeiro lugar a olhar quando algo neste arquivo parecer arbitrário.
-  Atenção: a tabela de fases está inconsistente hoje (ver Pendências conhecidas).
+- `docs/auditoria/F0.md`…`F7.md` — uma auditoria por fase, contra a especificação original, com
+  evidência EXECUTADA (SQL, `curl`, `EXPLAIN ANALYZE`). Classificam cada item como DEFEITO, LACUNA,
+  DIVERGÊNCIA ACEITÁVEL, EXCEDENTE ou CONFORME. É onde está o raciocínio por trás de decisões que
+  parecem estranhas — inclusive duas premissas de especificação que foram refutadas com medição.
 - `docs/adr/` — decisões com alternativas descartadas. 0001 monólito · 0002 PostGIS · 0003 Expo ·
   0004 três moedas (**tabela de moedas substituída pelo 0009**) · 0005 JWT+Argon2 · 0006 máquina de
   estados · 0007 consultas geoespaciais centralizadas · 0008 ledger append-only e idempotência ·
@@ -202,6 +219,8 @@ volta da linha 335) afirmando que `confirmar`/`resolver` ainda são stubs. Não 
   O passo 2 (mobile) reporta NÃO VERIFICADO enquanto `apps/mobile/package.json` não existir (F9+);
   isso não é falha e não invalida os passos 1, 3 e 4.
 - `/adr <assunto>` — cria `docs/adr/NNNN-<slug>.md` com o próximo número. Template exige Alternativas descartadas com motivo real.
+- Agente `auditor` — audita uma fase contra a especificação e entrega relatório em
+  `docs/auditoria/FN.md`. **Não altera arquivo do projeto.** Regra central: medir antes de afirmar.
 - Agente `revisor-seguranca` — revisa autenticação, autorização, endpoints de valor, webhooks, dados pessoais. Checar após implementar qualquer um desses.
 - Agente `revisor-testes` — avalia se a suíte realmente garante comportamento (não conta testes, avalia o que cobrem). Rodar ao fechar fase.
 
@@ -421,15 +440,40 @@ Git
   Inglês nos termos técnicos consagrados (Repository, Service, Controller, Dto).
 - Decisão arquitetural relevante gera ADR em docs/adr/.
 
+### Modo auditoria
+
+Quando eu pedir para AUDITAR uma fase, o modo é outro: **não altere nenhum arquivo do projeto.** A
+entrega é um relatório em `docs/auditoria/FN.md`, e só ele.
+
+- Classifique cada item como **DEFEITO**, **LACUNA**, **DIVERGÊNCIA ACEITÁVEL**, **EXCEDENTE** ou
+  **CONFORME**, sempre com arquivo e linha.
+- **Meça antes de afirmar.** Rode SQL contra o banco de pé, `curl` contra a API em execução, e os
+  testes. Vários achados das auditorias F0–F7 eram invisíveis na leitura do código: o oráculo de
+  tempo no login (~6 ms contra ~68 ms), o `REVOKE` inerte porque a aplicação conecta como dono das
+  tabelas, e o comentário que afirmava uma defesa inexistente. Ler o código teria confirmado o
+  comentário.
+- Se um item da especificação estiver tecnicamente errado, **diga**, com o raciocínio — não acomode.
+  Ex.: "404 vaza existência" está invertido; quem vaza é o 403.
+- Termine com ordem de correção por impacto, e PARE. Corrigir é tarefa separada, e eu decido quando.
+
 ## Estado atual
 
-`develop` carrega o merge de DUAS fases: carteira/economia e geolocalização/check-in. O merge
-chegou quebrado (construtor de uma branch com corpos de método da outra) e foi consertado na
-auditoria de 2026-08-07 — ver Notas de manutenção em docs/PROGRESSO.md.
+**Backend fechado até F7, auditado fase a fase.** Build verde com **383 testes**, 0 falhas, SpotBugs
+limpo. Os oito relatórios em `docs/auditoria/` são o registro do que foi verificado e do que ficou
+em aberto; a rodada corrigiu 7 defeitos, cinco deles invisíveis na leitura do código.
+
+**Próximo passo é o mobile (F9+).** Nada no backend bloqueia — o fluxo completo foi exercitado
+ponta a ponta por HTTP: login → radar → prévia de recompensa → criar → publicar → aceitar → iniciar
+→ check-in → confirmar → extrato. Ver Pendências conhecidas #3 para as quatro leituras que faltam,
+e #4 para a decisão de contrato de erro a tomar antes da primeira tela.
+
+`develop` carrega o merge de duas fases (carteira e geolocalização) que chegou quebrado — construtor
+de uma branch com corpos de método da outra — e foi consertado na auditoria de 2026-08-07.
 
 Módulo `missoes`: máquina de estados em `StatusMissao` + `MissaoStateMachine` (9 estados, **13**
 transições — ver ADR 0006), endpoints em `/api/v1/missoes`, aceite com lock pessimista, radar de
-proximidade com cache, expiração por `@Scheduled`.
+proximidade com cache, expiração por `@Scheduled`. **Recompensa derivada por
+`CalculadoraDeRecompensa` e congelada com `versao_formula`** — o cliente não a informa (V16).
 
 Módulo `geolocalizacao`: check-in geolocalizado com validação 100% servidor, idempotência por hash,
 trilha antifraude append-only (a rejeição é gravada E o 422 é devolvido). O que os controles não
@@ -445,6 +489,11 @@ e é o documento a defender oralmente.
 
 `CONCLUIDA` continua sendo o ÚNICO estado que credita — a regra que o protótipo descartado violava.
 
+Módulos `logistica` e `notificacoes` são F8: o primeiro tem entidades e repositórios sem serviço nem
+controller (`PontoCustodiaRepository` é órfão hoje), o segundo está vazio. Quando `notificacoes` for
+povoado, `DespachanteAlerta` migra de `compartilhado/dominio` para lá — e passa a valer para ele a
+regra do ArchUnit, que hoje não o alcança porque `compartilhado` é isento.
+
 Contagem de testes e evidência de build NÃO ficam neste arquivo — envelhecem a cada PR. Fonte:
 docs/PROGRESSO.md e docs/qualidade/.
 
@@ -455,12 +504,7 @@ Usuários seed (perfis `dev` e `test`, carregados via `db/seed/V900__seed_dev.sq
 
 Seção para armadilhas diagnosticadas e ainda não corrigidas. Ao resolver uma, remova-a daqui.
 
-**1. `docs/PROGRESSO.md` está inconsistente com o código.** A tabela marca F5 (Carteira e Economia)
-como pendente, embora o módulo esteja mergeado em `develop`; e as duas branches numeraram a mesma
-fase de formas diferentes (o commit da carteira se chama "F7", a tabela a chama de "F5"). Alinhar a
-numeração e o status antes de abrir a próxima fase.
-
-**2. O `REVOKE UPDATE, DELETE` das tabelas append-only não vale em runtime.** As migrations criam o
+**1. O `REVOKE UPDATE, DELETE` das tabelas append-only não vale em runtime.** As migrations criam o
 papel `omnitribo_app` com `SELECT, INSERT` apenas em `lancamento`, `auditoria`, `checkin` e
 `missao_evento`, e o comentário SQL descreve isso como "defesa em profundidade... mesmo que o código
 da aplicação tente executá-los". **Mas a aplicação não conecta com esse papel** — `application.yml`,
@@ -474,7 +518,7 @@ Flyway um usuário próprio com DDL (`spring.flyway.user`), já que o papel de a
 schema. Enquanto isso não for feito, a imutabilidade do ledger é garantida só pela disciplina do
 código — que é o que o ADR 0008 já argumenta —, e não pelo banco.
 
-**3. ENTREGA e AJUDA ainda CUNHAM token, até a carteira de patrocinador da F8.** `pagaTokensDoPote`
+**2. ENTREGA e AJUDA ainda CUNHAM token, até a carteira de patrocinador da F8.** `pagaTokensDoPote`
 cobre só TRIBO e COLETA, então a conservação
 `SUM(carteira.saldo_tokens) + SUM(missao.pote_tokens)` vale para essas duas, não para o sistema
 inteiro.
@@ -486,3 +530,21 @@ perder o cliente, então patrocinar o pote sai mais barato que o fracasso. É es
 do challenge. Preferimos uma lacuna documentada a uma regra errada codificada. Fecha na F8, quando a
 carteira de patrocinador financiar o pote pela mecânica que já existe (`FinanciamentoMissao`), e aí
 `pagaTokensDoPote` passa a valer para todas as categorias.
+
+**3. Quatro leituras que o app mobile vai pedir e ainda não existem.** Nenhuma bloqueia começar o
+front — o núcleo (auth, radar, ciclo de vida, check-in, carteira, extrato) está completo e foi
+exercitado ponta a ponta. Cada uma é um `GET` sem regra de negócio nova, e deve entrar quando a tela
+que a consome existir, não antes:
+
+| Falta | Tela afetada | Situação hoje |
+|---|---|---|
+| `GET /alertas` | notificações | `DespachanteAlerta` grava em `alerta`, e ninguém lê — caixa de entrada invisível |
+| `GET /auth/me` completo | perfil | devolve só `{id, email, papel}`; sem nome, handle, XP, nível, tribo |
+| `GET /tribos` | perfil, registro | "sua tribo" só existe como UUID |
+| `GET /pontos-custodia/{id}` | detalhe de ENTREGA | `MissaoResponse` traz `pontoCustodiaId` cru; o app mostraria um UUID em vez de "Leroy Merlin Pinheiros". `PontoCustodiaRepository` é repositório órfão, sem serviço nem controller |
+
+**4. Granularidade do catálogo de `type` — decidir ANTES da primeira tela de erro.** Hoje é uma URI
+por CLASSE de erro: todo 422 é `regra-negocio-violada`, seja saque desligado, saldo insuficiente ou
+check-in fora do raio. Se o app precisar ramificar entre causas do mesmo status, o caminho é
+subclasse de `DominioException` sobrescrevendo `getTipo()` com URI nova — **nunca** parsear `detail`.
+Decidir depois significa refazer o tratamento de erro no mobile.

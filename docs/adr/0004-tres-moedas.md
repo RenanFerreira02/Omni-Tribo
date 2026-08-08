@@ -1,7 +1,7 @@
 # 0004 — Três Moedas com Papéis Distintos
 
 **Data:** 2026-08-04  
-**Status:** Aceito
+**Status:** Substituído por [0009](./0009-economia-do-cuidado-token-como-recompensa.md)
 
 ---
 
@@ -17,6 +17,12 @@ uma métrica de reputação imutável que não seja transferível nem sacável.
 ## Decisão
 
 Adotamos três moedas com papéis e implementações distintas:
+
+> ⚠️ **A linha do BRL abaixo foi REVOGADA pelo [ADR 0009](./0009-economia-do-cuidado-token-como-recompensa.md).**
+> A premissa de que o criador paga a missão em dinheiro nunca foi a do produto: quem publica não
+> paga. Hoje `ck_missao_economia` (V15) exige `valor_brl = 0` em **todas** as categorias, e a
+> recompensa é XP + TOKEN. As linhas de **XP** e **TOKEN** seguem válidas, com uma mudança: TOKEN
+> passou a ser a recompensa de todas as categorias, não só de TRIBO e COLETA.
 
 | Moeda | Papel | Transferível | Ledger | Tipo SQL | Missões elegíveis |
 |-------|-------|-------------|--------|----------|-------------------|

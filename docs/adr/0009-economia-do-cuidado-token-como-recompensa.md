@@ -62,7 +62,27 @@ ciclo de missões.**
    exigir `valor_brl = 0` para todas (V15). A validação de request devolve 400 apontando o campo,
    para que o cliente não receba um 500 de violação de constraint.
 
-2. **A recompensa é XP + TOKEN**, dimensionada por complexidade e tipo da missão.
+2. **A recompensa é XP + TOKEN, CALCULADA PELO SERVIDOR.** É derivada de categoria, complexidade,
+   distância origem→destino, peso, volume e janela — nunca informada pelo cliente. O DTO de criação
+   **não expõe** `xpRecompensa` nem `tokensRecompensa`; se vierem no corpo, são ignorados, pela mesma
+   disciplina que já descarta `status`, `executorId` e `criadorId`.
+
+   **Por que isso é parte desta decisão, e não detalhe de implementação:** recompensa escolhida pelo
+   cliente é o mesmo vetor de abuso do `valor_brl` que este ADR fecha, transposto para o token — e
+   pior, porque o token resgata benefício real de parceiro. Medido contra a API: uma missão AJUDA
+   trivial, sem peso, sem volume e sem destino, foi criada com 5.000 XP e 1.000 tokens, o teto que a
+   validação permite. Com ENTREGA e AJUDA ainda cunhando, isso é emissão sem contrapartida.
+
+   O valor calculado é **congelado na criação** em `xp_recompensa`, `tokens_recompensa` e
+   `versao_formula`, e **nunca recalculado na conclusão** — que lê o congelado. Sem a versão da
+   fórmula, mudar a tabela de parâmetros amanhã reinterpretaria retroativamente toda missão já
+   aceita: quebraria o acordo com quem aceitou, e tornaria impossível auditar se um crédito estava
+   certo quando foi feito. É o mesmo princípio do `saldo_apos_*` no ledger, aplicado à origem do
+   valor em vez de ao efeito dele.
+
+   `POST /api/v1/missoes/previa-recompensa` devolve o cálculo sem criar nada, para que o app mostre o
+   valor antes de publicar **sem duplicar a fórmula no cliente** — o que reabriria a divergência por
+   outro caminho.
 
 3. **O sumidouro do TOKEN é o resgate em benefício de parceiro.** É o que faltava: o pote *não* é
    sumidouro — é transferência que volta no cancelamento. Resgate retira token de circulação de

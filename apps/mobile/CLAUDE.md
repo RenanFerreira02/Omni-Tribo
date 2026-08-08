@@ -1,5 +1,7 @@
 # Mobile
 
+## Estrutura
+
 - app/ só rotas do Expo Router. Tela é composição, sem lógica de negócio.
 - src/features/<dominio>/ hooks de TanStack Query e lógica. src/api/ é o único lugar que fala HTTP.
 - src/components/ design system, sem chamada de API. src/stores/ Zustand só para UI e sessão.
@@ -8,3 +10,41 @@
 - Toda chamada de API tem estado de carregando, vazio e erro tratados na UI.
 - npx expo install, nunca npm install, para pacotes do ecossistema Expo.
 - Antes de terminar: npm run typecheck && npm run lint && npm test, e cole a saída.
+
+## Economia — o que a UI precisa saber (ADR 0009)
+
+**Quem cria a missão NÃO paga.** A recompensa é XP + TOKEN, dimensionada por complexidade e tipo, e
+**calculada pelo servidor** — o app nunca envia nem recalcula valor de recompensa. Se precisar
+mostrar o valor antes de criar, use o endpoint de prévia; duplicar a fórmula no cliente reabre por
+outro caminho a divergência que o ADR fechou.
+
+**TOKEN é a moeda principal da tela de carteira.** É o que o usuário ganha e o que resgata em
+benefício de parceiro do bairro.
+
+**`saldoBrl` é sempre `0` e não se movimenta.** A coluna existe como infraestrutura de uma conversão
+patrocinada futura; nenhuma missão remunera em BRL. Não construa UI que sugira o contrário.
+
+**`POST /carteira/saques` responde 422**, com `type` `.../regra-negocio-violada`. O saque está
+desligado por configuração (`app.carteira.saque-habilitado`), não quebrado. A tela precisa de estado
+e mensagem próprios — o `detail` da resposta já explica ao usuário o que ele PODE fazer.
+
+## Tratamento de erro — regra dura
+
+**Discrimine erro pelo campo `type` do ProblemDetail. NUNCA pelo `detail`.**
+
+`detail` é texto em português voltado a humano e muda a cada revisão de copy — um `if` sobre ele
+quebra silenciosamente. `status` sozinho é ambíguo: dois 409 diferentes pedem reações diferentes
+(transição inválida → recarregue a tela; colisão de versão → tente de novo).
+
+O catálogo de URIs estáveis está em `compartilhado/api/TipoProblema` no backend. Toda resposta de
+erro carrega `type`, inclusive as que nascem na cadeia de filtros (401, 429) — nenhuma sai como
+`about:blank`.
+
+Hoje a granularidade é **uma URI por classe de erro, não por causa**: todo 422 é
+`regra-negocio-violada`, seja saque desligado, saldo insuficiente ou check-in fora do raio. Se uma
+tela precisar ramificar entre causas de um mesmo status, peça um `type` novo no backend — não
+parseie `detail`.
+
+Campos garantidos em toda resposta de erro: `type`, `title`, `status`, `detail`, `instance` e
+`traceId`. Erros de validação trazem também `errors[{campo, mensagem}]`, prontos para marcar o campo
+no formulário.

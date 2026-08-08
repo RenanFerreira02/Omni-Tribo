@@ -84,13 +84,33 @@ public class MissaoController {
     return missaoService.buscarProximas(filtro);
   }
 
+  @PostMapping("/previa-recompensa")
+  @Operation(
+      summary = "Prévia da recompensa",
+      description =
+          "Calcula quanto a missão valeria, sem criar nada. Existe para que o app mostre o valor "
+              + "antes de publicar SEM duplicar a fórmula no cliente — duplicá-la reabriria por "
+              + "outro caminho a divergência entre o que a tela promete e o que o servidor paga. "
+              + "Aceita o mesmo corpo da criação e aplica as mesmas regras de insumo.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Recompensa calculada"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public PreviaRecompensaResponse previaRecompensa(@Valid @RequestBody CriarMissaoRequest request) {
+    return PreviaRecompensaResponse.de(missaoService.calcularRecompensa(request));
+  }
+
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
   @Operation(
       summary = "Criar missão",
       description =
-          "A missão nasce em RASCUNHO e pertence ao usuário do token. Missões TRIBO e COLETA não "
-              + "podem ter valor em BRL — recompensam em tokens e XP.")
+          "A missão nasce em RASCUNHO e pertence ao usuário do token. NENHUMA categoria remunera "
+              + "em BRL (ADR 0009): a recompensa é XP + tokens, CALCULADA PELO SERVIDOR a partir "
+              + "de categoria, complexidade, distância, peso e volume, e congelada com a versão da "
+              + "fórmula. Use /previa-recompensa para exibir o valor antes de criar.")
   @ApiResponses({
     @ApiResponse(responseCode = "201", description = "Missão criada em RASCUNHO"),
     @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),

@@ -321,8 +321,6 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
           "titulo": "abc",
           "descricao": "Descrição válida da missão.",
           "valorBrl": 900.00,
-          "tokensRecompensa": 10,
-          "xpRecompensa": 100,
           "origemLat": -23.5629,
           "origemLon": -46.6996,
           "cep": "05422030",
@@ -426,9 +424,20 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
   // ─── Mass assignment ───────────────────────────────────────────────────────────────────────
 
   @Test
-  void patchIgnoraStatusExecutorEXpRecompensa() throws Exception {
+  void patchIgnoraStatusExecutorERecompensas() throws Exception {
     UUID missaoId = criarEPublicar();
-    int xpOriginal = 100;
+    // Lidos do recurso, e não fixados: desde o ADR 0009 quem decide a recompensa é a
+    // CalculadoraDeRecompensa, e um número escrito à mão aqui quebraria a cada recalibração sem
+    // que nada de errado tivesse acontecido. O que este teste garante é que o PATCH não os MUDA.
+    JsonNode antes =
+        JSON.readTree(
+            mockMvc
+                .perform(get(BASE + "/{id}", missaoId).header("Authorization", bearer(ALICE_ID)))
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+    int xpOriginal = antes.get("xpRecompensa").asInt();
+    long tokensOriginais = antes.get("tokensRecompensa").asLong();
 
     mockMvc
         .perform(
@@ -441,7 +450,6 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
                       "titulo": "Título legitimamente editado",
                       "status": "CONCLUIDA",
                       "executorId": "bbbbbbbb-0000-0000-0000-000000000003",
-                      "xpRecompensa": 9999,
                       "valorBrl": 499.99,
                       "criadorId": "bbbbbbbb-0000-0000-0000-000000000003"
                     }
@@ -456,6 +464,11 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
         .andExpect(jsonPath("$.status").value("ABERTA"))
         .andExpect(jsonPath("$.executorId").doesNotExist())
         .andExpect(jsonPath("$.xpRecompensa").value(xpOriginal))
+        // tokensRecompensa nomeado explicitamente, e não por completude: é o campo que sai do DTO
+        // de CRIAÇÃO quando a CalculadoraDeRecompensa entrar, e esta assertion é o que impede a
+        // reintrodução dele por qualquer caminho. Hoje o DTO de edição já não o expõe, então o
+        // teste é preventivo — que é exatamente quando ele custa menos e vale mais.
+        .andExpect(jsonPath("$.tokensRecompensa").value(tokensOriginais))
         // Continua 0.00 mesmo com "valorBrl": 499.99 no corpo do PATCH. Duas garantias numa
         // assertion: o DTO de edição não expõe o campo (mass assignment), e desde o ADR 0009
         // nenhuma missão remunera em BRL — se o campo voltasse a ser editável, este 499.99 seria
@@ -648,7 +661,24 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
     return corpoValido("ENTREGA", "0.00");
   }
 
+  /**
+   * Corpo válido para qualquer categoria.
+   *
+   * <p>Os insumos da recompensa mudam com a categoria, e não por conveniência: desde o ADR 0009
+   * ENTREGA e COLETA exigem peso e volume (o servidor deriva a complexidade deles), enquanto TRIBO
+   * e AJUDA — que não movem objeto — declaram a complexidade. Enviar os dois conjuntos juntos é
+   * 400.
+   */
   private static String corpoValido(String categoria, String valorBrl) {
+    boolean carregaCoisa = "ENTREGA".equals(categoria) || "COLETA".equals(categoria);
+    String insumos =
+        carregaCoisa
+            ? """
+              "pesoKg": 10.00,
+                  "volumeL": 40.00,"""
+            : """
+              "complexidade": "MEDIA","""; // sem carga: declarar é a única opção
+
     Instant inicio = Instant.now().truncatedTo(ChronoUnit.SECONDS);
     Instant fim = inicio.plus(2, ChronoUnit.DAYS);
     return """
@@ -657,8 +687,7 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
           "titulo": "Entrega solidária no bairro",
           "descricao": "Levar a encomenda até o ponto de custódia da Vila Madalena.",
           "valorBrl": %s,
-          "tokensRecompensa": 10,
-          "xpRecompensa": 100,
+          %s
           "origemLat": -23.5629,
           "origemLon": -46.6996,
           "cep": "05422030",
@@ -671,6 +700,6 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
           "janelaFim": "%s"
         }
         """
-        .formatted(categoria, valorBrl, inicio, fim);
+        .formatted(categoria, valorBrl, insumos, inicio, fim);
   }
 }

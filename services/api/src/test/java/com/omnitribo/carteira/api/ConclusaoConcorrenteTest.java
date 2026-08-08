@@ -56,8 +56,11 @@ class ConclusaoConcorrenteTest extends TesteIntegracaoMvcBase {
   private static final String BASE = "/api/v1/missoes";
 
   private static final BigDecimal VALOR_BRL = new BigDecimal("0.00");
-  private static final long TOKENS = 20L;
-  private static final int XP = 150;
+  // Capturados da missão criada, não fixados: a recompensa vem da CalculadoraDeRecompensa desde o
+  // ADR 0009. O que este teste mede é que 100 confirmações creditam UMA vez — o valor exato é
+  // irrelevante para isso, e fixá-lo faria o teste quebrar a cada recalibração.
+  private long tokensDaMissao;
+  private int xpDaMissao;
 
   @Autowired MockMvc mockMvc;
   @Autowired JdbcTemplate jdbcTemplate;
@@ -120,10 +123,12 @@ class ConclusaoConcorrenteTest extends TesteIntegracaoMvcBase {
         .isEqualByComparingTo(brlAntes.add(VALOR_BRL));
     assertThat(saldoTokens(executor))
         .as("tokens creditados exatamente uma vez")
-        .isEqualTo(tokensAntes + TOKENS);
+        .isEqualTo(tokensAntes + tokensDaMissao);
     assertThat(xpDe(executor))
-        .as("XP somado exatamente uma vez — 100 concessões teriam dado 15000")
-        .isEqualTo(xpAntes + XP);
+        .as(
+            "XP somado exatamente uma vez — %d concessões teriam dado %d",
+            THREADS, THREADS * xpDaMissao)
+        .isEqualTo(xpAntes + xpDaMissao);
 
     Long eventosConclusao =
         jdbcTemplate.queryForObject(
@@ -185,8 +190,8 @@ class ConclusaoConcorrenteTest extends TesteIntegracaoMvcBase {
           "titulo": "Missão para conclusão concorrente",
           "descricao": "Verifica que 100 confirmações simultâneas creditam uma vez só.",
           "valorBrl": 0.00,
-          "tokensRecompensa": 20,
-          "xpRecompensa": 150,
+          "pesoKg": 10.00,
+          "volumeL": 40.00,
           "origemLat": -23.5629,
           "origemLon": -46.6996,
           "cep": "05422030",
@@ -211,9 +216,10 @@ class ConclusaoConcorrenteTest extends TesteIntegracaoMvcBase {
             .andExpect(status().isCreated())
             .andReturn();
 
-    UUID missaoId =
-        UUID.fromString(
-            JSON.readTree(criacao.getResponse().getContentAsString()).get("id").asText());
+    var corpoCriada = JSON.readTree(criacao.getResponse().getContentAsString());
+    UUID missaoId = UUID.fromString(corpoCriada.get("id").asText());
+    tokensDaMissao = corpoCriada.get("tokensRecompensa").asLong();
+    xpDaMissao = corpoCriada.get("xpRecompensa").asInt();
 
     mockMvc
         .perform(post(BASE + "/{id}/publicar", missaoId).header("Authorization", bearer(criador)))

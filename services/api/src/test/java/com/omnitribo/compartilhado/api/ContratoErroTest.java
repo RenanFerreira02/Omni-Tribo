@@ -87,12 +87,15 @@ class ContratoErroTest extends TesteIntegracaoMvcBase {
    * Corpo que o Jackson CONSEGUE desserializar e a Bean Validation rejeita.
    *
    * <p>Os primitivos precisam vir preenchidos: {@code {}} nem chega à validação — Jackson falha ao
-   * coagir null para {@code long tokensRecompensa} e o erro vira HttpMessageNotReadable, coberto
-   * pelo teste seguinte. Aqui o objetivo é o outro caminho: campos ausentes ou fora de faixa.
+   * coagir null para {@code int raioCheckinM} e o erro vira HttpMessageNotReadable, coberto pelo
+   * teste seguinte. Aqui o objetivo é o outro caminho: campos ausentes ou fora de faixa.
+   *
+   * <p>Este papel era de {@code tokensRecompensa} até o ADR 0009 remover a recompensa do DTO de
+   * criação; {@code raioCheckinM} é o primitivo que sobrou.
    */
   private static final String CORPO_INVALIDO =
       """
-      {"titulo":"ab","tokensRecompensa":0,"xpRecompensa":0,"raioCheckinM":5}
+      {"titulo":"ab","raioCheckinM":5}
       """;
 
   @Test

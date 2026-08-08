@@ -6,6 +6,10 @@ allowed-tools: Bash, Read, Grep
 
 Execute e cole a saída REAL de cada comando (não resuma, não presuma):
 
+0. Se o diff tocou `db/migration` ou `db/seed`: `make reset` ANTES do passo 1.
+   O seed vive na faixa 900, então migration nova nasce out-of-order e o boot falha com
+   "Detected resolved migration not applied to database" — mensagem que não menciona seed nem
+   ordenação. Seed alterado muda o checksum e falha com "Migration checksum mismatch".
 1. cd services/api && ./mvnw -q verify
 2. Mobile — SOMENTE se apps/mobile/package.json existir:
    cd apps/mobile && npm run typecheck && npm run lint && npm test

@@ -145,7 +145,7 @@ class MissoesProximasTest extends TesteIntegracaoMvcBase {
     // com recompensa em tokens exige pote já financiado (a regra de conservação da moeda), o que
     // custaria tribo + carteira + financiamento com Idempotency-Key. Este teste é sobre o FILTRO
     // do radar por categoria; financiar pote não acrescentaria nada ao que ele mede.
-    UUID tribo = criarEPublicarEm(LAT_A_300M, LON_CENTRO, "TRIBO", "0.00", 0);
+    UUID tribo = criarEPublicarEm(LAT_A_300M, LON_CENTRO, "TRIBO", "0.00");
 
     MvcResult resultado =
         mockMvc
@@ -251,12 +251,16 @@ class MissoesProximasTest extends TesteIntegracaoMvcBase {
 
   private UUID criarEPublicarEm(String lat, String lon, String categoria, String valorBrl)
       throws Exception {
-    return criarEPublicarEm(lat, lon, categoria, valorBrl, 10);
-  }
+    UUID missaoId = criarMissaoEm(lat, lon, categoria, valorBrl);
 
-  private UUID criarEPublicarEm(
-      String lat, String lon, String categoria, String valorBrl, long tokens) throws Exception {
-    UUID missaoId = criarMissaoEm(lat, lon, categoria, valorBrl, tokens);
+    // Publicar missão TRIBO/COLETA exige pote cobrindo a recompensa — e desde o ADR 0009 a
+    // recompensa é calculada, então nenhuma missão vale 0 para escapar dessa guarda. O pote é
+    // financiado por SQL de propósito: este teste é sobre o RADAR, e montar tribo, carteira e
+    // financiamento com Idempotency-Key só para publicar acoplaria o radar à economia sem
+    // acrescentar nada ao que ele mede. Mesmo recurso do salto de status usado na suíte de
+    // carteira.
+    jdbcTemplate.update("UPDATE missao SET pote_tokens = tokens_recompensa WHERE id = ?", missaoId);
+
     mockMvc
         .perform(post(BASE + "/{id}/publicar", missaoId).header("Authorization", bearer(ALICE_ID)))
         .andExpect(status().isOk());
@@ -269,18 +273,13 @@ class MissoesProximasTest extends TesteIntegracaoMvcBase {
 
   private UUID criarMissaoEm(String lat, String lon, String categoria, String valorBrl)
       throws Exception {
-    return criarMissaoEm(lat, lon, categoria, valorBrl, 10);
-  }
-
-  private UUID criarMissaoEm(String lat, String lon, String categoria, String valorBrl, long tokens)
-      throws Exception {
     MvcResult resultado =
         mockMvc
             .perform(
                 post(BASE)
                     .header("Authorization", bearer(ALICE_ID))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(corpo(lat, lon, categoria, valorBrl, tokens)))
+                    .content(corpo(lat, lon, categoria, valorBrl)))
             .andExpect(status().isCreated())
             .andReturn();
 
@@ -291,8 +290,12 @@ class MissoesProximasTest extends TesteIntegracaoMvcBase {
     return id;
   }
 
-  private static String corpo(
-      String lat, String lon, String categoria, String valorBrl, long tokens) {
+  private static String corpo(String lat, String lon, String categoria, String valorBrl) {
+    boolean carregaCoisa = "ENTREGA".equals(categoria) || "COLETA".equals(categoria);
+    String insumos =
+        carregaCoisa
+            ? "\"pesoKg\": 10.00,\n          \"volumeL\": 40.00,"
+            : "\"complexidade\": \"MEDIA\",";
     Instant inicio = Instant.now().truncatedTo(ChronoUnit.SECONDS);
     Instant fim = inicio.plus(2, ChronoUnit.DAYS);
     return """
@@ -301,8 +304,7 @@ class MissoesProximasTest extends TesteIntegracaoMvcBase {
           "titulo": "Missao de proximidade em Manaus",
           "descricao": "Fixture geografico distante do seed de Pinheiros.",
           "valorBrl": %s,
-          "tokensRecompensa": %s,
-          "xpRecompensa": 100,
+          %s
           "origemLat": %s,
           "origemLon": %s,
           "cep": "69005040",
@@ -315,7 +317,7 @@ class MissoesProximasTest extends TesteIntegracaoMvcBase {
           "janelaFim": "%s"
         }
         """
-        .formatted(categoria, valorBrl, tokens, lat, lon, inicio, fim);
+        .formatted(categoria, valorBrl, insumos, lat, lon, inicio, fim);
   }
 
   private String bearer(UUID usuarioId) {

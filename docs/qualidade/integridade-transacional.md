@@ -297,16 +297,33 @@ TransferenciaDeadlockTest ..... 1    SaqueConcorrenteTest .......... 1
 
 Registrado por honestidade, e porque uma banca pergunta:
 
-- **O BRL não tem lastro — e isso é a lacuna mais séria da fase.** O TOKEN tem sumidouro (o pote); o
-  BRL não tem nenhum. `missao.valor_brl` é escolhido livremente pelo criador e a conclusão credita
-  esse valor na carteira do executor **sem nenhum débito correspondente em lugar nenhum** — não há
-  escrow no publicar, e o único DEBITO em BRL do sistema é o saque. Dois usuários combinados criam,
-  aceitam e confirmam missões ENTREGA para gerar saldo sacável indefinidamente.
-  Hoje o caminho está fechado **por acidente, não por controle**: `AGUARDANDO_CONFIRMACAO` só é
-  alcançável via `CHECKIN`, que responde 501 até a F6. **No dia em que a F6 implementar o check-in,
-  isso vira impressora de dinheiro sem nenhuma mudança no módulo `carteira`.** Precisa de decisão de
-  produto antes da F6: ou o publicar debita/escrowa a carteira do criador (mesmo padrão do pote), ou
-  o BRL é declarado fictício nesta etapa e `POST /saques` ganha um gate explícito.
+> **Atualização de 2026-08-08 — o item do BRL desta lista foi RESOLVIDO, e como ele foi resolvido é
+> a parte mais instrutiva deste documento.** O texto original está preservado logo abaixo, riscado,
+> porque a previsão que ele fez se concretizou exatamente como escrita.
+
+- ~~**O BRL não tem lastro — e isso é a lacuna mais séria da fase.**~~ O TOKEN tem sumidouro (o
+  pote); o BRL não tinha nenhum. `missao.valor_brl` era escolhido livremente pelo criador e a
+  conclusão creditava esse valor **sem nenhum débito correspondente em lugar nenhum**. O texto
+  original alertava: *"o caminho está fechado por acidente, não por controle — `AGUARDANDO_CONFIRMACAO`
+  só é alcançável via CHECKIN, que responde 501 até a F6. No dia em que a F6 implementar o check-in,
+  isso vira impressora de dinheiro sem nenhuma mudança no módulo carteira."*
+
+  **Foi o que aconteceu.** Medido depois da F6, contra a API em execução: R$ 118,00 viraram
+  R$ 1.618,00 em três ciclos do fluxo feliz, com o saldo do criador intacto — e
+  `GET /admin/carteiras/reconciliacao` respondendo `integro=true` o tempo todo, **corretamente**,
+  porque ela compara ledger com projeção e o BRL não tinha invariante de conservação para violar.
+
+  **Resolução (ADR 0009):** nenhuma das duas saídas propostas foi escolhida, porque as duas partiam
+  da premissa errada. Quem cria a missão NÃO paga — nunca pagou, no modelo real do produto. O BRL
+  saiu do ciclo de missões: `ck_missao_economia` (V15) exige `valor_brl = 0` em toda categoria, e o
+  saque ficou atrás de flag desligada. A recompensa é XP + TOKEN, e desde a V16 é **calculada pelo
+  servidor e congelada** com a versão da fórmula — antes disso o cliente escolhia o próprio valor, o
+  que reencarnou o mesmo defeito no token (656 → 2.656 em dois ciclos).
+
+  **A lição, que vale mais que a correção:** a reconciliação passou em todos esses cenários. Ela
+  verifica *consistência*, não *conservação*, e as duas não são a mesma coisa. `ConservacaoTokensTest`
+  existe para essa segunda invariante, e roda `assertLedgerReconcilia` nos dois ramos de propósito —
+  para deixar executável a demonstração de que uma passa enquanto a outra é violada.
 - **Exactly-once na notificação.** A outbox dá at-least-once. O consumidor precisa tolerar duplicata.
 - **Saque não transfere dinheiro.** Registra o débito e devolve protocolo; a liquidação depende de
   gateway externo, fora do escopo do MVP. O débito ser gravado no pedido é intencional — senão a
@@ -319,8 +336,14 @@ Registrado por honestidade, e porque uma banca pergunta:
   declarado. Não afeta rate limit nos endpoints de valor (a chave é o `sub` do JWT), mas o IP gravado
   em `auditoria` para um saque ou transferência é o que o cliente disser.
 - **Paginação do extrato** tem anomalia sob escrita concorrente (descrita em Isolamento).
-- **Missão ENTREGA/AJUDA ainda cunha tokens** se `tokensRecompensa > 0`. O sumidouro cobre TRIBO e
-  COLETA, que são as categorias da moeda comunitária segundo o ADR 0004. Estender o pote às demais é
-  decisão de produto, não corrigida aqui.
+- **Missão ENTREGA/AJUDA ainda cunha tokens.** O sumidouro (o pote) cobre TRIBO e COLETA; nessas
+  duas a conservação foi medida e fecha. **Continua em aberto DE PROPÓSITO até a F8**, e a razão
+  importa: exigir pote de ENTREGA hoje faria membros da tribo custearem a logística do varejista, o
+  inverso do modelo. O financiador correto é o PATROCINADOR — entrega que falhou custa re-entrega,
+  armazenagem e risco de perder o cliente, então patrocinar o pote sai mais barato que o fracasso.
+  Preferimos a lacuna documentada a uma regra errada codificada. O que a V16 fechou não foi a
+  cunhagem: foi o **arbítrio do cliente sobre o tamanho dela**.
+  `ConservacaoTokensTest` declara os dois regimes por categoria, então uma mudança acidental em
+  qualquer um deles quebra o build.
 - **Um único nó.** O rate limit é em memória e o drenador de outbox assume instância única (o SKIP
   LOCKED já o prepara para mais de uma, mas isso não foi testado com dois processos).

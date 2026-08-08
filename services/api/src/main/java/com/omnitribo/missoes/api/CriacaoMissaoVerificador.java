@@ -1,5 +1,6 @@
 package com.omnitribo.missoes.api;
 
+import com.omnitribo.missoes.dominio.CategoriaMissao;
 import jakarta.validation.Constraint;
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
@@ -57,6 +58,49 @@ public class CriacaoMissaoVerificador
           contexto,
           "valorBrl",
           "Missão não remunera em BRL nesta versão — a recompensa é em XP e tokens");
+      valido = false;
+    }
+
+    // ─── Insumos da fórmula de recompensa (ADR 0009) ────────────────────────────────────────
+    //
+    // A recompensa deixou de ser escolhida pelo criador e passou a ser derivada. Estas três regras
+    // garantem que a derivação tem de que se alimentar, e que ninguém escolhe o multiplicador
+    // quando existe dado objetivo para medi-lo.
+
+    boolean temPeso = req.pesoKg() != null;
+    boolean temVolume = req.volumeL() != null;
+    boolean carregaCoisa =
+        req.categoria() == CategoriaMissao.ENTREGA || req.categoria() == CategoriaMissao.COLETA;
+
+    // (1) ENTREGA e COLETA movem objeto físico: sem peso e volume não há como dimensionar o
+    // esforço, e a alternativa seria o criador declarar a complexidade — que é justamente o
+    // arbítrio que esta mudança fecha.
+    if (carregaCoisa && !temPeso) {
+      violacao(contexto, "pesoKg", "Peso é obrigatório em missões ENTREGA e COLETA");
+      valido = false;
+    }
+    if (carregaCoisa && !temVolume) {
+      violacao(contexto, "volumeL", "Volume é obrigatório em missões ENTREGA e COLETA");
+      valido = false;
+    }
+
+    // (2) Sem peso e volume (mutirão, ajuda sem carga), declarar é a única opção honesta.
+    if (!temPeso && !temVolume && req.complexidade() == null) {
+      violacao(
+          contexto,
+          "complexidade",
+          "Complexidade é obrigatória quando a missão não tem peso e volume");
+      valido = false;
+    }
+
+    // (3) Com peso e volume, o servidor deriva — e a declaração é RECUSADA, não ignorada.
+    // Ignorar em silêncio faria o app acreditar que declarou algo que não teve efeito, e o usuário
+    // veria uma recompensa que não bate com a complexidade que ele escolheu na tela.
+    if (temPeso && temVolume && req.complexidade() != null) {
+      violacao(
+          contexto,
+          "complexidade",
+          "Complexidade é derivada de peso e volume — não informe junto com eles");
       valido = false;
     }
 

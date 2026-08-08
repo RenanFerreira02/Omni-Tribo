@@ -72,6 +72,38 @@ app:
     expiracao:
       intervalo: PT5M            # de quanto em quanto tempo o job varre janelas vencidas
       atraso-inicial: PT1M       # espera o boot estabilizar antes da primeira varredura
+    # Calibração da fórmula de recompensa. A FÓRMULA é código (CalculadoraDeRecompensa); os NÚMEROS
+    # são configuração, porque a relação esforço↔recompensa se ajusta com uso real.
+    #
+    # MUDOU QUALQUER NÚMERO AQUI? SUBA `versao` JUNTO. Sem isso, missões antigas passam a ser
+    # explicadas por uma calibração que não as produziu, e some a resposta para "este crédito estava
+    # certo quando foi feito?". CalculadoraDeRecompensaTest.douradoV1 falha de propósito para forçar
+    # essa decisão.
+    recompensa:
+      versao: 1
+      base-tokens:                 # piso por categoria, antes de multiplicador e adicionais
+        ENTREGA: 20
+        COLETA: 20
+        TRIBO: 25                  # mutirão mobiliza mais gente e costuma durar mais
+        AJUDA: 20
+      multiplicador-complexidade:
+        LEVE: 1.0
+        MEDIA: 1.5
+        PESADA: 2.0
+      tokens-por-km: 2             # deslocamento é o custo mais visível para quem executa
+      tokens-por-kg: 0.5
+      tokens-por-cem-litros: 5     # volume conta separado do peso: isopor grande não cabe em moto
+      # Teto por missão. Continua existindo mesmo com a fórmula fechada, porque peso e volume ainda
+      # vêm do request — é o herdeiro do @Max(1000) que antes era o ÚNICO controle.
+      teto-tokens: 1000
+      xp-por-token: 3              # XP é reputação: não circula, não tem ledger, não afeta conservação
+      teto-xp: 5000
+      # Fronteiras da derivação de complexidade. Decide o MAIOR dos dois: peso alto OU volume alto
+      # já classifica acima.
+      peso-leve-ate-kg: 5
+      volume-leve-ate-l: 20
+      peso-media-ate-kg: 25
+      volume-media-ate-l: 80
   carteira:
     # Os tetos não existem para limitar uso legítimo — existem para limitar o DANO de uma conta
     # comprometida. Quem rouba um access token pode transferir; o teto por transação impede

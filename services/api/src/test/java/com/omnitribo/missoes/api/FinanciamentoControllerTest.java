@@ -36,7 +36,16 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
 
   private static final String MISSOES = "/api/v1/missoes";
   private static final long SALDO = 1000L;
-  private static final long RECOMPENSA = 100L;
+
+  /**
+   * Recompensa da missão do cenário, CAPTURADA da criação.
+   *
+   * <p>Era uma constante de 100 até o ADR 0009, quando a recompensa passou a ser derivada pela
+   * CalculadoraDeRecompensa. Os casos de fronteira deste teste — financiar recompensa + 1, ou
+   * recompensa - 1 para checar pote parcial — continuam válidos porque derivam deste valor, e não
+   * de um número escrito à mão que quebraria a cada recalibração.
+   */
+  private long recompensa;
 
   @Autowired MockMvc mockMvc;
   @Autowired JdbcTemplate jdbcTemplate;
@@ -91,10 +100,10 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
 
     // (1) Financiar: sai da carteira, entra no pote. Nada é criado nem destruído.
     mockMvc
-        .perform(financiar(financiador, RECOMPENSA, "financiar-1"))
+        .perform(financiar(financiador, recompensa, "financiar-1"))
         .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.poteTokens").value(RECOMPENSA))
-        .andExpect(jsonPath("$.saldoTokensRestante").value(SALDO - RECOMPENSA));
+        .andExpect(jsonPath("$.poteTokens").value(recompensa))
+        .andExpect(jsonPath("$.saldoTokensRestante").value(SALDO - recompensa));
 
     assertThat(tokensEmCirculacao(jdbcTemplate))
         .as("financiar move token de lugar, não cria nem destrói")
@@ -125,7 +134,7 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.poteTokens").value(0));
 
-    assertThat(saldoTokens(executor)).as("executor recebeu a recompensa").isEqualTo(RECOMPENSA);
+    assertThat(saldoTokens(executor)).as("executor recebeu a recompensa").isEqualTo(recompensa);
     assertThat(poteDaMissao()).as("pote esvaziado pelo pagamento").isZero();
     assertThat(tokensEmCirculacao(jdbcTemplate))
         .as("CONSERVAÇÃO: nenhum token foi cunhado no ciclo inteiro")
@@ -139,7 +148,7 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     long circulacaoInicial = tokensEmCirculacao(jdbcTemplate);
 
     mockMvc
-        .perform(financiar(financiador, RECOMPENSA, "financiar-cancelamento"))
+        .perform(financiar(financiador, recompensa, "financiar-cancelamento"))
         .andExpect(status().isCreated());
     mockMvc
         .perform(
@@ -176,7 +185,7 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     long circulacaoInicial = tokensEmCirculacao(jdbcTemplate);
 
     mockMvc
-        .perform(financiar(financiador, RECOMPENSA, "financiar-expiracao"))
+        .perform(financiar(financiador, recompensa, "financiar-expiracao"))
         .andExpect(status().isCreated());
     mockMvc
         .perform(
@@ -207,7 +216,7 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     // presa para sempre. Recusar o excedente na entrada é mais honesto que estornar resíduo na
     // saída — o financiador descobre na hora que aquele token não é necessário.
     mockMvc
-        .perform(financiar(financiador, RECOMPENSA + 1, "financiar-excedente"))
+        .perform(financiar(financiador, recompensa + 1, "financiar-excedente"))
         .andExpect(status().isUnprocessableEntity())
         .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("acima da")));
 
@@ -223,7 +232,7 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     long circulacaoInicial = tokensEmCirculacao(jdbcTemplate);
 
     mockMvc
-        .perform(financiar(financiador, RECOMPENSA, "financiar-rascunho"))
+        .perform(financiar(financiador, recompensa, "financiar-rascunho"))
         .andExpect(status().isCreated());
 
     mockMvc
@@ -250,9 +259,14 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     long circulacaoInicial = tokensEmCirculacao(jdbcTemplate);
     long saldoCriadorAntes = saldoTokens(criador);
 
-    mockMvc.perform(financiar(financiador, 60, "dois-a")).andExpect(status().isCreated());
-    mockMvc.perform(financiar(criador, 40, "dois-b")).andExpect(status().isCreated());
-    assertThat(poteDaMissao()).isEqualTo(RECOMPENSA);
+    // Frações DERIVADAS da recompensa, e não 60+40 absolutos: elas precisam somar exatamente o
+    // pote, e o valor total agora vem da calculadora. A divisão desigual é proposital — o estorno
+    // tem de devolver a parte de cada um, não a média.
+    long parteA = recompensa / 2;
+    long parteB = recompensa - parteA;
+    mockMvc.perform(financiar(financiador, parteA, "dois-a")).andExpect(status().isCreated());
+    mockMvc.perform(financiar(criador, parteB, "dois-b")).andExpect(status().isCreated());
+    assertThat(poteDaMissao()).isEqualTo(recompensa);
 
     mockMvc
         .perform(
@@ -282,8 +296,10 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
   void mesmoFinanciadorEmDuasParcelasRecebeUmEstornoAgregado() throws Exception {
     // Exercita o `distinct` por carteira: duas parcelas do mesmo financiador têm de virar UM
     // estorno com a soma, não dois — e nem um só com a metade.
-    mockMvc.perform(financiar(financiador, 30, "parcela-1")).andExpect(status().isCreated());
-    mockMvc.perform(financiar(financiador, 20, "parcela-2")).andExpect(status().isCreated());
+    long parcela1 = recompensa / 3;
+    long parcela2 = recompensa / 4;
+    mockMvc.perform(financiar(financiador, parcela1, "parcela-1")).andExpect(status().isCreated());
+    mockMvc.perform(financiar(financiador, parcela2, "parcela-2")).andExpect(status().isCreated());
 
     mockMvc
         .perform(
@@ -313,10 +329,13 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     java.util.concurrent.ExecutorService pool =
         java.util.concurrent.Executors.newFixedThreadPool(2);
 
+    // Cada um cabe sozinho no pote; os dois juntos estouram. É o que torna a corrida decidível:
+    // exatamente um 201 e um 422, e nunca um pote acima da recompensa.
+    long quaseTudo = recompensa - (recompensa / 4);
     java.util.concurrent.Future<Integer> a =
-        pool.submit(financiarAoSinal(financiador, 60, "corrida-a", largada));
+        pool.submit(financiarAoSinal(financiador, quaseTudo, "corrida-a", largada));
     java.util.concurrent.Future<Integer> b =
-        pool.submit(financiarAoSinal(criador, 60, "corrida-b", largada));
+        pool.submit(financiarAoSinal(criador, quaseTudo, "corrida-b", largada));
 
     largada.countDown();
     pool.shutdown();
@@ -327,7 +346,7 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     assertThat(status.stream().filter(s -> s == 422).count()).isEqualTo(1L);
     assertThat(status.stream().filter(s -> s == 500).count()).isZero();
 
-    assertThat(poteDaMissao()).as("o pote não pode passar da recompensa").isEqualTo(60L);
+    assertThat(poteDaMissao()).as("o pote não pode passar da recompensa").isEqualTo(quaseTudo);
     assertLedgerReconcilia(jdbcTemplate);
   }
 
@@ -336,11 +355,11 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     // Co-financiamento é o propósito da moeda comunitária: restringir o financiamento de rascunho
     // ao criador obrigaria uma pessoa só a bancar 100% da missão.
     mockMvc
-        .perform(financiar(financiador, RECOMPENSA, "co-financiar"))
+        .perform(financiar(financiador, recompensa, "co-financiar"))
         .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.poteTokens").value(RECOMPENSA));
+        .andExpect(jsonPath("$.poteTokens").value(recompensa));
 
-    assertThat(poteDaMissao()).isEqualTo(RECOMPENSA);
+    assertThat(poteDaMissao()).isEqualTo(recompensa);
   }
 
   @Test
@@ -359,7 +378,7 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
   @Test
   void poteParcialAindaBloqueiaAPublicacao() throws Exception {
     mockMvc
-        .perform(financiar(financiador, RECOMPENSA - 1, "financiar-parcial"))
+        .perform(financiar(financiador, recompensa - 1, "financiar-parcial"))
         .andExpect(status().isCreated());
 
     mockMvc
@@ -398,15 +417,17 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
 
   @Test
   void financiamentoRepetidoComMesmaChaveNaoDebitaNemCreditaDuasVezes() throws Exception {
-    mockMvc.perform(financiar(financiador, 50, "financiar-replay")).andExpect(status().isCreated());
     mockMvc
-        .perform(financiar(financiador, 50, "financiar-replay"))
+        .perform(financiar(financiador, recompensa / 2, "financiar-replay"))
+        .andExpect(status().isCreated());
+    mockMvc
+        .perform(financiar(financiador, recompensa / 2, "financiar-replay"))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.replay").value(true))
-        .andExpect(jsonPath("$.poteTokens").value(50));
+        .andExpect(jsonPath("$.poteTokens").value(recompensa / 2));
 
-    assertThat(poteDaMissao()).as("pote creditado uma vez só").isEqualTo(50L);
-    assertThat(saldoTokens(financiador)).isEqualTo(SALDO - 50);
+    assertThat(poteDaMissao()).as("pote creditado uma vez só").isEqualTo(recompensa / 2);
+    assertThat(saldoTokens(financiador)).isEqualTo(SALDO - recompensa / 2);
     assertLedgerReconcilia(jdbcTemplate);
   }
 
@@ -446,8 +467,7 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
           "titulo": "Mutirão de limpeza da praça",
           "descricao": "Missão comunitária paga com tokens financiados pela tribo.",
           "valorBrl": 0.00,
-          "tokensRecompensa": %d,
-          "xpRecompensa": 80,
+          "complexidade": "MEDIA",
           "origemLat": -23.5629,
           "origemLon": -46.6996,
           "cep": "05422030",
@@ -460,7 +480,7 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
           "janelaFim": "%s"
         }
         """
-            .formatted(RECOMPENSA, inicio, inicio.plus(2, ChronoUnit.DAYS));
+            .formatted(inicio, inicio.plus(2, ChronoUnit.DAYS));
 
     MvcResult criacao =
         mockMvc
@@ -472,8 +492,9 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
             .andExpect(status().isCreated())
             .andReturn();
 
-    return UUID.fromString(
-        JSON.readTree(criacao.getResponse().getContentAsString()).get("id").asText());
+    var corpoCriada = JSON.readTree(criacao.getResponse().getContentAsString());
+    recompensa = corpoCriada.get("tokensRecompensa").asLong();
+    return UUID.fromString(corpoCriada.get("id").asText());
   }
 
   private UUID criarTribo(String nome) {

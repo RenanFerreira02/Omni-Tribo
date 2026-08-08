@@ -1,23 +1,90 @@
 # Progresso — Omni-Tribo
 
-| Fase | Nome                        | Status         | PR  | Data       |
-|------|-----------------------------|----------------|-----|------------|
-| F0   | Fundação Monorepo           | ✅ Concluído    | —   | 2026-08-04 |
-| F1   | Infraestrutura Local        | ✅ Concluído    | —   | 2026-08-04 |
-| F2   | Identidade e Autenticação   | ✅ Concluído    | —   | 2026-08-05 |
-| F3   | Cadastro de Missões         | ✅ Concluído    | —   | 2026-08-06 |
-| F4   | Aceite e Ciclo de Vida      | ✅ Concluído    | —   | 2026-08-06 |
-| F5   | Carteira e Economia         | ⬜ Pendente     | —   | —          |
-| F6   | Geolocalização              | ✅ Concluído    | —   | 2026-08-07 |
-| F7   | Logística (carrier-mock)    | ⬜ Pendente     | —   | —          |
-| F8   | Notificações                | ⬜ Pendente     | —   | —          |
-| F9   | App Mobile — Autenticação   | ⬜ Pendente     | —   | —          |
-| F10  | App Mobile — Missões        | ⬜ Pendente     | —   | —          |
-| F11  | App Mobile — Carteira       | ⬜ Pendente     | —   | —          |
-| F12  | Testes de Carga e Segurança | ⬜ Pendente     | —   | —          |
-| F13  | Entrega Final               | ⬜ Pendente     | —   | —          |
+| Fase | Nome                                  | Status       | Auditoria | Data       |
+|------|---------------------------------------|--------------|-----------|------------|
+| F0   | Fundação do monorepo                  | ✅ Concluído | [F0](auditoria/F0.md) | 2026-08-04 |
+| F1   | Infraestrutura local                  | ✅ Concluído | [F1](auditoria/F1.md) | 2026-08-04 |
+| F2   | Bootstrap da API                      | ✅ Concluído | [F2](auditoria/F2.md) | 2026-08-05 |
+| F3   | Domínio e migrations                  | ✅ Concluído | [F3](auditoria/F3.md) | 2026-08-06 |
+| F4   | Autenticação e segurança              | ✅ Concluído | [F4](auditoria/F4.md) | 2026-08-06 |
+| F5   | Missões e ciclo de vida               | ✅ Concluído | [F5](auditoria/F5.md) | 2026-08-06 |
+| F6   | Geolocalização e check-in             | ✅ Concluído | [F6](auditoria/F6.md) | 2026-08-07 |
+| F7   | Carteira e integridade transacional   | ✅ Concluído | [F7](auditoria/F7.md) | 2026-08-07 |
+| F8   | Logística, notificações e patrocinador| ⬜ Pendente  | —         | —          |
+| F9   | App mobile — autenticação             | ⬜ Pendente  | —         | —          |
+| F10  | App mobile — missões e check-in       | ⬜ Pendente  | —         | —          |
+| F11  | App mobile — carteira e perfil        | ⬜ Pendente  | —         | —          |
+| F12  | Testes de carga e endurecimento       | ⬜ Pendente  | —         | —          |
+| F13  | Entrega final                         | ⬜ Pendente  | —         | —          |
+
+> **A numeração acima é a dos COMMITS e das auditorias, e foi corrigida em 2026-08-08.** A tabela
+> anterior estava deslocada a partir da F2 (chamava a fase de API de "Identidade e Autenticação") e
+> marcava a carteira como pendente com o módulo já mergeado. Duas branches numeraram a mesma fase de
+> formas diferentes — o commit da carteira se chama "F7" e a tabela a chamava de "F5". Agora tabela,
+> commits e `docs/auditoria/FN.md` usam a mesma numeração.
+
+**Backend fechado até F7.** Build verde com **383 testes**, 0 falhas, SpotBugs limpo. O que resta é
+lacuna com dono de fase, não trabalho pendente das fases concluídas — ver Pendências conhecidas no
+CLAUDE.md.
 
 ## Notas de manutenção
+
+- **2026-08-08** — **Rodada de auditoria F0→F7 encerrada.** Oito relatórios em `docs/auditoria/`,
+  cada fase confrontada com a sua especificação **executando**, não lendo: SQL contra o banco de pé,
+  `curl` contra a API em execução, `EXPLAIN ANALYZE`, e a suíte inteira. Saldo: **7 defeitos
+  corrigidos**, e as lacunas que restam têm todas dono de fase.
+  - **Cinco achados eram invisíveis na leitura do código**, e é a lição que ficou nos agentes:
+    o oráculo de tempo no login (~6 ms contra ~68 ms, com um comentário afirmando a defesa que não
+    existia); o `REVOKE` inerte porque a aplicação conecta como dono das tabelas; `type` sempre
+    `about:blank` nos ~15 handlers herdados do Spring; mojibake em todo 401/403/429 por charset
+    ausente; e `/actuator/health` respondendo 401.
+  - **Duas fases passaram sem nenhum achado corretivo:** F1 (infraestrutura) e F6 (geolocalização).
+    F4 (segurança) teve um único defeito, o oráculo de tempo.
+  - **Duas premissas das especificações estavam tecnicamente erradas, e foram refutadas com
+    evidência em vez de acomodadas:** (a) "404 vaza existência" — é o inverso, quem vaza é o 403, e
+    seguir a letra teria introduzido enumeração de ids; (b) "idempotência por constraint, não por
+    `if`" — o `if` do projeto é seguro porque roda depois de `SELECT … FOR UPDATE`, e 100 threads
+    produzem exatamente 1 lançamento.
+  - **Um falso alarme documentado:** na base de seed o planner escolhe o B-tree de status em vez do
+    GiST, e está certo — forçar o caminho geoespacial é 200× mais lento com 12 missões. Registrado
+    em `docs/evidencias/f6-explain-analyze.md` para não virar "defeito" na próxima leitura.
+  - Correções estruturais da rodada: hook de segredo ativado (estava sem bit de execução, falhando
+    em silêncio), catálogo `TipoProblema` com 10 URIs estáveis, cadeia própria do actuator, rate
+    limiters com despejo por Caffeine, transposição alice↔bob no seed, e `V901` semeando entregas
+    falidas — os dois lados da tese do produto, convertidas e pendentes.
+
+- **2026-08-08** — **Recompensa calculada e congelada pelo servidor.** Build verde com **383
+  testes** (eram 351). Fecha o defeito de maior impacto das auditorias F0–F7.
+  - **Antes:** o cliente enviava `xpRecompensa` e `tokensRecompensa`, e o único controle era um
+    `@Max`. Medido: missão AJUDA sem peso, sem volume e sem destino criada com **5.000 XP e 1.000
+    tokens**. Teto sem fórmula = toda missão pode valer o teto.
+  - **Depois, mesmo payload:** pedido 1000/5000 → persistido **20 tokens / 60 XP**, com
+    `complexidade=LEVE` e `versao_formula=1`. Os campos enviados são descartados em silêncio, como
+    `status` e `executorId` já eram.
+  - `CalculadoraDeRecompensa` como função pura em `missoes/dominio`, com **24 testes sem Spring** em
+    0,3 s: determinismo, faixa (varrendo milhares de combinações), monotonicidade em peso, volume,
+    distância e complexidade, teto, fronteiras de derivação, e um **dourado** que trava a calibração
+    v1. Verificado que o dourado falha — e só ele — ao mexer num parâmetro sem subir a versão.
+  - **Congelamento provado em runtime:** com `tokens-por-kg` de 0.5 → 99 e `versao` 1 → 2, a missão
+    criada sob v1 manteve 20 tokens/versão 1, e uma nova sob v2 saltou para 1000.
+  - `POST /missoes/previa-recompensa` devolve o cálculo sem criar nada (13 missões antes e depois),
+    para o app não duplicar a fórmula — duplicá-la reabriria a divergência por outro caminho.
+  - **Complexidade derivada onde há dado:** ENTREGA e COLETA passam a exigir peso e volume e o
+    servidor deriva; declarar junto é 400. TRIBO e AJUDA declaram. A assimetria evita que a
+    complexidade vire o mesmo arbítrio da recompensa livre, com três degraus.
+  - **V16** acrescenta `complexidade`, `versao_formula` e `multiplicador_risco` (reservado, F11).
+    Seed recalculado pela fórmula, com a cascata do ledger: 6/6 carteiras reconciliam, circulação
+    806 → 428 tokens. Os créditos de "co-participação" viraram frações da recompensa — antes diana
+    recebia 100 numa missão que paga 38.
+  - **Raio de impacto:** 12 arquivos de teste. Os que fixavam valor de recompensa passaram a
+    derivá-lo da resposta de criação — ficaram mais robustos, porque param de quebrar a cada
+    recalibração. `MissoesProximasTest` usava `tokens = 0` para escapar da guarda de pote; agora
+    financia por SQL, já que o teste é sobre o radar.
+  - Achado de passagem: `MissaoFixture` montava missão com `valorBrl = 25.00`, contradizendo o ADR
+    0009 — passava porque a fixture não passa pela validação de request.
+  - SpotBugs pegou `EI_EXPOSE_REP` nos dois `Map` de `ParametrosRecompensa`. Resolvido com cópia
+    defensiva no construtor compacto, e não com supressão: record não congela o conteúdo de coleção,
+    e mutabilidade ali é a garantia de auditoria vazando.
 
 - **2026-08-07** — **ADR 0009: economia do cuidado. BRL sai do ciclo de missões.** Build verde com
   **347 testes**. Correção de PREMISSA, não de implementação: o ADR 0004 registrava que o criador

@@ -32,7 +32,7 @@ import java.util.UUID;
  *       segunda transferência".
  * </ul>
  *
- * <p>As chaves cruas do seed ({@code seed-idem-bob-e1-brl}) convivem sem risco: um hex de 64
+ * <p>As chaves cruas do seed ({@code seed-idem-alice-e1-tk}) convivem sem risco: um hex de 64
  * caracteres nunca é igual a uma delas, então nenhuma migration de dados é necessária.
  *
  * <p>Utilitário estático sem Spring, no mesmo molde de {@link Coordenadas} e {@code

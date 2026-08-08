@@ -148,6 +148,35 @@ volume, e limitado pelo `LIMIT`.
 
 ---
 
+## Por que o mesmo `EXPLAIN` na base de dev NÃO mostra o GiST
+
+Rodar a consulta contra o banco do `docker compose` — 12 missões do seed, 5 delas `ABERTA` — produz
+um plano **sem** `idx_missao_origem`. Isso costuma ser lido como defeito, e não é. Medido na
+auditoria F6, com `enable_seqscan = on` nos três casos:
+
+| Variante | Plano escolhido | Tempo |
+|---|---|---|
+| Query real, **com** filtro de status | `Index Scan using idx_missao_expiravel` — `ST_DWithin` vira `Filter` | 4,761 ms |
+| Mesma query, **sem** o filtro de status | `Index Scan using idx_missao_origem` — GiST, com `Index Cond` | 4,917 ms |
+| Com status, derrubando o índice parcial (em transação revertida) | `Index Scan using idx_missao_status_criada` | **0,022 ms** |
+
+A terceira linha é a que fecha o argumento: com esse volume, o caminho por status é **200× mais
+rápido** que o geoespacial. Cinco linhas `ABERTA` entre doze tornam o filtro de status mais seletivo
+que o de proximidade, e forçar o GiST degradaria a consulta.
+
+**Não há `Seq Scan` em nenhuma das variantes, e não existe `ST_Distance(...) < X` no código** — o
+predicado é sempre `ST_DWithin`, que é o que usa índice; `ST_Distance` aparece apenas na projeção.
+
+É exatamente por isso que a prova acima usa 200 mil linhas **todas `ABERTA`**: com status misturado,
+o planner poderia legitimamente preferir o B-tree, e a evidência seria sobre o índice errado. A
+condição para o GiST ser escolhido é ser o caminho mais seletivo — o que exige volume, não apenas a
+existência do índice.
+
+**Consequência prática:** para verificar o índice geoespacial, rode `IndiceGeoespacialTest`. Um
+`EXPLAIN` manual na base de seed não é evidência nem a favor nem contra.
+
+---
+
 ## Reproduzir
 
 ```bash

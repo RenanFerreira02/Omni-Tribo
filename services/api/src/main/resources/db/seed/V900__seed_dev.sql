@@ -133,7 +133,7 @@ INSERT INTO ponto_custodia (id, codigo, tipo, apelido, ponto, tribo_id, capacida
 -- Coordenadas na região Pinheiros/Vila Madalena, São Paulo
 -- -----------------------------------------------------------------------
 INSERT INTO missao (id, criador_id, executor_id, categoria, titulo, descricao, status,
-                    xp_recompensa, valor_brl, tokens_recompensa,
+                    xp_recompensa, valor_brl, tokens_recompensa, complexidade, versao_formula,
                     origem, destino, ponto_custodia_id,
                     cep, logradouro, bairro, cidade, uf,
                     raio_checkin_m, peso_kg, volume_l,
@@ -145,13 +145,13 @@ VALUES
 -- E1: Tinta acrílica branca 10L
 ('dddddddd-0000-0000-0000-000000000001',
  'bbbbbbbb-0000-0000-0000-000000000001',
- 'bbbbbbbb-0000-0000-0000-000000000002',  -- executor: bob
+ 'bbbbbbbb-0000-0000-0000-000000000002',  -- executor: alice
  'ENTREGA',
  'Entregar tinta acrílica branca 18L',
  'Caixa com 2 galões de tinta acrílica premium branca (9L cada) parada no LOCKER Consolação. '
  'Item pesado — use carrinho. Entregar ao morador do apt 42.',
  'CONCLUIDA',
- 80, 0.00, 36,
+ 123, 0.00, 41, 'MEDIA', 1,
  ST_SetSRID(ST_MakePoint(-46.6573, -23.5558), 4326)::geography,  -- origem: LOCKER Consolação
  ST_SetSRID(ST_MakePoint(-46.6600, -23.5570), 4326)::geography,  -- destino: endereço do destinatário
  'cccccccc-0000-0000-0000-000000000002',
@@ -169,7 +169,7 @@ VALUES
  'Caixa de porcelanato Leroy Merlin ref. POR-6060-CZ na portaria do Ed. Solar Pinheiros. '
  'Peso elevado — obrigatório carrinho ou dois entregadores. Frágil.',
  'CONCLUIDA',
- 120, 0.00, 70,
+ 168, 0.00, 56, 'PESADA', 1,
  ST_SetSRID(ST_MakePoint(-46.6970, -23.5680), 4326)::geography,  -- origem: Portaria Ed. Solar
  ST_SetSRID(ST_MakePoint(-46.6950, -23.5660), 4326)::geography,
  'cccccccc-0000-0000-0000-000000000003',
@@ -187,7 +187,7 @@ VALUES
  'Pacote com torneira monocomando e kit de fixação na Leroy Merlin Pinheiros. '
  'Item de tamanho médio, sem risco de quebra se manuseado com cuidado.',
  'ABERTA',
- 50, 0.00, 30,
+ 69, 0.00, 23, 'LEVE', 1,
  ST_SetSRID(ST_MakePoint(-46.6934, -23.5640), 4326)::geography,  -- origem: LM Pinheiros
  ST_SetSRID(ST_MakePoint(-46.6880, -23.5620), 4326)::geography,
  'cccccccc-0000-0000-0000-000000000001',
@@ -205,7 +205,7 @@ VALUES
  'Caixa com 3 luminárias spot LED embutidas. Parada no LOCKER Vila Madalena. '
  'Item frágil — transportar na posição vertical.',
  'ABERTA',
- 60, 0.00, 40,
+ 72, 0.00, 24, 'LEVE', 1,
  ST_SetSRID(ST_MakePoint(-46.6921, -23.5565), 4326)::geography,  -- origem: LOCKER Vila Madalena
  ST_SetSRID(ST_MakePoint(-46.6900, -23.5550), 4326)::geography,
  'cccccccc-0000-0000-0000-000000000005',
@@ -225,7 +225,7 @@ VALUES
  'Retirar 4 galões vazios de tinta da residência e levar à Leroy Merlin Pinheiros '
  'para descarte no Ecoponto Leroy. O estabelecimento devolve vale-desconto.',
  'CONCLUIDA',
- 70, 0.00, 100,
+ 105, 0.00, 35, 'MEDIA', 1,
  ST_SetSRID(ST_MakePoint(-46.6880, -23.5610), 4326)::geography,  -- origem: residência
  ST_SetSRID(ST_MakePoint(-46.6934, -23.5640), 4326)::geography,  -- destino: LM Pinheiros
  NULL,
@@ -243,7 +243,7 @@ VALUES
  'Caixa com porcelanato com 3 peças trincadas. Levar à Leroy Merlin para registro '
  'de troca com nota fiscal. Embalar bem para não fragmentar no transporte.',
  'CONCLUIDA',
- 80, 0.00, 100,
+ 111, 0.00, 37, 'MEDIA', 1,
  ST_SetSRID(ST_MakePoint(-46.6960, -23.5670), 4326)::geography,
  ST_SetSRID(ST_MakePoint(-46.6934, -23.5640), 4326)::geography,
  NULL,
@@ -261,7 +261,7 @@ VALUES
  'Dois sacos com restos de placa de drywall e gesso. Levar ao ponto de coleta de '
  'entulho da prefeitura no bairro. Necessário carro ou van pequena.',
  'ABERTA',
- 90, 0.00, 120,
+ 135, 0.00, 45, 'MEDIA', 1,
  ST_SetSRID(ST_MakePoint(-46.6905, -23.5540), 4326)::geography,
  ST_SetSRID(ST_MakePoint(-46.6870, -23.5500), 4326)::geography,
  NULL,
@@ -282,7 +282,7 @@ VALUES
  'Material no local. Trazer rolo, bandeja e EPI (máscara e óculos). '
  'Levar 3h com 3 pessoas.',
  'CONCLUIDA',
- 150, 0.00, 50,
+ 114, 0.00, 38, 'MEDIA', 1,
  ST_SetSRID(ST_MakePoint(-46.6980, -23.5690), 4326)::geography,
  NULL,
  NULL,
@@ -301,7 +301,7 @@ VALUES
  'Precisa de 2 pessoas e alguém com conhecimento básico de elétrica. '
  'Material entregue no local pelo organizador.',
  'ABERTA',
- 120, 0.00, 80,
+ 114, 0.00, 38, 'MEDIA', 1,
  ST_SetSRID(ST_MakePoint(-46.6912, -23.5545), 4326)::geography,
  NULL,
  NULL,
@@ -319,7 +319,7 @@ VALUES
  'Buraco de ~30cm na calçada da R. Cardeal Arcoverde. Saco de concreto já '
  'adquirido com verba da tribo Jardim América. Precisamos de 4 pessoas e 2h.',
  'ABERTA',
- 100, 0.00, 60,
+ 114, 0.00, 38, 'MEDIA', 1,
  ST_SetSRID(ST_MakePoint(-46.6730, -23.5720), 4326)::geography,
  NULL,
  NULL,
@@ -340,7 +340,7 @@ VALUES
  'Prédio sem elevador. São 3 volumes grandes. Precisamos de 3 pessoas fortes. '
  'O morador já está no local para receber.',
  'CONCLUIDA',
- 100, 0.00, 70,
+ 240, 0.00, 80, 'PESADA', 1,
  ST_SetSRID(ST_MakePoint(-46.6934, -23.5640), 4326)::geography,  -- ponto de retirada: LM
  ST_SetSRID(ST_MakePoint(-46.6945, -23.5650), 4326)::geography,
  NULL,
@@ -359,7 +359,7 @@ VALUES
  'Precisa de 2 pessoas e ~2h. Chaves e parafusos fornecidos. '
  'A moradora é idosa e não consegue sozinha.',
  'ABERTA',
- 80, 0.00, 50,
+ 90, 0.00, 30, 'MEDIA', 1,
  ST_SetSRID(ST_MakePoint(-46.6900, -23.5535), 4326)::geography,
  NULL,
  NULL,
@@ -373,52 +373,57 @@ VALUES
 -- -----------------------------------------------------------------------
 INSERT INTO carteira (id, usuario_id, saldo_brl, saldo_tokens, versao) VALUES
     ('eeeeeeee-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001', 0.00,   0, 0),
-    ('eeeeeeee-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000002', 0.00,  36, 1),
-    ('eeeeeeee-0000-0000-0000-000000000003', 'bbbbbbbb-0000-0000-0000-000000000003', 0.00, 200, 2),
-    ('eeeeeeee-0000-0000-0000-000000000004', 'bbbbbbbb-0000-0000-0000-000000000004', 0.00, 200, 2),
-    ('eeeeeeee-0000-0000-0000-000000000005', 'bbbbbbbb-0000-0000-0000-000000000005', 0.00, 170, 2),
-    ('eeeeeeee-0000-0000-0000-000000000006', 'bbbbbbbb-0000-0000-0000-000000000006', 0.00,  50, 1);
+    ('eeeeeeee-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000002', 0.00,  41, 1),
+    ('eeeeeeee-0000-0000-0000-000000000003', 'bbbbbbbb-0000-0000-0000-000000000003', 0.00, 178, 2),
+    ('eeeeeeee-0000-0000-0000-000000000004', 'bbbbbbbb-0000-0000-0000-000000000004', 0.00,  72, 2),
+    ('eeeeeeee-0000-0000-0000-000000000005', 'bbbbbbbb-0000-0000-0000-000000000005', 0.00,  99, 2),
+    ('eeeeeeee-0000-0000-0000-000000000006', 'bbbbbbbb-0000-0000-0000-000000000006', 0.00,  38, 1);
 
 -- -----------------------------------------------------------------------
 -- Lançamentos — ledger coerente com os saldos acima.
 -- saldo_apos_* reflete o saldo acumulado após cada lançamento por carteira.
 -- Invariante: SUM(CASE sinal WHEN 'CREDITO' THEN valor ELSE -valor END) = saldo_atual
 -- -----------------------------------------------------------------------
--- bob (carteira eeeeeeee-0000-0000-0000-000000000002): saldo_brl=18.00, tokens=0
--- Missão E1 concluída: ENTREGA 18 BRL de recompensa
+-- alice (carteira eeeeeeee-0000-0000-0000-000000000002): tokens=41
+-- Missão E1 concluída, com alice como executora — o crédito é a recompensa dela.
 INSERT INTO lancamento (id, carteira_id, sinal, motivo, valor_brl, valor_tokens,
                         missao_id, contraparte_carteira_id, chave_idempotencia,
                         saldo_apos_brl, saldo_apos_tokens, criado_em)
 VALUES
     ('ffffffff-0000-0000-0000-000000000001',
      'eeeeeeee-0000-0000-0000-000000000002',
-     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 36,
+     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 41,
      'dddddddd-0000-0000-0000-000000000001', NULL,
-     'seed-idem-bob-e1-tk',
-     0.00, 36,
+     'seed-idem-alice-e1-tk',
+     0.00, 41,
      NOW() - INTERVAL '1 day');
 
--- alice (carteira eeeeeeee-0000-0000-0000-000000000003): saldo_brl=25.00, tokens=150
--- Missão E2 concluída: ENTREGA 35 BRL → alice recebeu 25 BRL (alice foi co-executor, fictício para o seed)
--- Simplificado: 1 lançamento de 25 BRL + 1 lançamento de 150 tokens
+-- bob (carteira eeeeeeee-0000-0000-0000-000000000003): tokens=178
+--
+-- ATENÇÃO — bob NÃO é o executor da missão E2; diana é. Este crédito representa bob como
+-- CO-EXECUTOR, e é ficção deliberada do seed: o schema tem um único executor_id, então
+-- co-participação não é representável. Mantido para que o extrato do app tenha mais de uma
+-- origem de crédito. Se a co-participação virar requisito real, ela precisa de modelagem
+-- própria — não de mais uma linha aqui. Mesmo caso do crédito de diana no mutirão T1.
+-- Composição: 28 tokens (co-execução E2, metade da recompensa de 56) + 150 de bônus.
 INSERT INTO lancamento (id, carteira_id, sinal, motivo, valor_brl, valor_tokens,
                         missao_id, contraparte_carteira_id, chave_idempotencia,
                         saldo_apos_brl, saldo_apos_tokens, criado_em)
 VALUES
     ('ffffffff-0000-0000-0000-000000000002',
      'eeeeeeee-0000-0000-0000-000000000003',
-     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 50,
+     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 28,
      'dddddddd-0000-0000-0000-000000000002', NULL,
-     'seed-idem-alice-e2-tk',
-     0.00, 50,
+     'seed-idem-bob-e2-tk',
+     0.00, 28,
      NOW() - INTERVAL '2 days'),
 
     ('ffffffff-0000-0000-0000-000000000003',
      'eeeeeeee-0000-0000-0000-000000000003',
      'CREDITO', 'BONUS', 0.00, 150,
      NULL, NULL,
-     'seed-idem-alice-bonus-tokens',
-     0.00, 200,
+     'seed-idem-bob-bonus-tokens',
+     0.00, 178,
      NOW() - INTERVAL '1 day');
 
 -- carol (carteira eeeeeeee-0000-0000-0000-000000000004): saldo_brl=0, tokens=200
@@ -429,40 +434,46 @@ INSERT INTO lancamento (id, carteira_id, sinal, motivo, valor_brl, valor_tokens,
 VALUES
     ('ffffffff-0000-0000-0000-000000000004',
      'eeeeeeee-0000-0000-0000-000000000004',
-     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 100,
+     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 35,
      'dddddddd-0000-0000-0000-000000000005', NULL,
      'seed-idem-carol-c1-tokens',
-     0.00, 100,
+     0.00, 35,
      NOW() - INTERVAL '1 day'),
 
     ('ffffffff-0000-0000-0000-000000000005',
      'eeeeeeee-0000-0000-0000-000000000004',
-     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 100,
+     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 37,
      'dddddddd-0000-0000-0000-000000000006', NULL,
      'seed-idem-carol-c2-tokens',
-     0.00, 200,
+     0.00, 72,
      NOW() - INTERVAL '12 hours');
 
--- diana (carteira eeeeeeee-0000-0000-0000-000000000005): saldo_brl=35.00, tokens=100
--- Missão E2 (portaria+porcelanato) + A1 (armário): 35 BRL + 100 tokens (TRIBO mutirão)
+-- diana (carteira eeeeeeee-0000-0000-0000-000000000005): tokens=99
+--
+-- Composição: 80 pela missão A1 (armário), que diana de fato executou, mais 19 pelo mutirão T1.
+-- ATENÇÃO — no T1 o executor é erik, e a missão paga 38. Os 19 de diana são CO-PARTICIPAÇÃO no
+-- mutirão: ficção deliberada do seed, pela mesma razão do bloco de bob acima. Mutirão com vários
+-- participantes remunerados é plausível no domínio, mas o schema tem um único executor_id e
+-- tokens_recompensa único, então não há como representá-lo — nem o valor por participante.
+-- Não "corrija" ajustando o número: a correção de verdade é modelar co-participação.
 INSERT INTO lancamento (id, carteira_id, sinal, motivo, valor_brl, valor_tokens,
                         missao_id, contraparte_carteira_id, chave_idempotencia,
                         saldo_apos_brl, saldo_apos_tokens, criado_em)
 VALUES
     ('ffffffff-0000-0000-0000-000000000006',
      'eeeeeeee-0000-0000-0000-000000000005',
-     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 70,
+     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 80,
      'dddddddd-0000-0000-0000-000000000011', NULL,
      'seed-idem-diana-a1-tk',
-     0.00, 70,
+     0.00, 80,
      NOW() - INTERVAL '5 days'),
 
     ('ffffffff-0000-0000-0000-000000000007',
      'eeeeeeee-0000-0000-0000-000000000005',
-     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 100,
+     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 19,
      'dddddddd-0000-0000-0000-000000000008', NULL,
      'seed-idem-diana-t1-tokens',
-     0.00, 170,
+     0.00, 99,
      NOW() - INTERVAL '4 days');
 
 -- erik (carteira eeeeeeee-0000-0000-0000-000000000006): saldo_brl=0, tokens=50
@@ -473,10 +484,10 @@ INSERT INTO lancamento (id, carteira_id, sinal, motivo, valor_brl, valor_tokens,
 VALUES
     ('ffffffff-0000-0000-0000-000000000008',
      'eeeeeeee-0000-0000-0000-000000000006',
-     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 50,
+     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 38,
      'dddddddd-0000-0000-0000-000000000008', NULL,
      'seed-idem-erik-t1-tokens',
-     0.00, 50,
+     0.00, 38,
      NOW() - INTERVAL '4 days');
 
 -- admin: saldo zerado, sem lançamentos
