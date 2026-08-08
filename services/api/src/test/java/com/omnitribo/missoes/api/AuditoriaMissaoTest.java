@@ -135,7 +135,7 @@ class AuditoriaMissaoTest extends TesteIntegracaoMvcBase {
           "categoria": "ENTREGA",
           "titulo": "Entrega solidária no bairro",
           "descricao": "Levar a encomenda até o ponto de custódia da Vila Madalena.",
-          "valorBrl": 25.00,
+          "valorBrl": 0.00,
           "tokensRecompensa": 10,
           "xpRecompensa": 100,
           "origemLat": -23.5629,

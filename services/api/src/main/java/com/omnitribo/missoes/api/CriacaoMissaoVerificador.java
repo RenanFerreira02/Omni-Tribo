@@ -1,6 +1,5 @@
 package com.omnitribo.missoes.api;
 
-import com.omnitribo.missoes.dominio.CategoriaMissao;
 import jakarta.validation.Constraint;
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
@@ -45,24 +44,23 @@ public class CriacaoMissaoVerificador
       valido = false;
     }
 
-    // Invariante econômica das três moedas: missões comunitárias recompensam em token e XP.
-    // O banco tem a mesma regra em ck_missao_economia (V3); aqui ela vira um 400 com o campo
-    // apontado, em vez de um 500 vindo de violação de constraint no INSERT.
-    if (ehComunitaria(req.categoria())
-        && req.valorBrl() != null
-        && req.valorBrl().compareTo(BigDecimal.ZERO) > 0) {
+    // Invariante econômica: NENHUMA categoria remunera em BRL. Quem cria a missão não paga —
+    // a recompensa é XP e TOKEN, resgatável em benefícios de parceiros (ADR 0009).
+    //
+    // A regra deixou de depender da categoria: antes só TRIBO e COLETA eram barradas, e era
+    // justamente por ENTREGA e AJUDA aceitarem valor_brl que a conclusão creditava dinheiro sem
+    // débito em lugar nenhum. O banco tem a mesma regra em ck_missao_economia (V15); esta
+    // checagem existe para o cliente receber 400 com o campo apontado, e não um 500 vindo de
+    // violação de constraint no INSERT.
+    if (req.valorBrl() != null && req.valorBrl().compareTo(BigDecimal.ZERO) > 0) {
       violacao(
           contexto,
           "valorBrl",
-          "Missões TRIBO e COLETA não podem ter valor em BRL — recompensam em tokens e XP");
+          "Missão não remunera em BRL nesta versão — a recompensa é em XP e tokens");
       valido = false;
     }
 
     return valido;
-  }
-
-  private static boolean ehComunitaria(CategoriaMissao categoria) {
-    return categoria == CategoriaMissao.TRIBO || categoria == CategoriaMissao.COLETA;
   }
 
   private static void violacao(ConstraintValidatorContext contexto, String campo, String mensagem) {

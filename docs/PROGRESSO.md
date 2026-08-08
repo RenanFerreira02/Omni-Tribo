@@ -19,6 +19,198 @@
 
 ## Notas de manutenção
 
+- **2026-08-07** — **ADR 0009: economia do cuidado. BRL sai do ciclo de missões.** Build verde com
+  **347 testes**. Correção de PREMISSA, não de implementação: o ADR 0004 registrava que o criador
+  paga a missão em dinheiro, o que nunca foi o produto. Quem cria não paga; a recompensa é XP +
+  TOKEN, resgatável em benefícios do bairro.
+  - **O defeito medido antes:** R$ 118,00 viraram R$ 1.618,00 em três ciclos do fluxo feliz, com o
+    saldo do criador intacto em R$ 18,00 o tempo todo. E a reconciliação respondia `integro=true`
+    corretamente — ela compara ledger com projeção, e o BRL não tinha invariante de conservação
+    para violar. Nenhum endpoint de auditoria pegaria isso.
+  - **Depois:** criar missão com `valorBrl: 500` → **400** apontando o campo; `POST /carteira/saques`
+    → **422** com `type` do catálogo; BRL total do sistema → **0,00**; TOKEN
+    (carteiras + potes) → 656, reconciliação íntegra.
+  - Mudanças: **V15** troca `ck_missao_economia` para `valor_brl = 0` em toda categoria;
+    `CriacaoMissaoVerificador` deixa de depender da categoria; `app.carteira.saque-habilitado`
+    (false por padrão, true em teste) com `SaqueDesabilitadoTest` cobrindo o caminho desligado;
+    seed convertido de BRL para TOKEN à taxa 1:2, incluindo carteiras, lançamentos e `saldo_apos_*`.
+  - **Não removemos** colunas nem o `SaqueService`: é a mecânica que a conversão patrocinada
+    reaproveitaria, já testada sob concorrência. Ficam inertes, com a regra de negócio barrando uso.
+  - **Deliberadamente NÃO fechamos a conservação do token para ENTREGA/AJUDA.** Exigir pote dessas
+    categorias hoje faria a comunidade custear a logística do varejista — o inverso do modelo. O
+    financiador certo é o patrocinador, e ele chega na F8. Lacuna documentada em vez de regra errada
+    codificada.
+  - Efeito colateral do trabalho: `ContainerConfig` subiu `max_connections` de 300 para 500. Cada
+    `@TestPropertySource`/`@MockitoSpyBean` cria contexto Spring próprio, com pool de 40 — as duas
+    classes novas estouraram o teto, e a falha aparecia como "Failed to load ApplicationContext",
+    sem apontar a causa. A aritmética ficou registrada no javadoc.
+
+- **2026-08-07** — **Auditoria F6 + F7 e VALIDAÇÃO PONTA A PONTA contra a API em execução.** As duas
+  fases passaram sem correção necessária; o valor desta rodada foi provar que estão amarradas entre
+  si, e não apenas verdes isoladamente.
+  - **F6** — radar com default 2000 m e máximo 20000 m validados por Bean Validation, PostGIS
+    confinado a `ConsultasGeoespaciais` (ADR 0007), `EXPLAIN ANALYZE` provando `Index Scan` em
+    `idx_missao_origem` sobre 200 mil linhas em 21 ms, cache Caffeine por geohash com TTL 30 s e
+    cinco pontos de invalidação. Todos os testes exigidos existem, com os nomes da própria spec:
+    `a_49_metros_de_um_raio_de_50_aceita`, `a_51_metros_de_um_raio_de_50_rejeita`,
+    `segunda_busca_identica_nao_toca_o_banco`.
+  - **F7** — ledger append-only, conclusão em uma transação, transferência P2P com ordem
+    determinística de lock, financiamento como sumidouro, outbox com backoff, saque, extrato e
+    reconciliação. Os seis testes exigidos existem, e a justificativa da ordenação de locks explica
+    inclusive por que `UUID.compareTo` não coincide com a ordem do tipo `uuid` do PostgreSQL — e por
+    que isso é irrelevante, já que a prova exige apenas UMA ordem total consistente.
+  - **Execução ponta a ponta, 24 verificações, zero falhas.** Fluxo real via HTTP contra o banco do
+    compose: login dos 4 perfis → criar ENTREGA → publicar → aceitar → iniciar → carol barrada com
+    403 (anti-IDOR) → check-in fora do raio 422, acurácia 90 m 422, `mocked` 422, válido 200 →
+    confirmar → **saldo de bob 25,00 → 65,00, exatamente os R$ 40,00** → reconfirmar é no-op com
+    saldo intacto.
+  - **Conservação do TOKEN medida de ponta a ponta:** `SUM(carteira.saldo_tokens) +
+    SUM(missao.pote_tokens)` era **500** antes e **500** depois do ciclo criar TRIBO → publicar sem
+    pote (422) → financiar 20 → publicar (200) → cancelar (estorna). Nada cunhado, nada perdido.
+  - Transferência P2P: mesma tribo 201, replay da chave não debita de novo (200 → 170 tokens, uma
+    vez só), outra tribo 422, acima do teto 422. Reconciliação admin devolveu
+    `{"carteirasVerificadas":6,"integro":true,"divergencias":[]}` e 403 para usuário comum. Outbox:
+    1 evento `MissaoConcluida`, 1 publicado, 0 pendentes, com o `alerta` `MISSAO_CONCLUIDA`
+    correspondente gravado — a cadeia transacional completa, do commit ao despacho.
+  - Desvio de nomenclatura, sem impacto: a spec da F7 pedia `POST /missoes/{id}/concluir`; o
+    endpoint chama-se `/confirmar`, que é o nome do evento no diagrama da própria F5. Contrato
+    coerente com a máquina de estados.
+
+- **2026-08-07** — **Auditoria F5 (missões e máquina de estados) e despejo nos limitadores.** Build
+  verde com **341 testes**.
+  - **Rate limiters passaram de `ConcurrentHashMap` para Caffeine com expiração.** Os três mapas de
+    bucket não tinham despejo nenhum, e a chave do `BloqueioLoginService` inclui o EMAIL — num
+    endpoint público. Um script mandando logins com endereços aleatórios criava uma entrada
+    permanente por endereço, sem jamais acertar senha e sem jamais ser bloqueado, porque cada email
+    novo é uma chave nova e o contador de falhas nunca acumulava: o antifraude virava vetor de
+    exaustão de memória. No `RateLimitFilter` o mesmo valia por IP, que sai de `X-Forwarded-For`
+    quando presente — cabeçalho controlado pelo cliente.
+    **A troca é comportamento preservado por construção**, e é isso que a torna segura: o
+    `refillGreedy` repõe a capacidade inteira a cada minuto, então bucket ocioso há 10 minutos já
+    está cheio e recriá-lo devolve exatamente o mesmo estado. Para os buckets,
+    `expireAfterAccess(10min)`; para `bloqueios`, `expireAfterWrite` de 2× a maior janela
+    configurada — afterWrite porque o que conta é quando a falha foi registrada, e o dobro para que
+    expiração jamais liberte alguém de um bloqueio vigente. Os testes de rate limit e de bloqueio
+    progressivo, que são o risco real da mudança, seguem verdes.
+  - **A F5 passou íntegra na auditoria — nenhuma correção necessária.** Os 9 requisitos conferem:
+    transições declaradas no próprio `StatusMissao`, ator autorizado declarado em `EventoMissao`
+    (CRIADOR/EXECUTOR/CANDIDATO/ADMIN/SISTEMA), trilha na mesma transação, lock pessimista com a
+    escolha justificada em comentário (inclusive por que retry seria pior: o estado já mudou, então
+    repetir nunca sucede), DTOs dedicados, regra de economia, `@Scheduled` de expiração com
+    `SKIP_LOCKED` e OpenAPI completo.
+  - Os seis testes exigidos existem, e o parametrizado é melhor do que o pedido: **99 combinações**
+    (9 status × 11 eventos) com a tabela esperada escrita à mão, deliberadamente independente do
+    enum — derivá-la de `StatusMissao` tornaria o teste tautológico, verde até se alguém apagasse
+    uma transição. Também afirma que transição recusada não deixa mutação parcial. O caso
+    ABERTA→CONCLUIDA tem teste nominal próprio, como a spec pedia.
+  - Desvio já superado pelo tempo: a spec da F5 mandava deixar `checkin` e `concluir` como stubs
+    `UnsupportedOperation` com TODO(F6)/TODO(F7). Ambos estão implementados desde o merge das fases
+    seguintes; o handler de `UnsupportedOperationException` no `GlobalExceptionHandler` é hoje
+    código inalcançável.
+
+- **2026-08-07** — **Auditoria F4 (autenticação e proteções) contra a especificação.** Build verde
+  com **341 testes**. Os 10 requisitos estavam implementados: Argon2id com parâmetros justificados
+  (OWASP config C) sob `DelegatingPasswordEncoder`, JWT RS256 com os 7 claims exigidos e chaves fora
+  do repositório, refresh opaco de 256 bits guardado como SHA-256 com rotação e revogação de família,
+  cadeia stateless com CSRF desabilitado e justificado, `@EnableMethodSecurity` com principal
+  próprio, rate limit 5/100/300 com `Retry-After`, bloqueio progressivo 10/15min, os cinco headers,
+  aspecto de auditoria e validação com senha mínima de 12 e lista de 148 senhas comuns. Os cinco
+  testes pedidos existiam, inclusive o que inspeciona o log.
+  - **Um defeito real: oráculo de TEMPO no login.** O código trazia o comentário "usa comparação em
+    tempo constante... mesmo quando o usuário não é encontrado (dummy hash)", mas a expressão era
+    `usuario != null && passwordEncoder.matches(...)` — o `&&` curto-circuita e o KDF **não rodava**
+    para email inexistente. Medido contra a API em execução: **~6 ms contra ~68 ms**, 10x de
+    diferença. A mensagem genérica exigida pelo requisito 7 estava correta e era inútil: o relógio
+    respondia "esta conta existe". Pior que a ausência da defesa, havia um comentário afirmando que
+    ela existia.
+  - **Correção:** hash dummy calculado uma vez na construção do bean; o KDF passa a rodar nos dois
+    caminhos. Medido depois: ~69 ms contra ~71 ms — o degrau sumiu. Fica o resíduo de usuários do
+    seed com `{bcrypt}` contra `{argon2}` das senhas novas, que distingue a IDADE do hash e não a
+    existência da conta; está documentado no javadoc.
+  - **Teste novo, `EnumeracaoUsuarioTest`, deliberadamente NÃO cronometrado.** Um teste que compara
+    tempos seria instável — GC, JIT e runner de CI produzem ruído da mesma ordem do sinal, e o
+    limiar necessário para não dar falso positivo não pegaria a regressão. Em vez disso, verifica
+    com `@MockitoSpyBean` que `matches` é invocado no caminho do email inexistente: determinístico,
+    e falha exatamente se alguém reintroduzir o `&&`.
+  - `docs/seguranca/autenticacao.md` corrigida junto: o diagrama de sequência anotava
+    `findByEmail [leitura constante-time]`, afirmação que nunca foi verdadeira, e a tabela de
+    ataques tratava enumeração de usuários como resolvida só pela mensagem. Agora separa as duas
+    dimensões, corpo e tempo, com a medição registrada.
+  - SpotBugs pegou `DMI_RANDOM_USED_ONLY_ONCE` na primeira versão da correção (o `SecureRandom` era
+    alocado e usado uma única vez no construtor). Resolvido trocando a fonte por `UUID.randomUUID()`
+    em vez de suprimir o aviso: a entrada do hash dummy não é segredo, só precisa gastar CPU.
+
+- **2026-08-07** — **Auditoria F3 (modelo de dados) contra a especificação.** Build verde com **338
+  testes**. O schema passou íntegro: as 15 tabelas, colunas e tipos batem com o modelo pedido, os IDs
+  são UUID da aplicação (zero `@GeneratedValue`), todo temporal é `timestamptz`/`Instant`, dinheiro é
+  `numeric(12,2)`/`BigDecimal` e tokens `bigint`. GiST presente em `missao.origem` e
+  `ponto_custodia.ponto` (e em `checkin.ponto`, de bônus). Enums: 11 `@Enumerated`, todos STRING,
+  nenhum ordinal. `@Version` nas três entidades pedidas. **Zero relacionamento JPA no projeto
+  inteiro** — nenhum `@ManyToOne`/`@JoinColumn`, mais restritivo que a regra 7 exigia. Seed com 3
+  tribos, 6 usuários, 12 missões, 5 pontos de custódia (a LOJA é "Leroy Merlin Pinheiros"), domínio
+  corretamente reescrito para reforma e logística reversa, sem resíduo do protótipo Flutter, com
+  peso e volume nas 4 ENTREGA e coordenadas reais de Pinheiros/Vila Madalena. As 6 carteiras
+  semeadas reconciliam com o ledger.
+  - **Um gap real na regra 4: o `REVOKE` é inerte.** O papel `omnitribo_app` está corretamente
+    restrito a `SELECT, INSERT` nas tabelas append-only, mas o datasource conecta como `omnitribo`,
+    dono das tabelas, para quem GRANT/REVOKE não valem. Medido: como `omnitribo_app`,
+    `UPDATE lancamento` responde `permission denied`; como `omnitribo`, altera as 8 linhas. A
+    "defesa em profundidade" que o comentário SQL descreve não está ligada. Registrado nas
+    Pendências; fechar exige apontar o datasource para `omnitribo_app` e dar ao Flyway um usuário
+    com DDL.
+  - **Dois testes reforçados.** O de idempotência afirmava `DataIntegrityViolationException`, a
+    superclasse que também cobre NOT NULL, CHECK e FK — derrubar `uk_lancamento_idempotencia`
+    deixaria o teste verde desde que o INSERT falhasse por qualquer outro motivo. Passou a
+    `DuplicateKeyException` conferindo o nome da constraint. E o `REVOKE` não tinha assertion
+    nenhuma: `MigracaoTest` agora trava a matriz de privilégios das quatro tabelas append-only.
+  - Desvio de nomenclatura aceito e já documentado: `V9__seed_dev` virou `V900__seed_dev` em
+    `db/seed` (ver nota de 2026-08-06). `entrega_falida` não é semeada — a tese do produto ("entrega
+    que falhou vira missão") não tem dado de exemplo, embora as 4 ENTREGA apontem para pontos de
+    custódia.
+
+- **2026-08-07** — **Auditoria F0–F2 contra a especificação original, e conserto do merge.** Build
+  verde com **337 testes**, 0 falhas/erros (eram 333, e antes disso o build não existia). Quatro
+  testes novos, todos de defeito real encontrado — nenhum escrito para subir cobertura.
+  - **`develop` não compilava.** O merge de `feat/f5-carteira-economia` sobre `feat/f6-geolocalizacao`
+    (PR #8 sobre #6) resolveu o conflito mantendo os CORPOS de método de uma branch e o CONSTRUTOR da
+    outra: `MissaoService` declarava 5 dependências e usava 9; `ExpiracaoMissoesService` usava
+    `estornoFinanciamentoService` sem campo. 10 erros de compilação, CI vermelho, nenhum teste
+    rodando. A correção é a união das duas listas — as duas versões estavam intactas em
+    `git show feat/f5-carteira-economia:<arquivo>`. **Lição registrada no CLAUDE.md:** merge de duas
+    branches de fase que tocam o mesmo serviço exige `./mvnw verify` DEPOIS do merge; as duas versões
+    compilam isoladas e só o resultado combinado quebra.
+  - **Um conflito de REGRA que o build quebrado escondia.** Com o build restaurado,
+    `MissoesProximasTest` falhou: publica missão TRIBO com `tokensRecompensa: 10` e sem pote
+    financiado, o que a F5 passou a recusar com 422. A regra da F5 está certa (conservação do TOKEN);
+    o teste é anterior a ela. Corrigido o **teste**, não a regra — a fixture passou a criar a missão
+    TRIBO com recompensa 0, já que o que ela mede é o filtro do radar por categoria.
+  - **`type` do RFC 9457 nunca era preenchido** — a F2 pedia o campo explicitamente e toda resposta
+    de erro saía `about:blank`, deixando o cliente apenas com o número do status. Novo catálogo
+    `compartilhado/api/TipoProblema` com URIs estáveis. Descoberto no processo que havia **três**
+    caminhos produtores de erro, não um: o `GlobalExceptionHandler`, os ~15 handlers herdados do
+    `ResponseEntityExceptionHandler` — `POST /missoes` com `{}` devolvia
+    `{"detail":"Failed to read request",...}`, sem `type` e sem `traceId` — e os escritores manuais
+    de JSON em `SecurityConfig` e `RateLimitFilter`, que rodam na cadeia de filtros. Os herdados
+    foram cobertos por um override de `createResponseEntity`, e não por 15 overrides, para que um
+    handler novo do Spring já nasça dentro do contrato. `instance` também faltava na resposta de
+    validação — a mais frequente da API.
+  - **Mojibake em todo 401, 403 e 429.** `setContentType("application/problem+json")` não define
+    charset; o servlet caía em ISO-8859-1 e `"Autenticação necessária"` ia para o cliente em Latin-1
+    rotulado como JSON, que é UTF-8 por definição (RFC 8259 §8.1). Atinge exatamente os erros que o
+    app mais recebe — token expira a cada 15 min. Invisível para teste que só confere status code.
+  - **`GET /actuator/health` respondia 401**, contrariando a prova pedida na F2. O
+    `anyRequest().authenticated()` da cadeia principal alcançava a porta de gestão, e o
+    `show-details: when-authorized` ficava sem sentido por não existir caminho anônimo. Nova
+    `actuatorFilterChain` com `@Order(1)`: `health` e `info` anônimos, `metrics` ainda autenticado.
+  - **Armadilha operacional descoberta ao subir o app:** com o seed em V900, toda migration nova é
+    *out-of-order* num banco de dev já existente, e o boot morre com `Validate failed: Detected
+    resolved migration not applied to database: 12` — mensagem que não menciona seed nem ordenação.
+    `make reset` é a resposta. Registrado no CLAUDE.md.
+  - Verificado contra o Maven Central que **Spring Boot 4.1.0** e **springdoc 3.1.0** seguem sendo as
+    releases atuais, e no Docker Hub que **postgis/postgis:16-3.5** é a tag corrente da linha 16.
+    Banco recriado do zero por `make reset`: PostGIS 3.5.2 sobre PostgreSQL 16.9, 13 migrations
+    aplicadas em ordem.
+
 - **2026-08-07** — **F6 — Geolocalização.** Build verde com **248 testes**, 0 falhas/erros (eram 187).
   Radar de proximidade, check-in geolocalizado com validação 100% servidor, cache Caffeine e trilha
   antifraude append-only.

@@ -15,7 +15,7 @@ import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -84,6 +84,61 @@ class MigracaoTest extends TesteIntegracaoBase {
             "SELECT COUNT(*) FROM missao WHERE categoria IN ('TRIBO','COLETA') AND valor_brl > 0",
             Long.class);
     assertThat(violacoes).isZero();
+  }
+
+  /**
+   * A tese do produto tem dado dos DOIS lados: entrega falhada que já virou missão, e entrega
+   * parada na custódia esperando alguém criar a missão de retirada.
+   *
+   * <p>A segunda população é a que importa travar: sem nenhuma linha pendente, a tela de
+   * oportunidades do app só poderia ser demonstrada com dados criados à mão, e o seed não
+   * sustentaria a narrativa que dá nome ao challenge.
+   */
+  @Test
+  void seed_tem_entregas_falidas_convertidas_e_pendentes() {
+    long convertidas =
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM entrega_falida WHERE missao_id IS NOT NULL", Long.class);
+    long pendentes =
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM entrega_falida WHERE missao_id IS NULL", Long.class);
+
+    assertThat(convertidas).isPositive();
+    assertThat(pendentes).isPositive();
+
+    // Toda convertida aponta para missão que existe. Não há FK (fronteira logistica→missoes é
+    // deliberadamente sem constraint), então nada além desta assertion impede o seed de apontar
+    // para um UUID inexistente.
+    long orfas =
+        jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*) FROM entrega_falida ef
+             WHERE ef.missao_id IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM missao m WHERE m.id = ef.missao_id)
+            """,
+            Long.class);
+    assertThat(orfas).as("entrega_falida apontando para missao inexistente").isZero();
+
+    // ocupacao de cada ponto == encomendas fisicamente lá: pendentes + convertidas cuja missão
+    // ainda não concluiu. Encomenda de missão CONCLUIDA já saiu da custódia.
+    long incoerentes =
+        jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*) FROM (
+              SELECT pc.id
+                FROM ponto_custodia pc
+                LEFT JOIN entrega_falida ef ON ef.ponto_custodia_id = pc.id
+                LEFT JOIN missao m          ON m.id = ef.missao_id
+               GROUP BY pc.id, pc.ocupacao
+              HAVING pc.ocupacao <>
+                     COUNT(*) FILTER (WHERE ef.id IS NOT NULL AND ef.missao_id IS NULL)
+                   + COUNT(*) FILTER (WHERE ef.missao_id IS NOT NULL AND m.status <> 'CONCLUIDA')
+            ) divergentes
+            """,
+            Long.class);
+    assertThat(incoerentes)
+        .as("ponto_custodia.ocupacao divergente das encomendas em custódia")
+        .isZero();
   }
 
   @Test
@@ -163,9 +218,49 @@ class MigracaoTest extends TesteIntegracaoBase {
                     carteiraId,
                     chaveUnica,
                     Timestamp.from(Instant.now())))
-        .isInstanceOf(DataIntegrityViolationException.class);
+        // DuplicateKeyException, e não DataIntegrityViolationException: a segunda é a superclasse
+        // que cobre NOT NULL, CHECK e FK também. Com ela, derrubar uk_lancamento_idempotencia e
+        // quebrar a idempotência do ledger deixaria este teste VERDE, desde que o INSERT falhasse
+        // por qualquer outro motivo. O nome da constraint é conferido pela mesma razão: é a
+        // afirmação de que foi ESTA garantia que atuou.
+        .isInstanceOf(DuplicateKeyException.class)
+        .hasMessageContaining("uk_lancamento_idempotencia");
 
     // Limpeza do registro inserido (teste fora de transação não tem rollback automático)
     jdbcTemplate.update("DELETE FROM lancamento WHERE chave_idempotencia = ?", chaveUnica);
+  }
+
+  /**
+   * Trava a matriz de privilégios das tabelas append-only.
+   *
+   * <p>O {@code REVOKE UPDATE, DELETE} das migrations não tinha nenhuma assertion: apagar a linha
+   * de uma migration não quebraria build nenhum, e a garantia de imutabilidade do ledger e da
+   * trilha de auditoria — que é argumento de defesa oral — sumiria em silêncio.
+   *
+   * <p><b>Este teste prova que o papel está correto, NÃO que a aplicação o use.</b> Hoje o
+   * datasource conecta como {@code omnitribo}, dono das tabelas, para quem o REVOKE não vale — a
+   * proteção existe no banco e está desligada em runtime. Ver Pendências conhecidas no CLAUDE.md.
+   */
+  @Test
+  void tabelas_append_only_negam_update_e_delete_ao_papel_de_aplicacao() {
+    List<String> appendOnly = List.of("lancamento", "auditoria", "checkin", "missao_evento");
+
+    for (String tabela : appendOnly) {
+      List<String> privilegios =
+          jdbcTemplate.queryForList(
+              """
+              SELECT privilege_type FROM information_schema.role_table_grants
+               WHERE grantee = 'omnitribo_app' AND table_name = ?
+              """,
+              String.class,
+              tabela);
+
+      assertThat(privilegios)
+          .as("%s é append-only: omnitribo_app precisa poder ler e inserir", tabela)
+          .contains("SELECT", "INSERT");
+      assertThat(privilegios)
+          .as("%s é append-only: UPDATE/DELETE devem estar revogados de omnitribo_app", tabela)
+          .doesNotContain("UPDATE", "DELETE");
+    }
   }
 }

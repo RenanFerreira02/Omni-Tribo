@@ -15,6 +15,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
@@ -351,7 +353,7 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
 
   @Test
   void missaoTriboComValorEmBrlDa400() throws Exception {
-    // A regra que dá coerência às três moedas: TRIBO e COLETA recompensam em token e XP.
+    // A regra que dá coerência à economia: missão recompensa em XP e token, nunca em BRL.
     String corpo = corpoValido("TRIBO", "10.00");
 
     MvcResult resultado =
@@ -361,6 +363,26 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
                     .header("Authorization", bearer(ALICE_ID))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(corpo))
+            .andExpect(status().isBadRequest())
+            .andReturn();
+
+    assertThat(camposComErro(resultado)).contains("valorBrl");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"ENTREGA", "AJUDA", "COLETA", "TRIBO"})
+  void nenhumaCategoriaAceitaValorEmBrl(String categoria) throws Exception {
+    // ENTREGA e AJUDA são o ponto do teste: até o ADR 0009 elas PODIAM ter valor_brl, e era
+    // exatamente por isso que a conclusão creditava dinheiro sem débito em lugar nenhum —
+    // medido, R$ 118,00 viravam R$ 1.618,00 em três ciclos. A regra deixou de depender da
+    // categoria, e este teste percorre as quatro para que ninguém a reintroduza para uma só.
+    MvcResult resultado =
+        mockMvc
+            .perform(
+                post(BASE)
+                    .header("Authorization", bearer(ALICE_ID))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(corpoValido(categoria, "10.00")))
             .andExpect(status().isBadRequest())
             .andReturn();
 
@@ -434,14 +456,18 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
         .andExpect(jsonPath("$.status").value("ABERTA"))
         .andExpect(jsonPath("$.executorId").doesNotExist())
         .andExpect(jsonPath("$.xpRecompensa").value(xpOriginal))
-        .andExpect(jsonPath("$.valorBrl").value(25.00))
+        // Continua 0.00 mesmo com "valorBrl": 499.99 no corpo do PATCH. Duas garantias numa
+        // assertion: o DTO de edição não expõe o campo (mass assignment), e desde o ADR 0009
+        // nenhuma missão remunera em BRL — se o campo voltasse a ser editável, este 499.99 seria
+        // exatamente o caminho de volta da impressora de dinheiro.
+        .andExpect(jsonPath("$.valorBrl").value(0.00))
         .andExpect(jsonPath("$.criadorId").value(ALICE_ID.toString()));
   }
 
   @Test
   void criacaoIgnoraStatusECriadorEnviadosNoCorpo() throws Exception {
     String corpo =
-        corpoValido("ENTREGA", "25.00")
+        corpoValido("ENTREGA", "0.00")
             .replaceFirst(
                 "\\{",
                 "{\"status\":\"CONCLUIDA\","
@@ -617,7 +643,9 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
   }
 
   private static String corpoEntregaValido() {
-    return corpoValido("ENTREGA", "25.00");
+    // valor_brl SEMPRE 0 desde o ADR 0009: missão não remunera em dinheiro, e o CHECK do banco
+    // (V15) recusa qualquer outro valor. A recompensa dessas fixtures é XP + token.
+    return corpoValido("ENTREGA", "0.00");
   }
 
   private static String corpoValido(String categoria, String valorBrl) {

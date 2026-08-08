@@ -54,7 +54,7 @@ import org.springframework.test.web.servlet.MvcResult;
 class ConclusaoRollbackTest extends TesteIntegracaoMvcBase {
 
   private static final String BASE = "/api/v1/missoes";
-  private static final BigDecimal VALOR_BRL = new BigDecimal("40.00");
+  private static final BigDecimal VALOR_BRL = new BigDecimal("0.00");
 
   // Substitui o bean real no contexto. Custo assumido: muda a chave de cache do contexto Spring,
   // então esta classe roda num ApplicationContext próprio — por isso é uma classe dedicada, e não
@@ -189,7 +189,7 @@ class ConclusaoRollbackTest extends TesteIntegracaoMvcBase {
           "categoria": "ENTREGA",
           "titulo": "Missão para prova de rollback",
           "descricao": "Verifica que a falha antes do commit não deixa resíduo.",
-          "valorBrl": 40.00,
+          "valorBrl": 0.00,
           "tokensRecompensa": 20,
           "xpRecompensa": 150,
           "origemLat": -23.5629,

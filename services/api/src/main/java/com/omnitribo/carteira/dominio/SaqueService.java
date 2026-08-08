@@ -23,7 +23,13 @@ import org.springframework.transaction.annotation.Transactional;
  * pedido e liquidação.
  *
  * <p>Só BRL. XP não é sacável por definição, e TOKEN é moeda comunitária sem lastro externo —
- * permitir saque de token seria convertê-lo em dinheiro, que é exatamente o que o ADR 0004 separa.
+ * permitir saque de token seria convertê-lo em dinheiro, e é justamente essa fronteira que o ADR
+ * 0009 mantém explícita: token resgata BENEFÍCIO de parceiro, não moeda corrente.
+ *
+ * <p><b>DESLIGADO por padrão desde o ADR 0009</b> ({@code app.carteira.saque-habilitado}). Com o
+ * BRL fora das recompensas, não há mais como ganhá-lo; deixar o saque aberto permitiria retirar
+ * saldo herdado do modelo anterior. A implementação permanece porque é a mecânica que a conversão
+ * patrocinada reaproveitaria.
  */
 @Service
 public class SaqueService {
@@ -46,6 +52,16 @@ public class SaqueService {
   @Auditavel(acao = "SAQUE_SOLICITADO", entidade = "carteira")
   @Transactional
   public SaqueResponse sacar(UUID usuarioId, BigDecimal valorBrl, String chaveDoCliente) {
+    // Gate ANTES de qualquer leitura ou lock: desligado, esta operação não deve nem tocar o banco.
+    // 422 e não 501: o endpoint existe e o pedido está bem formado — o que não cabe é a operação,
+    // nas regras vigentes. É a mesma semântica de qualquer outra recusa de regra de negócio, e o
+    // app trata pelo type do catálogo, sem precisar de um caso especial.
+    if (!politica.saqueHabilitado()) {
+      throw new RegraNegocioVioladaException(
+          "Saque indisponível nesta versão: a recompensa das missões é em XP e tokens, "
+              + "resgatáveis em benefícios de parceiros.");
+    }
+
     Instant agora = Instant.now();
 
     if (valorBrl.compareTo(politica.saqueMinimoBrl()) < 0) {

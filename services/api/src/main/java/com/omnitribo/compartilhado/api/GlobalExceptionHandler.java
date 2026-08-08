@@ -7,6 +7,7 @@ import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -29,6 +30,56 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
   private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+  /**
+   * Funil de TODAS as respostas de erro produzidas pelo {@code ResponseEntityExceptionHandler}.
+   *
+   * <p>A superclasse traz cerca de quinze handlers prontos — corpo ilegível, método não suportado,
+   * media type inválido, parâmetro obrigatório ausente, handler não encontrado — e nenhum deles
+   * passa pelos {@code @ExceptionHandler} escritos aqui embaixo. O resultado era que a fatia mais
+   * banal de 4xx saía sem {@code type} e sem {@code traceId}, com um contrato de erro diferente do
+   * resto da API: {@code POST /api/v1/missoes} com corpo {@code {}} devolvia apenas {@code
+   * {"detail":"Failed to read request","instance":...,"status":400,"title":"Bad Request"}}.
+   *
+   * <p>Enriquecer aqui, e não sobrescrever os quinze, é o que garante que um handler que a
+   * superclasse venha a ganhar numa versão futura do Spring já nasça dentro do contrato.
+   *
+   * <p>Só preenche o que está faltando: um handler específico que já decidiu o tipo — {@code
+   * handleMethodArgumentNotValid} — continua mandando.
+   */
+  @Override
+  protected ResponseEntity<Object> createResponseEntity(
+      Object body, HttpHeaders headers, HttpStatusCode statusCode, WebRequest request) {
+
+    if (body instanceof ProblemDetail pd) {
+      if (pd.getType() == null || TIPO_AUSENTE.equals(pd.getType())) {
+        pd.setType(TipoProblema.deStatus(resolverStatus(statusCode)));
+      }
+      if (pd.getInstance() == null) {
+        pd.setInstance(URI.create(uriDe(request)));
+      }
+      // Uma leitura só, guardada: getProperties() é @Nullable, e chamá-lo duas vezes deixa o
+      // segundo retorno fora do alcance da checagem do primeiro
+      // (NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE).
+      Map<String, Object> propriedades = pd.getProperties();
+      if (propriedades == null || !propriedades.containsKey("traceId")) {
+        pd.setProperty("traceId", MDC.get("correlationId"));
+      }
+    }
+    return super.createResponseEntity(body, headers, statusCode, request);
+  }
+
+  /** Valor default de {@code ProblemDetail.type} — o que este handler existe para substituir. */
+  private static final URI TIPO_AUSENTE = URI.create("about:blank");
+
+  /**
+   * {@code HttpStatus.valueOf} lança para código fora da enumeração, e o container pode produzir
+   * um. Um erro no mapeamento do tipo não pode virar um 500 por cima do erro original.
+   */
+  private static HttpStatus resolverStatus(HttpStatusCode codigo) {
+    HttpStatus resolvido = HttpStatus.resolve(codigo.value());
+    return resolvido != null ? resolvido : HttpStatus.INTERNAL_SERVER_ERROR;
+  }
+
   @Override
   protected ResponseEntity<Object> handleMethodArgumentNotValid(
       MethodArgumentNotValidException ex,
@@ -44,9 +95,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail pd = ProblemDetail.forStatus(status);
     pd.setTitle("Requisição inválida");
     pd.setDetail("Um ou mais campos falharam na validação.");
-    pd.setProperty("traceId", MDC.get("correlationId"));
     pd.setProperty("errors", erros);
-    return ResponseEntity.status(status).headers(headers).body(pd);
+    // Devolve PELO funil, e não por ResponseEntity.body() direto: é o funil que preenche type,
+    // instance e traceId. Antes esta era a única resposta de validação sem `instance` — justamente
+    // a mais frequente da API.
+    return createResponseEntity(pd, headers, status, request);
   }
 
   /**
@@ -73,6 +126,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             .toList();
 
     ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+    pd.setType(TipoProblema.REQUISICAO_INVALIDA);
     pd.setTitle("Requisição inválida");
     pd.setDetail("Um ou mais parâmetros falharam na validação.");
     pd.setInstance(URI.create(request.getRequestURI()));
@@ -95,6 +149,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
   ResponseEntity<ProblemDetail> handleBloqueio(BloqueioException ex, HttpServletRequest request) {
     ProblemDetail pd =
         ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
+    pd.setType(TipoProblema.LIMITE_REQUISICOES);
     pd.setInstance(URI.create(request.getRequestURI()));
     pd.setProperty("traceId", MDC.get("correlationId"));
     pd.setProperty("retryAfter", ex.getSegundosRestantes());
@@ -107,6 +162,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler(DominioException.class)
   ProblemDetail handleDominio(DominioException ex, HttpServletRequest request) {
     ProblemDetail pd = ProblemDetail.forStatusAndDetail(ex.getHttpStatus(), ex.getMessage());
+    // A exceção escolhe o próprio tipo: subclasse com semântica específica pode sobrescrever
+    // getTipo() sem que este handler saiba da existência dela.
+    pd.setType(ex.getTipo());
     pd.setInstance(URI.create(request.getRequestURI()));
     pd.setProperty("traceId", MDC.get("correlationId"));
     return pd;
@@ -125,6 +183,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
   ProblemDetail handleAcessoNegadoSecurity(AccessDeniedException ex, HttpServletRequest request) {
     // Sem detalhe: a resposta não confirma nem nega a existência do recurso.
     ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "Acesso negado");
+    pd.setType(TipoProblema.ACESSO_NEGADO);
     pd.setInstance(URI.create(request.getRequestURI()));
     pd.setProperty("traceId", MDC.get("correlationId"));
     return pd;
@@ -141,6 +200,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail pd =
         ProblemDetail.forStatusAndDetail(
             HttpStatus.NOT_IMPLEMENTED, "Funcionalidade ainda não disponível nesta versão da API.");
+    pd.setType(TipoProblema.NAO_IMPLEMENTADO);
     pd.setInstance(URI.create(request.getRequestURI()));
     pd.setProperty("traceId", MDC.get("correlationId"));
     return pd;
@@ -158,6 +218,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail.forStatusAndDetail(
             HttpStatus.CONFLICT,
             "O recurso foi alterado por outra operação. Recarregue e tente de novo.");
+    // NÃO é TRANSICAO_INVALIDA, embora ambos sejam 409: aqui o retry da MESMA requisição tende
+    // a funcionar; lá, não. É exatamente a distinção que o status sozinho não expressa.
+    pd.setType(TipoProblema.CONFLITO_CONCORRENCIA);
     pd.setInstance(URI.create(request.getRequestURI()));
     pd.setProperty("traceId", MDC.get("correlationId"));
     return pd;
@@ -169,6 +232,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail pd =
         ProblemDetail.forStatusAndDetail(
             HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno. Contate o suporte.");
+    pd.setType(TipoProblema.ERRO_INTERNO);
     pd.setInstance(URI.create(request.getRequestURI()));
     pd.setProperty("traceId", MDC.get("correlationId"));
     return pd;
@@ -176,6 +240,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
   private String mensagemCampo(FieldError f) {
     return f.getDefaultMessage() != null ? f.getDefaultMessage() : "valor inválido";
+  }
+
+  /**
+   * Caminho da requisição a partir do {@link WebRequest} que o {@code
+   * ResponseEntityExceptionHandler} entrega — os handlers herdados não recebem {@code
+   * HttpServletRequest}.
+   *
+   * <p>{@code getDescription(false)} devolve {@code "uri=/api/v1/..."}; o prefixo é formato de log,
+   * não faz parte do contrato da resposta.
+   */
+  private static String uriDe(WebRequest request) {
+    String descricao = request.getDescription(false);
+    return descricao.startsWith("uri=") ? descricao.substring(4) : descricao;
   }
 
   record ErroCampo(String campo, String mensagem) {}

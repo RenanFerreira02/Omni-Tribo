@@ -140,8 +140,12 @@ class MissoesProximasTest extends TesteIntegracaoMvcBase {
 
   @Test
   void filtro_por_categoria_restringe_o_resultado() throws Exception {
-    UUID entrega = criarEPublicarEm(LAT_A_30M, LON_CENTRO, "ENTREGA", "25.00");
-    UUID tribo = criarEPublicarEm(LAT_A_300M, LON_CENTRO, "TRIBO", "0.00");
+    UUID entrega = criarEPublicarEm(LAT_A_30M, LON_CENTRO, "ENTREGA", "0.00");
+    // tokensRecompensa 0 é obrigatório aqui, e não desleixo de fixture: publicar TRIBO ou COLETA
+    // com recompensa em tokens exige pote já financiado (a regra de conservação da moeda), o que
+    // custaria tribo + carteira + financiamento com Idempotency-Key. Este teste é sobre o FILTRO
+    // do radar por categoria; financiar pote não acrescentaria nada ao que ele mede.
+    UUID tribo = criarEPublicarEm(LAT_A_300M, LON_CENTRO, "TRIBO", "0.00", 0);
 
     MvcResult resultado =
         mockMvc
@@ -242,12 +246,17 @@ class MissoesProximasTest extends TesteIntegracaoMvcBase {
   }
 
   private UUID criarEPublicarEm(String lat, String lon) throws Exception {
-    return criarEPublicarEm(lat, lon, "ENTREGA", "25.00");
+    return criarEPublicarEm(lat, lon, "ENTREGA", "0.00");
   }
 
   private UUID criarEPublicarEm(String lat, String lon, String categoria, String valorBrl)
       throws Exception {
-    UUID missaoId = criarMissaoEm(lat, lon, categoria, valorBrl);
+    return criarEPublicarEm(lat, lon, categoria, valorBrl, 10);
+  }
+
+  private UUID criarEPublicarEm(
+      String lat, String lon, String categoria, String valorBrl, long tokens) throws Exception {
+    UUID missaoId = criarMissaoEm(lat, lon, categoria, valorBrl, tokens);
     mockMvc
         .perform(post(BASE + "/{id}/publicar", missaoId).header("Authorization", bearer(ALICE_ID)))
         .andExpect(status().isOk());
@@ -255,10 +264,15 @@ class MissoesProximasTest extends TesteIntegracaoMvcBase {
   }
 
   private UUID criarMissaoEm(String lat, String lon) throws Exception {
-    return criarMissaoEm(lat, lon, "ENTREGA", "25.00");
+    return criarMissaoEm(lat, lon, "ENTREGA", "0.00");
   }
 
   private UUID criarMissaoEm(String lat, String lon, String categoria, String valorBrl)
+      throws Exception {
+    return criarMissaoEm(lat, lon, categoria, valorBrl, 10);
+  }
+
+  private UUID criarMissaoEm(String lat, String lon, String categoria, String valorBrl, long tokens)
       throws Exception {
     MvcResult resultado =
         mockMvc
@@ -266,7 +280,7 @@ class MissoesProximasTest extends TesteIntegracaoMvcBase {
                 post(BASE)
                     .header("Authorization", bearer(ALICE_ID))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(corpo(lat, lon, categoria, valorBrl)))
+                    .content(corpo(lat, lon, categoria, valorBrl, tokens)))
             .andExpect(status().isCreated())
             .andReturn();
 
@@ -277,7 +291,8 @@ class MissoesProximasTest extends TesteIntegracaoMvcBase {
     return id;
   }
 
-  private static String corpo(String lat, String lon, String categoria, String valorBrl) {
+  private static String corpo(
+      String lat, String lon, String categoria, String valorBrl, long tokens) {
     Instant inicio = Instant.now().truncatedTo(ChronoUnit.SECONDS);
     Instant fim = inicio.plus(2, ChronoUnit.DAYS);
     return """
@@ -286,7 +301,7 @@ class MissoesProximasTest extends TesteIntegracaoMvcBase {
           "titulo": "Missao de proximidade em Manaus",
           "descricao": "Fixture geografico distante do seed de Pinheiros.",
           "valorBrl": %s,
-          "tokensRecompensa": 10,
+          "tokensRecompensa": %s,
           "xpRecompensa": 100,
           "origemLat": %s,
           "origemLon": %s,
@@ -300,7 +315,7 @@ class MissoesProximasTest extends TesteIntegracaoMvcBase {
           "janelaFim": "%s"
         }
         """
-        .formatted(categoria, valorBrl, lat, lon, inicio, fim);
+        .formatted(categoria, valorBrl, tokens, lat, lon, inicio, fim);
   }
 
   private String bearer(UUID usuarioId) {

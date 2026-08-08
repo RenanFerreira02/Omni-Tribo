@@ -10,11 +10,14 @@ import com.omnitribo.compartilhado.dominio.ChaveIdempotencia;
 import com.omnitribo.compartilhado.dominio.Coordenadas;
 import com.omnitribo.compartilhado.dominio.Geohash;
 import com.omnitribo.compartilhado.dominio.RecursoNaoEncontradoException;
+import com.omnitribo.compartilhado.dominio.RegraNegocioVioladaException;
 import com.omnitribo.compartilhado.infra.ConsultasGeoespaciais;
 import com.omnitribo.compartilhado.infra.ConsultasGeoespaciais.AlvoProximo;
 import com.omnitribo.geolocalizacao.api.ComandoCheckin;
 import com.omnitribo.geolocalizacao.api.RegistroCheckin;
 import com.omnitribo.geolocalizacao.api.ResultadoCheckin;
+import com.omnitribo.identidade.api.ProgressaoUsuario;
+import com.omnitribo.identidade.api.ResultadoProgressao;
 import com.omnitribo.missoes.api.AtualizarMissaoRequest;
 import com.omnitribo.missoes.api.CriarMissaoRequest;
 import com.omnitribo.missoes.api.MissaoFiltroRequest;
@@ -70,21 +73,38 @@ public class MissaoService {
   private final ConsultasGeoespaciais consultasGeoespaciais;
   private final CacheMissoesProximas cacheMissoesProximas;
 
-  // Injetado pela INTERFACE: a regra ArchUnit proíbe missoes.dominio de tocar
-  // geolocalizacao.dominio, e é o tipo declarado aqui que o ArchUnit inspeciona.
+  // Injetados pela INTERFACE (porta em api/ do outro módulo): a regra ArchUnit proíbe
+  // missoes.dominio de tocar dominio/ ou infra/ alheios, e é o TIPO DECLARADO aqui que o ArchUnit
+  // inspeciona. Trocar por uma implementação concreta continuaria compilando e quebraria o teste
+  // de arquitetura — que é exatamente o ponto dele.
   private final RegistroCheckin registroCheckin;
+  private final CreditoRecompensa creditoRecompensa;
+  private final ProgressaoUsuario progressaoUsuario;
+  private final PublicadorEventos publicadorEventos;
+
+  // Exceção deliberada à regra acima: EstornoFinanciamentoService é do PRÓPRIO módulo missoes, e
+  // por isso pode ser injetado como classe concreta.
+  private final EstornoFinanciamentoService estornoFinanciamentoService;
 
   public MissaoService(
       MissaoRepository missaoRepository,
       MissaoEventoRepository missaoEventoRepository,
       ConsultasGeoespaciais consultasGeoespaciais,
       CacheMissoesProximas cacheMissoesProximas,
-      RegistroCheckin registroCheckin) {
+      RegistroCheckin registroCheckin,
+      CreditoRecompensa creditoRecompensa,
+      ProgressaoUsuario progressaoUsuario,
+      PublicadorEventos publicadorEventos,
+      EstornoFinanciamentoService estornoFinanciamentoService) {
     this.missaoRepository = missaoRepository;
     this.missaoEventoRepository = missaoEventoRepository;
     this.consultasGeoespaciais = consultasGeoespaciais;
     this.cacheMissoesProximas = cacheMissoesProximas;
     this.registroCheckin = registroCheckin;
+    this.creditoRecompensa = creditoRecompensa;
+    this.progressaoUsuario = progressaoUsuario;
+    this.publicadorEventos = publicadorEventos;
+    this.estornoFinanciamentoService = estornoFinanciamentoService;
   }
 
   // A trilha de auditoria fica no serviço, não no controller: é onde a escrita acontece e onde o
@@ -332,13 +352,7 @@ public class MissaoService {
     return aplicar(missaoId, EventoMissao.CONTESTAR, ator, payloadMotivo(motivo));
   }
 
-  // ─── Check-in (F6) e stubs de F7 ───────────────────────────────────────────────────────────
-  // confirmar e resolverDisputa seguem publicando contrato e respondendo 501: validam 403 e 409
-  // antes, então o app mobile já integra a ordem de checagens definitiva.
-  //
-  // Os dois seguem sem @Auditavel de propósito: sempre lançam UnsupportedOperationException, e o
-  // aspecto é @AfterReturning — anotá-los agora criaria advice que nunca dispara. A anotação entra
-  // junto com o corpo real, em F7.
+  // ─── Check-in ──────────────────────────────────────────────────────────────────────────────
 
   /**
    * Check-in geolocalizado. EM_ANDAMENTO → AGUARDANDO_CONFIRMACAO.

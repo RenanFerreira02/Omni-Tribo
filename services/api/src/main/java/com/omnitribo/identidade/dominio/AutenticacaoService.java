@@ -43,6 +43,27 @@ public class AutenticacaoService {
   private final ProvisionamentoCarteira provisionamentoCarteira;
   private final SecureRandom secureRandom = new SecureRandom();
 
+  /**
+   * Hash descartável contra o qual se compara a senha quando o email NÃO existe.
+   *
+   * <p>Existe para fechar um oráculo de TEMPO. A mensagem de erro já era idêntica nos dois casos,
+   * mas com {@code usuario != null && matches(...)} o {@code &&} curto-circuita: email inexistente
+   * respondia sem executar o KDF. Medido nesta API: <b>~6 ms contra ~68 ms</b>, diferença de 10x
+   * que qualquer cliente distingue sem esforço. Ou seja, a defesa contra enumeração de usuários
+   * estava anulada pelo relógio, e a resposta genérica dava falsa sensação de proteção.
+   *
+   * <p>Calculado UMA vez, na construção do bean: gerá-lo por requisição custaria um KDF a mais em
+   * todo login válido, e mantê-lo constante não enfraquece nada — ele nunca é comparado com uma
+   * senha que se pretenda aceitar. A senha de origem é aleatória e descartada aqui mesmo, então não
+   * existe valor de entrada capaz de casar com este hash.
+   *
+   * <p>Equalização aproximada, não perfeita: usuários do seed ainda têm hash {@code {bcrypt}} e o
+   * padrão para senhas novas é {@code {argon2}}, então os custos diferem entre si. O que este campo
+   * elimina é o degrau de 10x entre "existe" e "não existe"; o resíduo distingue no máximo a IDADE
+   * do hash, não a existência da conta.
+   */
+  private final String hashDummy;
+
   @Value("${app.jwt.ttl-access:PT15M}")
   private Duration ttlAccess;
 
@@ -61,6 +82,14 @@ public class AutenticacaoService {
     this.bloqueioLoginService = bloqueioLoginService;
     this.passwordEncoder = passwordEncoder;
     this.provisionamentoCarteira = provisionamentoCarteira;
+
+    // UUID.randomUUID() e não SecureRandom: este valor não é um segredo, é só entrada para
+    // gastar o mesmo tempo de CPU. Ele nunca é comparado com uma senha que se pretenda aceitar —
+    // casar com ele exigiria um pré-imagem do Argon2 e, ainda assim, não autenticaria ninguém,
+    // porque o resultado é descartado quando o usuário é nulo. Usar o campo secureRandom aqui
+    // dispararia DMI_RANDOM_USED_ONLY_ONCE no SpotBugs, e suprimir o aviso seria pior que trocar
+    // por uma fonte cuja força não faz diferença nenhuma para esta finalidade.
+    this.hashDummy = passwordEncoder.encode(UUID.randomUUID().toString());
   }
 
   @Transactional
@@ -118,12 +147,15 @@ public class AutenticacaoService {
       throw new BloqueioException(bloqueio.segundosRestantes()); // compartilhado/dominio
     }
 
-    // Busca pelo email sem revelar se existe ou não; usa comparação em tempo constante via
-    // passwordEncoder.matches() mesmo quando o usuário não é encontrado (dummy hash).
     Usuario usuario = usuarioRepository.findByEmail(email).orElse(null);
 
-    boolean senhaValida =
-        usuario != null && passwordEncoder.matches(request.senha(), usuario.getSenhaHash());
+    // O KDF roda SEMPRE, inclusive quando o email não existe — contra o hash dummy. Escrito sem
+    // && de propósito: o curto-circuito é justamente o bug que abria o oráculo de tempo, então
+    // avaliar matches() incondicionalmente é o comportamento desejado, não desperdício.
+    // Ver o javadoc de hashDummy para a medição que motivou isto.
+    String hashParaComparar = usuario != null ? usuario.getSenhaHash() : hashDummy;
+    boolean senhaConfere = passwordEncoder.matches(request.senha(), hashParaComparar);
+    boolean senhaValida = usuario != null && senhaConfere;
 
     if (!senhaValida) {
       // Registra falha; pode disparar bloqueio progressivo se atingir o limiar.

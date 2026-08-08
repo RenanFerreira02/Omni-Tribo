@@ -55,7 +55,7 @@ class ConclusaoConcorrenteTest extends TesteIntegracaoMvcBase {
   private static final int THREADS = 100;
   private static final String BASE = "/api/v1/missoes";
 
-  private static final BigDecimal VALOR_BRL = new BigDecimal("40.00");
+  private static final BigDecimal VALOR_BRL = new BigDecimal("0.00");
   private static final long TOKENS = 20L;
   private static final int XP = 150;
 
@@ -184,7 +184,7 @@ class ConclusaoConcorrenteTest extends TesteIntegracaoMvcBase {
           "categoria": "ENTREGA",
           "titulo": "Missão para conclusão concorrente",
           "descricao": "Verifica que 100 confirmações simultâneas creditam uma vez só.",
-          "valorBrl": 40.00,
+          "valorBrl": 0.00,
           "tokensRecompensa": 20,
           "xpRecompensa": 150,
           "origemLat": -23.5629,

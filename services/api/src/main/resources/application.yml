@@ -81,6 +81,10 @@ app:
     transferencia-teto-por-janela: 2000        # tokens somados na janela abaixo
     transferencia-janela: PT24H
     saque-minimo-brl: 10.00                    # abaixo disso a taxa do gateway inviabiliza
+    # Saque DESLIGADO desde o ADR 0009: BRL deixou de ser recompensa de missão, então não há
+    # mais como ganhá-lo. Manter aberto sacaria saldo herdado de um modelo que não vale mais.
+    # A implementação continua no lugar e testada, para a conversão patrocinada de TOKEN.
+    saque-habilitado: false
   outbox:
     intervalo: PT10S             # varredura frequente: é latência de notificação, não de dados
     atraso-inicial: PT30S

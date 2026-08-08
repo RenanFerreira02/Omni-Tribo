@@ -190,7 +190,7 @@ class CheckinConcorrenteTest extends TesteIntegracaoMvcBase {
           "categoria": "ENTREGA",
           "titulo": "Missao para check-in concorrente",
           "descricao": "Fixture do teste de concorrencia.",
-          "valorBrl": 25.00,
+          "valorBrl": 0.00,
           "tokensRecompensa": 10,
           "xpRecompensa": 100,
           "origemLat": %s,

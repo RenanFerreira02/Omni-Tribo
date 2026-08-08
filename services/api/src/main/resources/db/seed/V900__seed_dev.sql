@@ -151,7 +151,7 @@ VALUES
  'Caixa com 2 galões de tinta acrílica premium branca (9L cada) parada no LOCKER Consolação. '
  'Item pesado — use carrinho. Entregar ao morador do apt 42.',
  'CONCLUIDA',
- 80, 18.00, 0,
+ 80, 0.00, 36,
  ST_SetSRID(ST_MakePoint(-46.6573, -23.5558), 4326)::geography,  -- origem: LOCKER Consolação
  ST_SetSRID(ST_MakePoint(-46.6600, -23.5570), 4326)::geography,  -- destino: endereço do destinatário
  'cccccccc-0000-0000-0000-000000000002',
@@ -169,7 +169,7 @@ VALUES
  'Caixa de porcelanato Leroy Merlin ref. POR-6060-CZ na portaria do Ed. Solar Pinheiros. '
  'Peso elevado — obrigatório carrinho ou dois entregadores. Frágil.',
  'CONCLUIDA',
- 120, 35.00, 0,
+ 120, 0.00, 70,
  ST_SetSRID(ST_MakePoint(-46.6970, -23.5680), 4326)::geography,  -- origem: Portaria Ed. Solar
  ST_SetSRID(ST_MakePoint(-46.6950, -23.5660), 4326)::geography,
  'cccccccc-0000-0000-0000-000000000003',
@@ -187,7 +187,7 @@ VALUES
  'Pacote com torneira monocomando e kit de fixação na Leroy Merlin Pinheiros. '
  'Item de tamanho médio, sem risco de quebra se manuseado com cuidado.',
  'ABERTA',
- 50, 15.00, 0,
+ 50, 0.00, 30,
  ST_SetSRID(ST_MakePoint(-46.6934, -23.5640), 4326)::geography,  -- origem: LM Pinheiros
  ST_SetSRID(ST_MakePoint(-46.6880, -23.5620), 4326)::geography,
  'cccccccc-0000-0000-0000-000000000001',
@@ -205,7 +205,7 @@ VALUES
  'Caixa com 3 luminárias spot LED embutidas. Parada no LOCKER Vila Madalena. '
  'Item frágil — transportar na posição vertical.',
  'ABERTA',
- 60, 20.00, 0,
+ 60, 0.00, 40,
  ST_SetSRID(ST_MakePoint(-46.6921, -23.5565), 4326)::geography,  -- origem: LOCKER Vila Madalena
  ST_SetSRID(ST_MakePoint(-46.6900, -23.5550), 4326)::geography,
  'cccccccc-0000-0000-0000-000000000005',
@@ -340,7 +340,7 @@ VALUES
  'Prédio sem elevador. São 3 volumes grandes. Precisamos de 3 pessoas fortes. '
  'O morador já está no local para receber.',
  'CONCLUIDA',
- 100, 35.00, 0,
+ 100, 0.00, 70,
  ST_SetSRID(ST_MakePoint(-46.6934, -23.5640), 4326)::geography,  -- ponto de retirada: LM
  ST_SetSRID(ST_MakePoint(-46.6945, -23.5650), 4326)::geography,
  NULL,
@@ -359,7 +359,7 @@ VALUES
  'Precisa de 2 pessoas e ~2h. Chaves e parafusos fornecidos. '
  'A moradora é idosa e não consegue sozinha.',
  'ABERTA',
- 80, 25.00, 0,
+ 80, 0.00, 50,
  ST_SetSRID(ST_MakePoint(-46.6900, -23.5535), 4326)::geography,
  NULL,
  NULL,
@@ -372,12 +372,12 @@ VALUES
 -- Carteiras (uma por usuário)
 -- -----------------------------------------------------------------------
 INSERT INTO carteira (id, usuario_id, saldo_brl, saldo_tokens, versao) VALUES
-    ('eeeeeeee-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001',  0.00,   0, 0),
-    ('eeeeeeee-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000002', 18.00,   0, 1),
-    ('eeeeeeee-0000-0000-0000-000000000003', 'bbbbbbbb-0000-0000-0000-000000000003', 25.00, 150, 2),
-    ('eeeeeeee-0000-0000-0000-000000000004', 'bbbbbbbb-0000-0000-0000-000000000004',  0.00, 200, 2),
-    ('eeeeeeee-0000-0000-0000-000000000005', 'bbbbbbbb-0000-0000-0000-000000000005', 35.00, 100, 2),
-    ('eeeeeeee-0000-0000-0000-000000000006', 'bbbbbbbb-0000-0000-0000-000000000006',  0.00,  50, 1);
+    ('eeeeeeee-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001', 0.00,   0, 0),
+    ('eeeeeeee-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000002', 0.00,  36, 1),
+    ('eeeeeeee-0000-0000-0000-000000000003', 'bbbbbbbb-0000-0000-0000-000000000003', 0.00, 200, 2),
+    ('eeeeeeee-0000-0000-0000-000000000004', 'bbbbbbbb-0000-0000-0000-000000000004', 0.00, 200, 2),
+    ('eeeeeeee-0000-0000-0000-000000000005', 'bbbbbbbb-0000-0000-0000-000000000005', 0.00, 170, 2),
+    ('eeeeeeee-0000-0000-0000-000000000006', 'bbbbbbbb-0000-0000-0000-000000000006', 0.00,  50, 1);
 
 -- -----------------------------------------------------------------------
 -- Lançamentos — ledger coerente com os saldos acima.
@@ -392,10 +392,10 @@ INSERT INTO lancamento (id, carteira_id, sinal, motivo, valor_brl, valor_tokens,
 VALUES
     ('ffffffff-0000-0000-0000-000000000001',
      'eeeeeeee-0000-0000-0000-000000000002',
-     'CREDITO', 'RECOMPENSA_MISSAO', 18.00, 0,
+     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 36,
      'dddddddd-0000-0000-0000-000000000001', NULL,
-     'seed-idem-bob-e1-brl',
-     18.00, 0,
+     'seed-idem-bob-e1-tk',
+     0.00, 36,
      NOW() - INTERVAL '1 day');
 
 -- alice (carteira eeeeeeee-0000-0000-0000-000000000003): saldo_brl=25.00, tokens=150
@@ -407,10 +407,10 @@ INSERT INTO lancamento (id, carteira_id, sinal, motivo, valor_brl, valor_tokens,
 VALUES
     ('ffffffff-0000-0000-0000-000000000002',
      'eeeeeeee-0000-0000-0000-000000000003',
-     'CREDITO', 'RECOMPENSA_MISSAO', 25.00, 0,
+     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 50,
      'dddddddd-0000-0000-0000-000000000002', NULL,
-     'seed-idem-alice-e2-brl',
-     25.00, 0,
+     'seed-idem-alice-e2-tk',
+     0.00, 50,
      NOW() - INTERVAL '2 days'),
 
     ('ffffffff-0000-0000-0000-000000000003',
@@ -418,7 +418,7 @@ VALUES
      'CREDITO', 'BONUS', 0.00, 150,
      NULL, NULL,
      'seed-idem-alice-bonus-tokens',
-     25.00, 150,
+     0.00, 200,
      NOW() - INTERVAL '1 day');
 
 -- carol (carteira eeeeeeee-0000-0000-0000-000000000004): saldo_brl=0, tokens=200
@@ -451,10 +451,10 @@ INSERT INTO lancamento (id, carteira_id, sinal, motivo, valor_brl, valor_tokens,
 VALUES
     ('ffffffff-0000-0000-0000-000000000006',
      'eeeeeeee-0000-0000-0000-000000000005',
-     'CREDITO', 'RECOMPENSA_MISSAO', 35.00, 0,
+     'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 70,
      'dddddddd-0000-0000-0000-000000000011', NULL,
-     'seed-idem-diana-a1-brl',
-     35.00, 0,
+     'seed-idem-diana-a1-tk',
+     0.00, 70,
      NOW() - INTERVAL '5 days'),
 
     ('ffffffff-0000-0000-0000-000000000007',
@@ -462,7 +462,7 @@ VALUES
      'CREDITO', 'RECOMPENSA_MISSAO', 0.00, 100,
      'dddddddd-0000-0000-0000-000000000008', NULL,
      'seed-idem-diana-t1-tokens',
-     35.00, 100,
+     0.00, 170,
      NOW() - INTERVAL '4 days');
 
 -- erik (carteira eeeeeeee-0000-0000-0000-000000000006): saldo_brl=0, tokens=50

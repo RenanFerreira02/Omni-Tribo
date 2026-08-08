@@ -1,14 +1,20 @@
 package com.omnitribo.compartilhado.infra;
 
+import com.omnitribo.compartilhado.api.TipoProblema;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.actuate.info.InfoEndpoint;
+import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
+import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
@@ -44,7 +50,45 @@ public class SecurityConfig {
     this.rateLimitFilter = rateLimitFilter;
   }
 
+  /**
+   * Cadeia exclusiva dos endpoints do Actuator, na porta de gestão (8081).
+   *
+   * <p>Sem ela, o {@code anyRequest().authenticated()} da cadeia principal alcançava também a porta
+   * de gestão e {@code GET /actuator/health} respondia 401 — um health check que exige JWT não
+   * serve como health check: nem Docker, nem orquestrador, nem pessoa em plantão têm token. O
+   * {@code show-details: when-authorized} do application.yml também ficava sem sentido, já que não
+   * existia caminho anônimo para ele diferenciar.
+   *
+   * <p><b>Só health e info são anônimos.</b> {@code metrics} continua exigindo autenticação: expõe
+   * contadores de uso, nomes de endpoint e tamanho de pool, que é reconhecimento barato para quem
+   * está sondando. E {@code when-authorized} garante que o anônimo veja apenas {@code
+   * {"status":"UP"}}, sem o estado do banco — o perfil dev sobrescreve para {@code always}, o que é
+   * aceitável só porque a 8081 não é publicada fora da máquina.
+   *
+   * <p>{@code @Order(1)} é obrigatório: a cadeia principal casa {@code anyRequest()} e venceria no
+   * empate, tornando esta inalcançável.
+   */
   @Bean
+  @Order(1)
+  public SecurityFilterChain actuatorFilterChain(HttpSecurity http) throws Exception {
+    http.securityMatcher(EndpointRequest.toAnyEndpoint())
+        .csrf(AbstractHttpConfigurer::disable)
+        .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .authorizeHttpRequests(
+            auth ->
+                auth.requestMatchers(EndpointRequest.to(HealthEndpoint.class, InfoEndpoint.class))
+                    .permitAll()
+                    .anyRequest()
+                    .authenticated())
+        .exceptionHandling(
+            e ->
+                e.authenticationEntryPoint(this::entryPoint401)
+                    .accessDeniedHandler(this::handler403));
+    return http.build();
+  }
+
+  @Bean
+  @Order(2)
   public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
     http
         // CSRF desabilitado: API stateless com Bearer token em Authorization header.
@@ -156,13 +200,26 @@ public class SecurityConfig {
     // pode não estar disponível no ciclo de inicialização. Autocontido por design.
     response.setStatus(status.value());
     response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+    // Obrigatório, e não cosmético: sem isto o servlet cai no default ISO-8859-1 e o corpo sai
+    // com "Autenticação" em Latin-1 dentro de um application/problem+json. JSON é UTF-8 por
+    // definição (RFC 8259 §8.1), então o cliente decodifica lixo — e 401 é o erro que o app mais
+    // recebe, porque todo access token expira em 15 min.
+    response.setCharacterEncoding(StandardCharsets.UTF_8.name());
     String uri = instancia.replace("\"", "");
+    // Mesmo catálogo de type do GlobalExceptionHandler. Sem isto, 401 e 403 vindos da cadeia de
+    // filtros sairiam como about:blank enquanto os do controller sairiam tipados — o cliente veria
+    // dois contratos de erro diferentes para a mesma situação, dependendo de onde ela foi
+    // detectada.
     response
         .getWriter()
         .write(
             String.format(
-                "{\"type\":\"about:blank\",\"title\":\"%s\",\"status\":%d"
+                "{\"type\":\"%s\",\"title\":\"%s\",\"status\":%d"
                     + ",\"detail\":\"%s\",\"instance\":\"%s\"}",
-                status.getReasonPhrase(), status.value(), detalhe.replace("\"", "'"), uri));
+                TipoProblema.deStatus(status),
+                status.getReasonPhrase(),
+                status.value(),
+                detalhe.replace("\"", "'"),
+                uri));
   }
 }

@@ -17,14 +17,17 @@ public class ExpiracaoMissoesService {
   private final MissaoRepository missaoRepository;
   private final MissaoEventoRepository missaoEventoRepository;
   private final CacheMissoesProximas cacheMissoesProximas;
+  private final EstornoFinanciamentoService estornoFinanciamentoService;
 
   public ExpiracaoMissoesService(
       MissaoRepository missaoRepository,
       MissaoEventoRepository missaoEventoRepository,
-      CacheMissoesProximas cacheMissoesProximas) {
+      CacheMissoesProximas cacheMissoesProximas,
+      EstornoFinanciamentoService estornoFinanciamentoService) {
     this.missaoRepository = missaoRepository;
     this.missaoEventoRepository = missaoEventoRepository;
     this.cacheMissoesProximas = cacheMissoesProximas;
+    this.estornoFinanciamentoService = estornoFinanciamentoService;
   }
 
   /**

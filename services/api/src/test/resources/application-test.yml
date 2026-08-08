@@ -21,6 +21,11 @@ spring:
       - classpath:db/seed
 
 app:
+  carteira:
+    # Ligado no teste para que a cobertura do fluxo de saque (concorrência, mínimo, idempotência,
+    # saldo insuficiente) continue exercitando o caminho real. O comportamento com a flag
+    # DESLIGADA — que é o padrão de dev e prod — tem teste próprio em SaqueDesabilitadoTest.
+    saque-habilitado: true
   cors:
     origens-permitidas: http://localhost:8081
   rate-limit:

@@ -54,8 +54,9 @@ sequenceDiagram
         RL-->>C: 429 Too Many Requests + Retry-After
     end
     RL->>AS: login(request, ip, userAgent)
-    AS->>DB: findByEmail(email) [leitura constante-time]
-    AS->>AS: passwordEncoder.matches(senha, hash)
+    AS->>DB: findByEmail(email)
+    AS->>AS: passwordEncoder.matches(senha, hash OU hashDummy)
+    Note over AS: KDF roda mesmo se o email não existe — equaliza o tempo de resposta
     alt Credenciais inválidas
         AS->>AS: registrarFalha → bloqueio progressivo
         AS-->>C: 401 "Credenciais inválidas" [mensagem idêntica para senha errada e email inexistente]
@@ -129,7 +130,8 @@ sequenceDiagram
 | **Detecção de reuso** (revogação de família) | Uso de refresh token roubado após rotação legítima (RFC 6819 §5.2.2.3) |
 | **Rate limiting** Bucket4j 5/min por sha256(ip+email) | Credential stuffing automatizado; enumeração de senhas por força bruta |
 | **Bloqueio progressivo** 10 falhas → 15 min | Brute-force manual/lento que respeita rate limits |
-| **Mensagem genérica** em login | Enumeração de usuários via resposta diferenciada |
+| **Mensagem genérica** em login | Enumeração de usuários pelo CORPO da resposta |
+| **Hash dummy** quando o email não existe | Enumeração de usuários pelo TEMPO de resposta. Sem ele o `&&` curto-circuitava e o KDF não rodava: medido **~6 ms contra ~68 ms**, 10x de diferença — a mensagem genérica sozinha não protegia nada. Coberto por `EnumeracaoUsuarioTest` |
 | **JWT stateless** sem userId no corpo | IDOR (Insecure Direct Object Reference) — id vem sempre do token |
 | **sha256(token)** armazenado, não o valor bruto | Comprometimento do banco não expõe tokens válidos |
 | **Valor opaco 256 bits** (SecureRandom) | Previsibilidade/adivinhação de refresh token |

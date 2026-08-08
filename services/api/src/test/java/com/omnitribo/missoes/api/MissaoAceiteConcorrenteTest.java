@@ -176,7 +176,7 @@ class MissaoAceiteConcorrenteTest extends TesteIntegracaoMvcBase {
           "categoria": "ENTREGA",
           "titulo": "Missão disputada por muitos executores",
           "descricao": "Usada para verificar serialização do aceite concorrente.",
-          "valorBrl": 40.00,
+          "valorBrl": 0.00,
           "tokensRecompensa": 20,
           "xpRecompensa": 150,
           "origemLat": -23.5629,

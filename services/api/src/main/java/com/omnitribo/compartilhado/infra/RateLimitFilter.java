@@ -1,5 +1,8 @@
 package com.omnitribo.compartilhado.infra;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.omnitribo.compartilhado.api.TipoProblema;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import jakarta.servlet.FilterChain;
@@ -7,8 +10,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -22,6 +25,14 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * limiting por usuário funciona apenas após o primeiro parse do JWT. Solução: o filter aplica rate
  * limit por userId quando o header Authorization está presente e o token é válido; caso contrário
  * aplica por IP.
+ *
+ * <p><b>Contagem em memória, e isso é uma decisão de escopo, não um esquecimento.</b> Os buckets
+ * vivem em mapas locais do processo, o que só é correto porque o MVP roda em UMA instância. Com
+ * duas ou mais atrás de um balanceador, cada uma passaria a contar o seu próprio tráfego e o limite
+ * efetivo viraria N × 100/min — ou seja, o controle degradaria em silêncio, sem erro nenhum
+ * aparecer. A migração é trocar estes mapas por um contador distribuído (o módulo {@code
+ * bucket4j-redis} já cobre exatamente este caso, mantendo a mesma API de Bucket). Mesma observação
+ * vale para {@code BloqueioLoginService}. Ver CLAUDE.md, seção Escopo.
  */
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
@@ -34,9 +45,23 @@ public class RateLimitFilter extends OncePerRequestFilter {
   @Value("${app.rate-limit.leitura-por-minuto:300}")
   private int leituraPorMinuto;
 
-  // Buckets por userId (autenticado) ou IP (anônimo)
-  private final ConcurrentHashMap<String, Bucket> bucketsEscrita = new ConcurrentHashMap<>();
-  private final ConcurrentHashMap<String, Bucket> bucketsLeitura = new ConcurrentHashMap<>();
+  /**
+   * Buckets por userId (autenticado) ou IP (anônimo), com DESPEJO por ociosidade.
+   *
+   * <p>Eram {@code ConcurrentHashMap} sem remoção nenhuma: toda chave já vista — cada IP anônimo,
+   * cada usuário — permanecia até o processo reiniciar. Como a chave de quem não está autenticado é
+   * o IP, e o IP sai de {@code X-Forwarded-For} quando presente (cabeçalho que o cliente controla),
+   * bastava variar esse cabeçalho para inflar os mapas indefinidamente.
+   *
+   * <p>{@code expireAfterAccess} de 10 minutos não afrouxa o limite: {@code refillGreedy} repõe a
+   * capacidade inteira a cada minuto, então um bucket parado há dez já está cheio e recriá-lo
+   * produz exatamente o mesmo estado. Descartar entrada ociosa é equivalente, não aproximado.
+   */
+  private final Cache<String, Bucket> bucketsEscrita =
+      Caffeine.newBuilder().expireAfterAccess(Duration.ofMinutes(10)).build();
+
+  private final Cache<String, Bucket> bucketsLeitura =
+      Caffeine.newBuilder().expireAfterAccess(Duration.ofMinutes(10)).build();
 
   public RateLimitFilter(JwtService jwtService) {
     this.jwtService = jwtService;
@@ -68,8 +93,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     Bucket bucket =
         ehEscrita
-            ? bucketsEscrita.computeIfAbsent(chave, k -> criarBucket(escritaPorMinuto))
-            : bucketsLeitura.computeIfAbsent(chave, k -> criarBucket(leituraPorMinuto));
+            ? bucketsEscrita.get(chave, k -> criarBucket(escritaPorMinuto))
+            : bucketsLeitura.get(chave, k -> criarBucket(leituraPorMinuto));
 
     if (!bucket.tryConsume(1)) {
       int limite = ehEscrita ? escritaPorMinuto : leituraPorMinuto;
@@ -131,14 +156,17 @@ public class RateLimitFilter extends OncePerRequestFilter {
         "Limite de requisições atingido (" + limite + "/min). Aguarde antes de tentar novamente.";
     response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
     response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+    // Mesma razão do SecurityConfig: o detail tem "requisições", e sem UTF-8 explícito o corpo
+    // sai em ISO-8859-1 dentro de um JSON.
+    response.setCharacterEncoding(StandardCharsets.UTF_8.name());
     // Retry-After: informa ao cliente quanto tempo esperar (RFC 7231 §7.1.3).
     response.setHeader("Retry-After", String.valueOf(retryAfter));
     response
         .getWriter()
         .write(
             String.format(
-                "{\"type\":\"about:blank\",\"title\":\"Too Many Requests\",\"status\":429"
+                "{\"type\":\"%s\",\"title\":\"Too Many Requests\",\"status\":429"
                     + ",\"detail\":\"%s\",\"instance\":\"%s\",\"retryAfter\":%d}",
-                detail, uri, retryAfter));
+                TipoProblema.LIMITE_REQUISICOES, detail, uri, retryAfter));
   }
 }

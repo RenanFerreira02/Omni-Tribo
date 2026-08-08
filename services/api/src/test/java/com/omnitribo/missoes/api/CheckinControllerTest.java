@@ -518,7 +518,7 @@ class CheckinControllerTest extends TesteIntegracaoMvcBase {
           "categoria": "ENTREGA",
           "titulo": "Missao para check-in geolocalizado",
           "descricao": "Fixture do teste de check-in.",
-          "valorBrl": 25.00,
+          "valorBrl": 0.00,
           "tokensRecompensa": 10,
           "xpRecompensa": 100,
           "origemLat": %s,

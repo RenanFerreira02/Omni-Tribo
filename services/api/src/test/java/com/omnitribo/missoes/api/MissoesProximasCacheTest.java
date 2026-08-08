@@ -199,7 +199,7 @@ class MissoesProximasCacheTest extends TesteIntegracaoMvcBase {
           "categoria": "ENTREGA",
           "titulo": "Missao para invalidar o cache",
           "descricao": "Publicada no meio do teste de cache.",
-          "valorBrl": 25.00,
+          "valorBrl": 0.00,
           "tokensRecompensa": 10,
           "xpRecompensa": 100,
           "origemLat": %s,
