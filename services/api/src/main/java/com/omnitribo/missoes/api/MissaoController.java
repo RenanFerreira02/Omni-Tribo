@@ -1,7 +1,7 @@
 package com.omnitribo.missoes.api;
 
 import com.omnitribo.compartilhado.api.PaginaResponse;
-import com.omnitribo.compartilhado.dominio.RegraNegocioVioladaException;
+import com.omnitribo.geolocalizacao.api.CheckinRejeitadoException;
 import com.omnitribo.identidade.api.AutenticadoPrincipal;
 import com.omnitribo.missoes.dominio.AtorMissao;
 import com.omnitribo.missoes.dominio.MissaoService;
@@ -338,7 +338,10 @@ public class MissaoController {
     // linha que acabou de ser gravada em `checkin` — e essa linha é a trilha antifraude, que
     // precisa sobreviver justamente às tentativas recusadas. Ver ResultadoRegistroCheckin.
     if (!resultado.aceito()) {
-      throw new RegraNegocioVioladaException(resultado.motivoRejeicao());
+      // Continua 422; o que o código da rejeição acrescenta é o `type` específico, para que o app
+      // distinga "desligue o mock" de "aproxime-se" de "procure céu aberto" sem parsear a mensagem.
+      // Ver ADR 0010.
+      throw new CheckinRejeitadoException(resultado.codigoRejeicao(), resultado.motivoRejeicao());
     }
     return resultado.missao();
   }

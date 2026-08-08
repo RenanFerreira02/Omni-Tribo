@@ -1,5 +1,6 @@
 package com.omnitribo.geolocalizacao.dominio;
 
+import com.omnitribo.geolocalizacao.api.MotivoRejeicaoCheckin;
 import com.omnitribo.geolocalizacao.api.ResultadoCheckin.Veredito;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -50,9 +51,18 @@ public final class AvaliacaoAntifraude {
 
   private AvaliacaoAntifraude() {}
 
-  /** Veredito e motivo de um check-in. */
+  /**
+   * Veredito de um check-in.
+   *
+   * <p>A causa da rejeição viaja DUAS vezes, de propósito: {@code codigoRejeicao} é a forma estável
+   * que escolhe o {@code type} da resposta e vai para a coluna homônima; {@code motivoRejeicao} é o
+   * texto para humano, que muda com a copy. Ver ADR 0010. Os dois são nulos quando aceito.
+   */
   public record Avaliacao(
-      Veredito veredito, String motivoRejeicao, BigDecimal velocidadeImplicitaKmh) {
+      Veredito veredito,
+      MotivoRejeicaoCheckin codigoRejeicao,
+      String motivoRejeicao,
+      BigDecimal velocidadeImplicitaKmh) {
 
     public boolean aceito() {
       return veredito != Veredito.REJEITADO;
@@ -90,12 +100,14 @@ public final class AvaliacaoAntifraude {
             latAnterior, lonAnterior, distanciaDoAnteriorM, instanteAnterior, agora);
 
     if (mocked) {
-      return new Avaliacao(Veredito.REJEITADO, MOTIVO_MOCK, velocidade);
+      return new Avaliacao(
+          Veredito.REJEITADO, MotivoRejeicaoCheckin.LOCALIZACAO_SIMULADA, MOTIVO_MOCK, velocidade);
     }
 
     if (acuraciaM.compareTo(ACURACIA_MAXIMA_M) > 0) {
       return new Avaliacao(
           Veredito.REJEITADO,
+          MotivoRejeicaoCheckin.ACURACIA_INSUFICIENTE,
           MOTIVO_ACURACIA.formatted(emMetros(acuraciaM), ACURACIA_MAXIMA_M.toPlainString()),
           velocidade);
     }
@@ -106,15 +118,16 @@ public final class AvaliacaoAntifraude {
     if (distanciaM.compareTo(new BigDecimal(raioCheckinM)) > 0) {
       return new Avaliacao(
           Veredito.REJEITADO,
+          MotivoRejeicaoCheckin.FORA_DO_RAIO,
           MOTIVO_DISTANCIA.formatted(emMetros(distanciaM), raioCheckinM),
           velocidade);
     }
 
     if (velocidade != null && velocidade.compareTo(VELOCIDADE_SUSPEITA_KMH) > 0) {
-      return new Avaliacao(Veredito.ACEITO_SUSPEITO, null, velocidade);
+      return new Avaliacao(Veredito.ACEITO_SUSPEITO, null, null, velocidade);
     }
 
-    return new Avaliacao(Veredito.ACEITO, null, velocidade);
+    return new Avaliacao(Veredito.ACEITO, null, null, velocidade);
   }
 
   /**

@@ -15,6 +15,8 @@ public record ResultadoCheckin(
     Veredito veredito,
     BigDecimal distanciaM,
     BigDecimal velocidadeImplicitaKmh,
+    /** Causa estável da rejeição; null quando aceito. É ela que escolhe o `type`. Ver ADR 0010. */
+    MotivoRejeicaoCheckin codigoRejeicao,
     String motivoRejeicao,
     /** true quando a chave de idempotência já existia: nenhuma linha nova foi gravada. */
     boolean replay) {

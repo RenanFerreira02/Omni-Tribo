@@ -54,10 +54,11 @@ public class SaqueService {
   public SaqueResponse sacar(UUID usuarioId, BigDecimal valorBrl, String chaveDoCliente) {
     // Gate ANTES de qualquer leitura ou lock: desligado, esta operação não deve nem tocar o banco.
     // 422 e não 501: o endpoint existe e o pedido está bem formado — o que não cabe é a operação,
-    // nas regras vigentes. É a mesma semântica de qualquer outra recusa de regra de negócio, e o
-    // app trata pelo type do catálogo, sem precisar de um caso especial.
+    // nas regras vigentes. `type` próprio (ADR 0010) porque a tela reage diferente das outras
+    // recusas daqui: recurso fechado por decisão de produto não é algo que o usuário corrija
+    // ajustando o valor, e tratá-lo como "saldo insuficiente" o faria juntar saldo à toa.
     if (!politica.saqueHabilitado()) {
-      throw new RegraNegocioVioladaException(
+      throw new SaqueDesabilitadoException(
           "Saque indisponível nesta versão: a recompensa das missões é em XP e tokens, "
               + "resgatáveis em benefícios de parceiros.");
     }

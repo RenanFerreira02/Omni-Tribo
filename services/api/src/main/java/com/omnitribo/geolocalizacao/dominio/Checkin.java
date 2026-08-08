@@ -1,5 +1,6 @@
 package com.omnitribo.geolocalizacao.dominio;
 
+import com.omnitribo.geolocalizacao.api.MotivoRejeicaoCheckin;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -59,6 +60,14 @@ public class Checkin {
   @Column(name = "motivo_rejeicao", updatable = false, length = 500)
   private String motivoRejeicao;
 
+  // Mesma decisão de motivoRejeicao, em forma estável — é o código que escolhe o `type` da resposta
+  // RFC 9457. Persistido, e não derivado, porque o replay pela chave de idempotência reconstrói o
+  // veredito a partir desta linha. Ver V17 e ADR 0010. ck_checkin_rejeicao_coerente garante no
+  // banco que ele existe exatamente quando valido=false.
+  @Enumerated(EnumType.STRING)
+  @Column(name = "codigo_rejeicao", updatable = false, length = 40)
+  private MotivoRejeicaoCheckin codigoRejeicao;
+
   // Cinemática implausível: aceito, porém marcado. Ver V12 e AvaliacaoAntifraude.
   // Não confundir com valido=false — suspeito=true transiciona a missão normalmente.
   @Column(nullable = false, updatable = false)
@@ -87,6 +96,7 @@ public class Checkin {
       boolean mockDetectado,
       BigDecimal velocidadeImplicitaKmh,
       boolean valido,
+      MotivoRejeicaoCheckin codigoRejeicao,
       String motivoRejeicao,
       boolean suspeito,
       String chaveIdempotencia,
@@ -101,6 +111,7 @@ public class Checkin {
     this.mockDetectado = mockDetectado;
     this.velocidadeImplicitaKmh = velocidadeImplicitaKmh;
     this.valido = valido;
+    this.codigoRejeicao = codigoRejeicao;
     this.motivoRejeicao = motivoRejeicao;
     this.suspeito = suspeito;
     this.chaveIdempotencia = chaveIdempotencia;
@@ -152,6 +163,10 @@ public class Checkin {
 
   public String getMotivoRejeicao() {
     return motivoRejeicao;
+  }
+
+  public MotivoRejeicaoCheckin getCodigoRejeicao() {
+    return codigoRejeicao;
   }
 
   public boolean isSuspeito() {

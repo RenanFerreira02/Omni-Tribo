@@ -136,11 +136,15 @@ cd services/api && ./mvnw spotless:apply                  # corrige formatação
 cd services/api && ./mvnw -Dtest=NomeDaClasseTest test    # um único teste
 cd services/api && ./mvnw clean                           # OBRIGATÓRIO depois de renomear migration — ver seção Banco
 
-# Mobile — F9+, NENHUM destes comandos existe ainda.
-# apps/mobile/ contém só .gitkeep e CLAUDE.md; não há package.json.
-# cd apps/mobile && npm run android
-# cd apps/mobile && npm run typecheck && npm run lint && npm test
-# cd apps/mobile && npx jest --testPathPattern=nomeDoArquivo
+# Mobile
+cd apps/mobile && npm install                             # primeira vez
+cd apps/mobile && npm start                               # Metro; leia o QR com o Expo Go
+cd apps/mobile && npm run android                         # emulador (exige ANDROID_HOME e um AVD)
+cd apps/mobile && npm run typecheck && npm run lint && npm test
+cd apps/mobile && npx jest --testPathPattern=nomeDoArquivo
+# Integração contra o backend EM EXECUÇÃO — fora do `npm test` de propósito:
+cd apps/mobile && E2E_API_URL=http://192.168.15.6:8080 npm run test:e2e
+# npx expo install <pacote>, NUNCA npm install, para pacotes do ecossistema Expo.
 
 # Infra
 make up          # sobe PostgreSQL+PostGIS
@@ -202,7 +206,8 @@ volta da linha 335) afirmando que `confirmar`/`resolver` ainda são stubs. Não 
 - `docs/adr/` — decisões com alternativas descartadas. 0001 monólito · 0002 PostGIS · 0003 Expo ·
   0004 três moedas (**tabela de moedas substituída pelo 0009**) · 0005 JWT+Argon2 · 0006 máquina de
   estados · 0007 consultas geoespaciais centralizadas · 0008 ledger append-only e idempotência ·
-  **0009 economia do cuidado: TOKEN como recompensa, BRL fora do ciclo**.
+  **0009 economia do cuidado: TOKEN como recompensa, BRL fora do ciclo** · **0010 granularidade do
+  catálogo de tipos de problema: uma URI por REAÇÃO DE UI**.
 - `docs/qualidade/integridade-transacional.md` — evidência de concorrência da carteira (100 threads,
   deadlock, rollback) e a seção "O que esta fase NÃO garante". É o documento a defender oralmente.
 - `docs/seguranca/autenticacao.md` — modelo de ameaça e desenho do fluxo de auth.
@@ -337,8 +342,18 @@ volta da linha 335) afirmando que `confirmar`/`resolver` ainda são stubs. Não 
   só testes, e que `api.yml` tem um passo `gerar-chaves-dev.sh` antes do `verify`. Remover esse
   passo do CI derruba TODA a suíte de integração no GitHub enquanto tudo continua verde local.
 
-**Mobile** (`apps/mobile/`): não iniciado (F9+), diretório vazio. As convenções vivem em
-`apps/mobile/CLAUDE.md`, que entra em contexto ao mexer lá — não duplicadas aqui.
+**Mobile** (`apps/mobile/`): F9–F11 implementadas. As convenções vivem em `apps/mobile/CLAUDE.md`,
+que entra em contexto ao mexer lá — não duplicadas aqui. Três armadilhas do ambiente de teste, que
+custaram tempo e não aparecem em lugar nenhum da documentação do Expo:
+- **jest-expo 57 fixa o ecossistema jest 29.** Instalar o `jest` 30 (que é o `latest` do npm) mistura
+  `jest-runtime` 30 com `jest-environment-node` 29 e a suíte morre em
+  `this._moduleMocker.clearMocksOnScope is not a function` — erro que não menciona versão nenhuma.
+- **RNTL 14 tornou `render` e `fireEvent` ASSÍNCRONOS.** Sem `await`, `screen` fica vazio e todo
+  `getByTestId` estoura com "`render` function has not been called".
+- **O ambiente do jest-expo não faz rede de verdade** — o `XMLHttpRequest` e o `fetch` dele são
+  dublês. Por isso o teste de integração roda em `testEnvironment: 'node'`
+  (`jest.e2e.config.js`), com stub de `react-native`; sob o preset do RN toda chamada volta como
+  `semRede`, indistinguível de backend desligado.
 
 ## Regras não negociáveis
 
@@ -353,8 +368,8 @@ Banco
 - Flyway é a ÚNICA fonte de schema. ddl-auto é sempre validate. Nunca resolva divergência mudando
   ddl-auto — escreva migration.
 - **Versão de migration é sequência GLOBAL, não por diretório.** Duas faixas, separadas de propósito:
-  - `db/migration` — schema, **V1–V8 e V11–V14**; único location do perfil default/prod.
-    Próxima é **V15**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
+  - `db/migration` — schema, **V1–V8 e V11–V17**; único location do perfil default/prod.
+    Próxima é **V18**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
     antes da renomeação para `V900__seed_dev.sql`, então um banco de dev criado antes dela tem as
     versões 9 e 10 gravadas no `flyway_schema_history` com descrição de seed. Um `V9__*.sql` novo em
     `db/migration` passaria em clone novo e falharia em máquina antiga com erro de checksum ou
@@ -462,10 +477,17 @@ entrega é um relatório em `docs/auditoria/FN.md`, e só ele.
 limpo. Os oito relatórios em `docs/auditoria/` são o registro do que foi verificado e do que ficou
 em aberto; a rodada corrigiu 7 defeitos, cinco deles invisíveis na leitura do código.
 
-**Próximo passo é o mobile (F9+).** Nada no backend bloqueia — o fluxo completo foi exercitado
-ponta a ponta por HTTP: login → radar → prévia de recompensa → criar → publicar → aceitar → iniciar
-→ check-in → confirmar → extrato. Ver Pendências conhecidas #3 para as quatro leituras que faltam,
-e #4 para a decisão de contrato de erro a tomar antes da primeira tela.
+**Mobile: F9, F10 e F11 implementadas** em `apps/mobile/` (Expo SDK 57). Design system em
+`src/theme` + `src/components`, cliente HTTP com rotação única de refresh, sessão com access token
+só em memória e refresh em `expo-secure-store`, rotas `(auth)`/`(tabs)` protegidas, lista de missões
+com radar geoespacial e paginação infinita, detalhe com o ciclo de vida e check-in, carteira com
+saldo em TOKEN e extrato. Suíte com Jest/RTL/MSW, mais um teste de integração contra o backend em
+execução (`npm run test:e2e`), fora do `npm test`.
+
+O catálogo de erro foi ampliado antes da primeira tela, como a antiga Pendência #4 exigia — ver
+**ADR 0010**. Ficam de fora, e o motivo está na Pendência #3: as quatro leituras que o backend ainda
+não expõe. A mais visível é `GET /auth/me`, que devolve só `{id, email, papel}` — por isso a tela de
+perfil é mínima e não mostra nome, tribo, XP nem nível.
 
 `develop` carrega o merge de duas fases (carteira e geolocalização) que chegou quebrado — construtor
 de uma branch com corpos de método da outra — e foi consertado na auditoria de 2026-08-07.
@@ -543,8 +565,7 @@ que a consome existir, não antes:
 | `GET /tribos` | perfil, registro | "sua tribo" só existe como UUID |
 | `GET /pontos-custodia/{id}` | detalhe de ENTREGA | `MissaoResponse` traz `pontoCustodiaId` cru; o app mostraria um UUID em vez de "Leroy Merlin Pinheiros". `PontoCustodiaRepository` é repositório órfão, sem serviço nem controller |
 
-**4. Granularidade do catálogo de `type` — decidir ANTES da primeira tela de erro.** Hoje é uma URI
-por CLASSE de erro: todo 422 é `regra-negocio-violada`, seja saque desligado, saldo insuficiente ou
-check-in fora do raio. Se o app precisar ramificar entre causas do mesmo status, o caminho é
-subclasse de `DominioException` sobrescrevendo `getTipo()` com URI nova — **nunca** parsear `detail`.
-Decidir depois significa refazer o tratamento de erro no mobile.
+**4. As telas do app que dependem dessas quatro leituras estão incompletas por consequência, não por
+descuido.** Perfil mostra e-mail, papel e id, e diz na própria tela que o resto não vem da API; o
+detalhe de ENTREGA não exibe o ponto de custódia; não há caixa de alertas; e o registro não deixa
+escolher tribo, porque escolher sem poder listar seria digitar um UUID. Fecham junto com a #3.

@@ -14,11 +14,13 @@ import org.springframework.http.HttpStatus;
  * discriminar pelo {@code detail}, que é texto em português voltado a humano: muda sem aviso e
  * quebraria o cliente na primeira revisão de copy.
  *
- * <p><b>Granularidade de hoje: uma URI por CLASSE de erro, não por causa.</b> Todo 422 é {@link
- * #REGRA_NEGOCIO_VIOLADA}, seja saldo insuficiente ou check-in fora do raio — o {@code detail} é
- * que separa os dois, para humano. Se o app precisar ramificar entre causas de um mesmo status, o
- * caminho é uma subclasse de {@code DominioException} sobrescrevendo {@code getTipo()} com uma URI
- * nova daqui; não é parsear {@code detail}.
+ * <p><b>Granularidade: uma URI por REAÇÃO DE UI, não por classe de erro nem por causa.</b> O
+ * critério está no ADR 0010. {@link #REGRA_NEGOCIO_VIOLADA} continua sendo o 422 padrão — saldo
+ * insuficiente, pote insuficiente, janela vencida —, porque nesses casos a tela faz a mesma coisa:
+ * exibe o {@code detail}. Ganham URI própria as causas em que a tela age DIFERENTE: as três
+ * rejeições de check-in (desligar o mock, aproximar-se, procurar céu aberto) e o saque desligado
+ * por configuração. Precisa de uma nova? O caminho é uma subclasse de {@code DominioException}
+ * sobrescrevendo {@code getTipo()}; nunca parsear {@code detail}.
  *
  * <p>As URIs <b>não precisam ser dereferenciáveis</b> (RFC 9457 §3.1.1) — são identificadores
  * estáveis, não endereços. O domínio é fictício de propósito, para deixar claro que ninguém deve
@@ -51,6 +53,26 @@ public final class TipoProblema {
 
   /** 422: cabe no estado, mas os dados não satisfazem a regra (saldo, pote, raio, janela). */
   public static final URI REGRA_NEGOCIO_VIOLADA = URI.create(BASE + "regra-negocio-violada");
+
+  /**
+   * 422: saque desligado por configuração ({@code app.carteira.saque-habilitado}).
+   *
+   * <p>Separado do 422 genérico porque não é falha do pedido do usuário nem algo que ele possa
+   * corrigir tentando de outro jeito — é um recurso fechado. A tela precisa de estado próprio, e
+   * não de um alerta de erro. Ver ADR 0009 e ADR 0010.
+   */
+  public static final URI SAQUE_DESABILITADO = URI.create(BASE + "saque-desabilitado");
+
+  /** 422: check-in recusado porque o dispositivo reportou localização simulada. */
+  public static final URI CHECKIN_LOCALIZACAO_SIMULADA =
+      URI.create(BASE + "checkin-localizacao-simulada");
+
+  /** 422: check-in recusado porque o raio de erro do GPS não sustenta afirmação de presença. */
+  public static final URI CHECKIN_ACURACIA_INSUFICIENTE =
+      URI.create(BASE + "checkin-acuracia-insuficiente");
+
+  /** 422: check-in recusado porque a distância medida excede o raio da missão. */
+  public static final URI CHECKIN_FORA_DO_RAIO = URI.create(BASE + "checkin-fora-do-raio");
 
   /** 409 de colisão de {@code @Version}: alguém alterou o recurso no meio do caminho. */
   public static final URI CONFLITO_CONCORRENCIA = URI.create(BASE + "conflito-concorrencia");

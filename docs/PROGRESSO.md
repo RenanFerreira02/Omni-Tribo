@@ -11,9 +11,9 @@
 | F6   | Geolocalização e check-in             | ✅ Concluído | [F6](auditoria/F6.md) | 2026-08-07 |
 | F7   | Carteira e integridade transacional   | ✅ Concluído | [F7](auditoria/F7.md) | 2026-08-07 |
 | F8   | Logística, notificações e patrocinador| ⬜ Pendente  | —         | —          |
-| F9   | App mobile — autenticação             | ⬜ Pendente  | —         | —          |
-| F10  | App mobile — missões e check-in       | ⬜ Pendente  | —         | —          |
-| F11  | App mobile — carteira e perfil        | ⬜ Pendente  | —         | —          |
+| F9   | App mobile — autenticação             | ✅ Concluído | —         | 2026-08-08 |
+| F10  | App mobile — missões e check-in       | ✅ Concluído | —         | 2026-08-08 |
+| F11  | App mobile — carteira e perfil        | ✅ Concluído | —         | 2026-08-08 |
 | F12  | Testes de carga e endurecimento       | ⬜ Pendente  | —         | —          |
 | F13  | Entrega final                         | ⬜ Pendente  | —         | —          |
 
@@ -27,7 +27,40 @@
 lacuna com dono de fase, não trabalho pendente das fases concluídas — ver Pendências conhecidas no
 CLAUDE.md.
 
+**Mobile (F9–F11) implementado**, com **41 testes** Jest/RTL/MSW verdes, typecheck e lint limpos, e
+7 testes de integração contra a API em execução. F9–F11 ainda **não passaram por auditoria** — a
+coluna reflete isso.
+
 ## Notas de manutenção
+
+- **2026-08-08** — **App mobile (F9–F11) e ampliação do catálogo de erro.**
+  - **A Pendência #4 foi resolvida antes da primeira tela, como ela própria exigia.** O catálogo
+    `TipoProblema` tinha uma URI por CLASSE de erro, e as três rejeições de check-in — mock,
+    acurácia, distância — chegavam ao app como o mesmo 422, separadas só pelo `detail`, que
+    `apps/mobile/CLAUDE.md` proíbe parsear. As três pedem instruções mutuamente inúteis ("desligue o
+    mock" ≠ "procure céu aberto" ≠ "aproxime-se"), então ganharam URI própria, junto com
+    `saque-desabilitado`. O critério adotado — **uma URI por REAÇÃO DE UI, não por causa** — está no
+    **ADR 0010**. Nenhum status HTTP mudou: os quatro continuam 422.
+  - **A migration V17 não é detalhe de implementação, é o que torna o contrato honesto.**
+    `RegistroCheckinService.replayDe` reconstrói o veredito a partir da linha persistida, sem
+    reavaliar nada. Sem `checkin.codigo_rejeicao` gravado, a primeira tentativa responderia
+    `checkin-fora-do-raio` e o **replay da mesma chave de idempotência** responderia o 422 genérico —
+    dois contratos para a mesma operação, e o retry de rede virando um erro diferente do original.
+    `ck_checkin_rejeicao_coerente` impede no banco a linha que reabriria isso. Há teste dedicado.
+  - **Três armadilhas do ambiente de teste do Expo**, todas com sintoma que não aponta para a causa,
+    registradas em `CLAUDE.md`: jest-expo 57 fixa o ecossistema **jest 29** (o `jest` 30 do npm
+    quebra com `clearMocksOnScope is not a function`); **RNTL 14 tornou `render` e `fireEvent`
+    assíncronos** (sem `await`, `screen` fica vazio); e o ambiente do jest-expo **não faz rede de
+    verdade** — XHR e fetch são dublês —, por isso o teste de integração roda em
+    `testEnvironment: 'node'`.
+  - **Reanimated saiu do caminho dos componentes.** O esqueleto de carregamento usa o `Animated` do
+    próprio React Native: Reanimated 4 roda sobre `react-native-worklets`, que exige o TurboModule
+    nativo já no import e derruba em jest qualquer suíte que carregue a tela. Continua no projeto
+    para as transições do Expo Router.
+  - **`z.guid()` e não `z.uuid()` nos schemas.** O Zod 4 valida a versão do UUID, e os ids do seed
+    (`bbbbbbbb-0000-0000-...`) têm nibble de versão zero, de propósito, para leitura no psql. Com
+    `uuid()` o validador de contrato gritava contra dado válido — o caminho mais curto para treinar
+    quem lê o log a ignorar o aviso.
 
 - **2026-08-08** — **Rodada de auditoria F0→F7 encerrada.** Oito relatórios em `docs/auditoria/`,
   cada fase confrontada com a sua especificação **executando**, não lendo: SQL contra o banco de pé,

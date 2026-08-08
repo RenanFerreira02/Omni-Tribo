@@ -150,6 +150,9 @@ class CheckinControllerTest extends TesteIntegracaoMvcBase {
         .perform(
             checkin(missaoId, BOB_ID, LAT_SAO_PAULO, LON_SAO_PAULO, "10", false, "chave-longe"))
         .andExpect(status().isUnprocessableEntity())
+        // O `type` é o que o app usa para decidir "aproxime-se do local"; o `detail` é só a frase
+        // exibida, e um `if` sobre ele quebraria na primeira revisão de copy. Ver ADR 0010.
+        .andExpect(jsonPath("$.type").value("https://omnitribo.dev/problemas/checkin-fora-do-raio"))
         .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("raio")));
 
     assertThat(contarCheckins(missaoId)).isEqualTo(1);
@@ -157,6 +160,7 @@ class CheckinControllerTest extends TesteIntegracaoMvcBase {
     Map<String, Object> linha = ultimoCheckin(missaoId);
     assertThat(linha.get("valido")).isEqualTo(false);
     assertThat(linha.get("motivo_rejeicao")).asString().isNotBlank();
+    assertThat(linha.get("codigo_rejeicao")).isEqualTo("FORA_DO_RAIO");
 
     // E a missão NÃO transicionou: a transação externa sofreu rollback como deveria.
     assertThat(statusDaMissao(missaoId)).isEqualTo("EM_ANDAMENTO");
@@ -170,11 +174,15 @@ class CheckinControllerTest extends TesteIntegracaoMvcBase {
 
     mockMvc
         .perform(checkin(missaoId, BOB_ID, LAT_A_5M, LON_ORIGEM, "51", false, "chave-acuracia"))
-        .andExpect(status().isUnprocessableEntity());
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(
+            jsonPath("$.type")
+                .value("https://omnitribo.dev/problemas/checkin-acuracia-insuficiente"));
 
     Map<String, Object> linha = ultimoCheckin(missaoId);
     assertThat(linha.get("valido")).isEqualTo(false);
     assertThat(linha.get("motivo_rejeicao")).asString().contains("Precisão");
+    assertThat(linha.get("codigo_rejeicao")).isEqualTo("ACURACIA_INSUFICIENTE");
     assertThat(statusDaMissao(missaoId)).isEqualTo("EM_ANDAMENTO");
   }
 
@@ -184,11 +192,15 @@ class CheckinControllerTest extends TesteIntegracaoMvcBase {
 
     mockMvc
         .perform(checkin(missaoId, BOB_ID, LAT_A_5M, LON_ORIGEM, "10", true, "chave-mock"))
-        .andExpect(status().isUnprocessableEntity());
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(
+            jsonPath("$.type")
+                .value("https://omnitribo.dev/problemas/checkin-localizacao-simulada"));
 
     Map<String, Object> linha = ultimoCheckin(missaoId);
     assertThat(linha.get("valido")).isEqualTo(false);
     assertThat(linha.get("mock_detectado")).isEqualTo(true);
+    assertThat(linha.get("codigo_rejeicao")).isEqualTo("LOCALIZACAO_SIMULADA");
     assertThat(statusDaMissao(missaoId)).isEqualTo("EM_ANDAMENTO");
   }
 
@@ -275,11 +287,20 @@ class CheckinControllerTest extends TesteIntegracaoMvcBase {
     mockMvc
         .perform(
             checkin(missaoId, BOB_ID, LAT_SAO_PAULO, LON_SAO_PAULO, "10", false, "chave-rejeitada"))
-        .andExpect(status().isUnprocessableEntity());
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(
+            jsonPath("$.type").value("https://omnitribo.dev/problemas/checkin-fora-do-raio"));
     mockMvc
         .perform(
             checkin(missaoId, BOB_ID, LAT_SAO_PAULO, LON_SAO_PAULO, "10", false, "chave-rejeitada"))
-        .andExpect(status().isUnprocessableEntity());
+        .andExpect(status().isUnprocessableEntity())
+        // MESMO `type` no replay, e é isto que obriga `codigo_rejeicao` a ser PERSISTIDO (V17) em
+        // vez de recalculado: o replay não reavalia nada, reconstrói o veredito a partir da linha
+        // gravada. Sem a coluna, a primeira tentativa responderia `checkin-fora-do-raio` e esta
+        // responderia o 422 genérico — dois contratos para a mesma operação, e o app trataria o
+        // retry de rede como um erro diferente do original.
+        .andExpect(
+            jsonPath("$.type").value("https://omnitribo.dev/problemas/checkin-fora-do-raio"));
 
     // Idempotência vale para o fracasso também: um retry de rede não pode multiplicar linhas na
     // trilha antifraude e inventar um padrão de tentativas que não existiu.
