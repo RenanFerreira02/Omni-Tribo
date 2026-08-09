@@ -40,7 +40,7 @@ class SaqueDesabilitadoTest extends TesteIntegracaoMvcBase {
   @Autowired JdbcTemplate jdbcTemplate;
 
   @Test
-  void saqueComFlagDesligada_responde422ComTipoDeRegraDeNegocio() throws Exception {
+  void saqueComFlagDesligada_responde422ComTipoProprioDeSaqueDesabilitado() throws Exception {
     String token =
         JwtTestConfig.gerarTokenValido(UUID.randomUUID(), "saque@omnitribo.dev", "USUARIO");
 
@@ -53,11 +53,13 @@ class SaqueDesabilitadoTest extends TesteIntegracaoMvcBase {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("{\"valorBrl\":50.00}"))
             // 422, e não 501: o endpoint existe e o pedido está bem formado — o que não cabe é a
-            // operação nas regras vigentes. O app discrimina pelo type do catálogo, sem caso
-            // especial.
+            // operação nas regras vigentes.
             .andExpect(status().isUnprocessableEntity())
+            // `type` próprio (ADR 0010), e não o 422 genérico: a tela precisa distinguir "recurso
+            // desligado por decisão de produto" de "saldo insuficiente". Confundi-los faria o app
+            // sugerir ao usuário juntar saldo para uma operação que não vai reabrir.
             .andExpect(
-                jsonPath("$.type").value("https://omnitribo.dev/problemas/regra-negocio-violada"))
+                jsonPath("$.type").value("https://omnitribo.dev/problemas/saque-desabilitado"))
             .andReturn();
 
     // A recusa precisa dizer ao usuário o que ELE pode fazer, não apenas o que está bloqueado.

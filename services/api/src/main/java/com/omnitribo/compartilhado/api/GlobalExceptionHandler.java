@@ -166,6 +166,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     // getTipo() sem que este handler saiba da existência dela.
     pd.setType(ex.getTipo());
     pd.setInstance(URI.create(request.getRequestURI()));
+    // Campos numéricos que a exceção quis expor, ANTES do traceId: assim uma subclasse descuidada
+    // não consegue sobrescrever o que liga esta resposta à linha de log do servidor.
+    ex.getPropriedades().forEach(pd::setProperty);
     pd.setProperty("traceId", MDC.get("correlationId"));
     return pd;
   }

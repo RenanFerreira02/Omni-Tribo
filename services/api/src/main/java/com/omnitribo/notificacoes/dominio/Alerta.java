@@ -1,4 +1,4 @@
-package com.omnitribo.compartilhado.dominio;
+package com.omnitribo.notificacoes.dominio;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -7,6 +7,19 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Uma entrada na caixa de notificações do usuário.
+ *
+ * <p>Mora em {@code notificacoes} desde que o módulo deixou de ser vazio. Antes vivia em {@code
+ * compartilhado}, onde escapava da regra do ArchUnit por isenção — a mudança não é cosmética: agora
+ * qualquer acesso de fora a esta classe reprova o teste de arquitetura, que é o comportamento certo
+ * para a entidade de um módulo de negócio.
+ *
+ * <p>Tabela criada em V7. A coluna {@code usuario_id} aceita nulo no schema, para um eventual
+ * alerta global — mas nenhum caminho de escrita produz isso hoje, e a caixa de entrada ignora esses
+ * casos de propósito: "lido" é estado POR USUÁRIO, e uma linha compartilhada não teria onde
+ * guardá-lo.
+ */
 @Entity
 @Table(name = "alerta")
 public class Alerta {
@@ -15,7 +28,6 @@ public class Alerta {
   @Column(updatable = false, nullable = false)
   private UUID id;
 
-  // usuarioId: FK para usuario — compartilhado→identidade é permitido; null = alerta global
   @Column(name = "usuario_id")
   private UUID usuarioId;
 
@@ -28,7 +40,7 @@ public class Alerta {
   @Column(nullable = false, columnDefinition = "TEXT")
   private String corpo;
 
-  // UUID puro, sem FK — fronteira compartilhado→missoes; ver V7__compartilhado.sql
+  // UUID puro, sem FK — fronteira notificacoes→missoes; ver V7__compartilhado.sql
   @Column(name = "missao_id")
   private UUID missaoId;
 

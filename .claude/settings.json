@@ -29,7 +29,30 @@
 	},
 	"hooks": {
 		"PreToolUse": [
-			{ "matcher": "Bash", "hooks": [{ "type": "command", "command": ".claude/hooks/checar-segredo.sh" }] }
+			{ "matcher": "Bash", "hooks": [{ "type": "command", "command": ".claude/hooks/checar-segredo.sh" }] },
+			{
+				"matcher": "Write",
+				"hooks": [
+					{
+						"type": "command",
+						"command": ".claude/hooks/guardar-migration.sh",
+						"timeout": 30,
+						"statusMessage": "Conferindo versão da migration..."
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": ".claude/hooks/formatar-java.sh",
+						"timeout": 180,
+						"statusMessage": "Aplicando Google Java Format..."
+					}
+				]
+			}
 		]
 	}
 }

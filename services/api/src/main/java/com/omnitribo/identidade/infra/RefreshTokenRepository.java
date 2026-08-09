@@ -21,4 +21,12 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
   Optional<RefreshToken> findByTokenHash(String tokenHash);
 
   List<RefreshToken> findByFamiliaId(UUID familiaId);
+
+  /**
+   * Tokens ainda vivos do usuário — o que precisa ser revogado ao excluir a conta.
+   *
+   * <p>Filtra por {@code revogadoEm IS NULL} em vez de trazer tudo: um usuário antigo acumula
+   * dezenas de tokens já rotacionados, e revogar de novo o que já está revogado só gasta UPDATE.
+   */
+  List<RefreshToken> findByUsuarioIdAndRevogadoEmIsNull(UUID usuarioId);
 }

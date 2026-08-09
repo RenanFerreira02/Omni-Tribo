@@ -1,6 +1,7 @@
 package com.omnitribo.compartilhado.dominio;
 
 import com.omnitribo.compartilhado.infra.OutboxRepository;
+import com.omnitribo.notificacoes.api.DespachoAlerta;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -24,17 +25,26 @@ public class DrenadorOutboxService {
   private static final Logger log = LoggerFactory.getLogger(DrenadorOutboxService.class);
 
   private final OutboxRepository outboxRepository;
-  private final DespachanteAlerta despachanteAlerta;
+
+  /**
+   * Injetado pela INTERFACE, e essa é a parte que o compilador não cobra. {@code compartilhado} é
+   * isento da regra do ArchUnit como ALVO, mas continua sendo ORIGEM: nomear {@code
+   * DespachanteAlertaService} aqui faria este arquivo alcançar {@code notificacoes.dominio} e
+   * reprovar {@code RegrasArquiteturaTest}. Trocar o tipo do campo pela implementação compilaria
+   * perfeitamente e quebraria o teste de arquitetura.
+   */
+  private final DespachoAlerta despachoAlerta;
+
   private final int maximoTentativas;
   private final Duration backoffBase;
 
   public DrenadorOutboxService(
       OutboxRepository outboxRepository,
-      DespachanteAlerta despachanteAlerta,
+      DespachoAlerta despachoAlerta,
       @Value("${app.outbox.maximo-tentativas:5}") int maximoTentativas,
       @Value("${app.outbox.backoff-base:PT30S}") Duration backoffBase) {
     this.outboxRepository = outboxRepository;
-    this.despachanteAlerta = despachanteAlerta;
+    this.despachoAlerta = despachoAlerta;
     this.maximoTentativas = maximoTentativas;
     this.backoffBase = backoffBase;
   }
@@ -63,7 +73,8 @@ public class DrenadorOutboxService {
 
     for (Outbox evento : pendentes) {
       try {
-        despachanteAlerta.despachar(evento);
+        despachoAlerta.despachar(
+            evento.getTipoEvento(), evento.getAgregadoId(), evento.getPayload());
         evento.marcarPublicado(agora);
       } catch (RuntimeException e) {
         // Backoff exponencial: 30s, 1min, 2min, 4min… Sem crescimento, um destino fora do ar

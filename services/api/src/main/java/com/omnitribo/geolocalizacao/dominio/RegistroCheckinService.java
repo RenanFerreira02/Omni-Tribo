@@ -113,6 +113,7 @@ public class RegistroCheckinService implements RegistroCheckin {
             comando.mocked(),
             avaliacao.velocidadeImplicitaKmh(),
             avaliacao.aceito(),
+            avaliacao.codigoRejeicao(),
             avaliacao.motivoRejeicao(),
             avaliacao.veredito() == ResultadoCheckin.Veredito.ACEITO_SUSPEITO,
             comando.chaveIdempotencia(),
@@ -131,7 +132,9 @@ public class RegistroCheckinService implements RegistroCheckin {
         checkin.getId(),
         avaliacao.veredito(),
         distanciaM,
+        comando.acuraciaM(),
         avaliacao.velocidadeImplicitaKmh(),
+        avaliacao.codigoRejeicao(),
         avaliacao.motivoRejeicao(),
         false);
   }
@@ -150,7 +153,11 @@ public class RegistroCheckinService implements RegistroCheckin {
         checkin.getId(),
         veredito,
         checkin.getDistanciaAlvoM(),
+        checkin.getAcuraciaM(),
         checkin.getVelocidadeImplicitaKmh(),
+        // Vem da linha persistida, não de um novo cálculo: é o que faz o replay de uma rejeição
+        // responder o MESMO `type` da primeira tentativa. Ver V17.
+        checkin.getCodigoRejeicao(),
         checkin.getMotivoRejeicao(),
         true);
   }

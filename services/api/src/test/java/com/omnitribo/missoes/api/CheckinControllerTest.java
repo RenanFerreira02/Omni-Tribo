@@ -150,13 +150,25 @@ class CheckinControllerTest extends TesteIntegracaoMvcBase {
         .perform(
             checkin(missaoId, BOB_ID, LAT_SAO_PAULO, LON_SAO_PAULO, "10", false, "chave-longe"))
         .andExpect(status().isUnprocessableEntity())
-        .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("raio")));
+        // O `type` é o que o app usa para decidir "aproxime-se do local"; o `detail` é só a frase
+        // exibida, e um `if` sobre ele quebraria na primeira revisão de copy. Ver ADR 0010.
+        .andExpect(jsonPath("$.type").value("https://omnitribo.dev/problemas/checkin-fora-do-raio"))
+        .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("raio")))
+        // Os NÚMEROS saem como campos próprios, não só embutidos na frase. É o que permite ao app
+        // escrever "você está a 180 m; aproxime-se para até 50 m" sem parsear o `detail`, que é
+        // copy. Sem esta asserção, alguém pode remover os campos e só o texto denunciaria.
+        .andExpect(jsonPath("$.raioM").value(50))
+        .andExpect(jsonPath("$.distanciaM").exists())
+        // E o traceId continua lá: campo de extensão não pode ter apagado o que liga a resposta ao
+        // log do servidor.
+        .andExpect(jsonPath("$.traceId").exists());
 
     assertThat(contarCheckins(missaoId)).isEqualTo(1);
 
     Map<String, Object> linha = ultimoCheckin(missaoId);
     assertThat(linha.get("valido")).isEqualTo(false);
     assertThat(linha.get("motivo_rejeicao")).asString().isNotBlank();
+    assertThat(linha.get("codigo_rejeicao")).isEqualTo("FORA_DO_RAIO");
 
     // E a missão NÃO transicionou: a transação externa sofreu rollback como deveria.
     assertThat(statusDaMissao(missaoId)).isEqualTo("EM_ANDAMENTO");
@@ -170,11 +182,18 @@ class CheckinControllerTest extends TesteIntegracaoMvcBase {
 
     mockMvc
         .perform(checkin(missaoId, BOB_ID, LAT_A_5M, LON_ORIGEM, "51", false, "chave-acuracia"))
-        .andExpect(status().isUnprocessableEntity());
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(
+            jsonPath("$.type")
+                .value("https://omnitribo.dev/problemas/checkin-acuracia-insuficiente"))
+        // O par medido/limite, para a tela dizer o quanto falta em vez de só "precisão ruim".
+        .andExpect(jsonPath("$.acuraciaM").value(51))
+        .andExpect(jsonPath("$.acuraciaMaximaM").value(50));
 
     Map<String, Object> linha = ultimoCheckin(missaoId);
     assertThat(linha.get("valido")).isEqualTo(false);
     assertThat(linha.get("motivo_rejeicao")).asString().contains("Precisão");
+    assertThat(linha.get("codigo_rejeicao")).isEqualTo("ACURACIA_INSUFICIENTE");
     assertThat(statusDaMissao(missaoId)).isEqualTo("EM_ANDAMENTO");
   }
 
@@ -184,11 +203,20 @@ class CheckinControllerTest extends TesteIntegracaoMvcBase {
 
     mockMvc
         .perform(checkin(missaoId, BOB_ID, LAT_A_5M, LON_ORIGEM, "10", true, "chave-mock"))
-        .andExpect(status().isUnprocessableEntity());
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(
+            jsonPath("$.type")
+                .value("https://omnitribo.dev/problemas/checkin-localizacao-simulada"))
+        // NENHUM número aqui, e isso é deliberado: não há distância a percorrer nem precisão a
+        // melhorar. A ação é desligar o mock, e um "você está a 3 m" ao lado disso confundiria.
+        .andExpect(jsonPath("$.distanciaM").doesNotExist())
+        .andExpect(jsonPath("$.raioM").doesNotExist())
+        .andExpect(jsonPath("$.acuraciaM").doesNotExist());
 
     Map<String, Object> linha = ultimoCheckin(missaoId);
     assertThat(linha.get("valido")).isEqualTo(false);
     assertThat(linha.get("mock_detectado")).isEqualTo(true);
+    assertThat(linha.get("codigo_rejeicao")).isEqualTo("LOCALIZACAO_SIMULADA");
     assertThat(statusDaMissao(missaoId)).isEqualTo("EM_ANDAMENTO");
   }
 
@@ -275,11 +303,24 @@ class CheckinControllerTest extends TesteIntegracaoMvcBase {
     mockMvc
         .perform(
             checkin(missaoId, BOB_ID, LAT_SAO_PAULO, LON_SAO_PAULO, "10", false, "chave-rejeitada"))
-        .andExpect(status().isUnprocessableEntity());
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(
+            jsonPath("$.type").value("https://omnitribo.dev/problemas/checkin-fora-do-raio"));
     mockMvc
         .perform(
             checkin(missaoId, BOB_ID, LAT_SAO_PAULO, LON_SAO_PAULO, "10", false, "chave-rejeitada"))
-        .andExpect(status().isUnprocessableEntity());
+        .andExpect(status().isUnprocessableEntity())
+        // MESMO `type` no replay, e é isto que obriga `codigo_rejeicao` a ser PERSISTIDO (V17) em
+        // vez de recalculado: o replay não reavalia nada, reconstrói o veredito a partir da linha
+        // gravada. Sem a coluna, a primeira tentativa responderia `checkin-fora-do-raio` e esta
+        // responderia o 422 genérico — dois contratos para a mesma operação, e o app trataria o
+        // retry de rede como um erro diferente do original.
+        .andExpect(jsonPath("$.type").value("https://omnitribo.dev/problemas/checkin-fora-do-raio"))
+        // Os números TAMBÉM sobrevivem ao replay, e pelo mesmo motivo do `type`: vêm da linha
+        // persistida, não de uma medição nova. Se viessem de recálculo, o retry de rede mostraria
+        // uma distância diferente da primeira resposta para o mesmo evento.
+        .andExpect(jsonPath("$.raioM").value(50))
+        .andExpect(jsonPath("$.distanciaM").exists());
 
     // Idempotência vale para o fracasso também: um retry de rede não pode multiplicar linhas na
     // trilha antifraude e inventar um padrão de tentativas que não existiu.

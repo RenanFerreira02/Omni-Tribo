@@ -10,11 +10,12 @@
 | F5   | Missões e ciclo de vida               | ✅ Concluído | [F5](auditoria/F5.md) | 2026-08-06 |
 | F6   | Geolocalização e check-in             | ✅ Concluído | [F6](auditoria/F6.md) | 2026-08-07 |
 | F7   | Carteira e integridade transacional   | ✅ Concluído | [F7](auditoria/F7.md) | 2026-08-07 |
-| F8   | Logística, notificações e patrocinador| ⬜ Pendente  | —         | —          |
-| F9   | App mobile — autenticação             | ⬜ Pendente  | —         | —          |
-| F10  | App mobile — missões e check-in       | ⬜ Pendente  | —         | —          |
-| F11  | App mobile — carteira e perfil        | ⬜ Pendente  | —         | —          |
-| F12  | Testes de carga e endurecimento       | ⬜ Pendente  | —         | —          |
+| F8   | Logística, notificações e patrocinador| 🟨 Parcial  | —         | 2026-08-09 |
+| F9   | App mobile — autenticação             | ✅ Concluído | —         | 2026-08-08 |
+| F10  | App mobile — missões e check-in       | ✅ Concluído | —         | 2026-08-08 |
+| F11  | App mobile — carteira e perfil        | ✅ Concluído | —         | 2026-08-08 |
+| F12  | App mobile completo (7 telas) + leituras que faltavam | ✅ Concluído | — | 2026-08-09 |
+| F12b | Testes de carga e endurecimento       | ⬜ Pendente  | —         | —          |
 | F13  | Entrega final                         | ⬜ Pendente  | —         | —          |
 
 > **A numeração acima é a dos COMMITS e das auditorias, e foi corrigida em 2026-08-08.** A tabela
@@ -23,11 +24,71 @@
 > formas diferentes — o commit da carteira se chama "F7" e a tabela a chamava de "F5". Agora tabela,
 > commits e `docs/auditoria/FN.md` usam a mesma numeração.
 
-**Backend fechado até F7.** Build verde com **383 testes**, 0 falhas, SpotBugs limpo. O que resta é
-lacuna com dono de fase, não trabalho pendente das fases concluídas — ver Pendências conhecidas no
-CLAUDE.md.
+**Backend verde com 457 testes**, 0 falhas, SpotBugs limpo. **Mobile com 125 testes** Jest/RTL/MSW,
+typecheck e lint sem erro, mais **19 testes de integração** contra a API em execução — destes, 12
+são o ciclo ponta a ponta com dois usuários reais (`docs/evidencias/f12-ciclo-ponta-a-ponta.md`).
+
+**F8 está PARCIAL, e a distinção importa:** `logistica` e `notificacoes` deixaram de ser módulos sem
+caminho de leitura, mas a carteira de PATROCINADOR — o que fecharia a Pendência #2 e faria ENTREGA e
+AJUDA pararem de cunhar token — continua não existindo.
+
+Nenhuma fase de mobile passou por auditoria. A coluna reflete isso.
 
 ## Notas de manutenção
+
+- **2026-08-09** — **App mobile completo e as leituras que faltavam.**
+  - **As sete telas pedidas existem**: onboarding, mapa, detalhe com botão contextual, criação de
+    missão, carteira com transferência, perfil com LGPD, e central de notificações.
+  - **Dez endpoints novos**, e nenhum deles precisou de modelagem: `alerta`, `consentimento`,
+    `tribo` e `ponto_custodia` já tinham tabela desde V2–V7. O banco estava à frente do código, como
+    o CLAUDE.md sempre afirmou — a fase foi de fiação e contrato.
+  - **A mensagem "você está a 180 m; aproxime-se para até 50 m" era impossível.** O 422 do check-in
+    só tinha `type` e `detail`, e a regra proíbe parsear `detail`. As três rejeições passaram a
+    expor campos de extensão do RFC 9457 (`distanciaM`/`raioM`, `acuraciaM`/`acuraciaMaximaM`), via
+    um `getPropriedades()` novo em `DominioException`. Sem isso, o requisito não era implementável
+    dentro das regras do projeto.
+  - **`react-native-maps` foi DESCARTADO** e o mapa é WebView + Leaflet (ADR 0012). O motivo
+    decisivo não é preferência: no Android a biblioteca exige chave do Google Maps, sem a qual o
+    mapa renderiza cinza — e o ciclo não seria demonstrável.
+  - **Primeira dependência externa do projeto** (ADR 0011): Open-Meteo e ViaCEP, os dois sem chave
+    de API. O "100% local" ganhou exceção, com timeout de 2 s, cache e 503 explícito.
+  - **Exclusão de conta é ANONIMIZAÇÃO, não DELETE.** Apagar a linha de `usuario` quebraria a FK do
+    ledger append-only e a conservação de TOKEN deixaria de fechar.
+  - **`notificacoes` deixou de ser vazio** e `DespachanteAlerta` migrou de `compartilhado`, como o
+    CLAUDE.md previa — passando a ser injetado pela porta `DespachoAlerta`, porque `compartilhado` é
+    isento do ArchUnit como ALVO mas continua sendo ORIGEM.
+  - **Armadilha registrada:** rodar `npm run test:e2e` duas vezes no mesmo minuto falha com 429
+    `limiteRequisicoes`. Não é defeito — é o bloqueio de 5 logins/min da F4, e os dois arquivos de
+    e2e somam quatro logins por execução.
+
+- **2026-08-08** — **App mobile (F9–F11) e ampliação do catálogo de erro.**
+  - **A Pendência #4 foi resolvida antes da primeira tela, como ela própria exigia.** O catálogo
+    `TipoProblema` tinha uma URI por CLASSE de erro, e as três rejeições de check-in — mock,
+    acurácia, distância — chegavam ao app como o mesmo 422, separadas só pelo `detail`, que
+    `apps/mobile/CLAUDE.md` proíbe parsear. As três pedem instruções mutuamente inúteis ("desligue o
+    mock" ≠ "procure céu aberto" ≠ "aproxime-se"), então ganharam URI própria, junto com
+    `saque-desabilitado`. O critério adotado — **uma URI por REAÇÃO DE UI, não por causa** — está no
+    **ADR 0010**. Nenhum status HTTP mudou: os quatro continuam 422.
+  - **A migration V17 não é detalhe de implementação, é o que torna o contrato honesto.**
+    `RegistroCheckinService.replayDe` reconstrói o veredito a partir da linha persistida, sem
+    reavaliar nada. Sem `checkin.codigo_rejeicao` gravado, a primeira tentativa responderia
+    `checkin-fora-do-raio` e o **replay da mesma chave de idempotência** responderia o 422 genérico —
+    dois contratos para a mesma operação, e o retry de rede virando um erro diferente do original.
+    `ck_checkin_rejeicao_coerente` impede no banco a linha que reabriria isso. Há teste dedicado.
+  - **Três armadilhas do ambiente de teste do Expo**, todas com sintoma que não aponta para a causa,
+    registradas em `CLAUDE.md`: jest-expo 57 fixa o ecossistema **jest 29** (o `jest` 30 do npm
+    quebra com `clearMocksOnScope is not a function`); **RNTL 14 tornou `render` e `fireEvent`
+    assíncronos** (sem `await`, `screen` fica vazio); e o ambiente do jest-expo **não faz rede de
+    verdade** — XHR e fetch são dublês —, por isso o teste de integração roda em
+    `testEnvironment: 'node'`.
+  - **Reanimated saiu do caminho dos componentes.** O esqueleto de carregamento usa o `Animated` do
+    próprio React Native: Reanimated 4 roda sobre `react-native-worklets`, que exige o TurboModule
+    nativo já no import e derruba em jest qualquer suíte que carregue a tela. Continua no projeto
+    para as transições do Expo Router.
+  - **`z.guid()` e não `z.uuid()` nos schemas.** O Zod 4 valida a versão do UUID, e os ids do seed
+    (`bbbbbbbb-0000-0000-...`) têm nibble de versão zero, de propósito, para leitura no psql. Com
+    `uuid()` o validador de contrato gritava contra dado válido — o caminho mais curto para treinar
+    quem lê o log a ignorar o aviso.
 
 - **2026-08-08** — **Rodada de auditoria F0→F7 encerrada.** Oito relatórios em `docs/auditoria/`,
   cada fase confrontada com a sua especificação **executando**, não lendo: SQL contra o banco de pé,
@@ -346,7 +407,8 @@ CLAUDE.md.
     definição do serviço. A guarda elimina o passo manual num clone novo; não existe para decifrar
     mensagem de erro, que é explícita.
   - **Skill `/verificar`** quebrava no passo 2 porque `apps/mobile/` não tem `package.json` (F9+).
-    Agora reporta NÃO VERIFICADO em vez de falhar.
+    Agora reporta NÃO VERIFICADO em vez de falhar. *(Superado em 2026-08-08: com F9–F11 entregues o
+    `package.json` existe, a ressalva virou letra morta e o passo 2 voltou a ser incondicional.)*
   - Armadilha descoberta durante a execução, registrada no CLAUDE.md: **renomear migration exige
     `./mvnw clean`**. O Maven não remove de `target/classes` o arquivo com o nome antigo, o Flyway
     encontra os dois e aplica os dois — o sintoma é `duplicate key value violates unique constraint`,

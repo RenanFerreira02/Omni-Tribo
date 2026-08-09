@@ -1,0 +1,48 @@
+name: Mobile CI
+
+on:
+  push:
+    paths:
+      - 'apps/mobile/**'
+      - '.github/workflows/mobile.yml'
+  pull_request:
+    paths:
+      - 'apps/mobile/**'
+      - '.github/workflows/mobile.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      # `npm ci` e não `npm install`: respeita o package-lock à risca. É o que garante que o CI
+      # exercite exatamente as versões que o desenvolvedor testou — inclusive os pinos nativos que
+      # o `expo install` resolveu a partir do SDK 57.
+      - name: Instalar dependências
+        run: cd apps/mobile && npm ci
+
+      - name: Typecheck
+        run: cd apps/mobile && npm run typecheck
+
+      - name: Lint
+        run: cd apps/mobile && npm run lint
+
+      - name: Testes
+        run: cd apps/mobile && npm test -- --ci --coverage
+
+      - name: Upload relatório de cobertura
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cobertura-mobile
+          path: apps/mobile/coverage/
+          retention-days: 30

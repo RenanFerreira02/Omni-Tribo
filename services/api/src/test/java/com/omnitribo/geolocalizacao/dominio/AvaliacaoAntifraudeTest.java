@@ -2,6 +2,7 @@ package com.omnitribo.geolocalizacao.dominio;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.omnitribo.geolocalizacao.api.MotivoRejeicaoCheckin;
 import com.omnitribo.geolocalizacao.api.ResultadoCheckin.Veredito;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -43,6 +44,7 @@ class AvaliacaoAntifraudeTest {
     // A distância medida vai na mensagem de propósito: o atacante já a conhece (escolheu a
     // coordenada), e sem ela o usuário legítimo não tem como saber se anda 5 m ou 500 m.
     assertThat(avaliacao.motivoRejeicao()).contains("51").contains("50");
+    assertThat(avaliacao.codigoRejeicao()).isEqualTo(MotivoRejeicaoCheckin.FORA_DO_RAIO);
   }
 
   // ─── Acurácia ──────────────────────────────────────────────────────────────────────────────
@@ -54,6 +56,7 @@ class AvaliacaoAntifraudeTest {
 
     assertThat(avaliacao.veredito()).isEqualTo(Veredito.REJEITADO);
     assertThat(avaliacao.motivoRejeicao()).contains("Precisão");
+    assertThat(avaliacao.codigoRejeicao()).isEqualTo(MotivoRejeicaoCheckin.ACURACIA_INSUFICIENTE);
   }
 
   @Test
@@ -70,6 +73,7 @@ class AvaliacaoAntifraudeTest {
 
     assertThat(avaliacao.veredito()).isEqualTo(Veredito.REJEITADO);
     assertThat(avaliacao.motivoRejeicao()).isEqualTo(AvaliacaoAntifraude.MOTIVO_MOCK);
+    assertThat(avaliacao.codigoRejeicao()).isEqualTo(MotivoRejeicaoCheckin.LOCALIZACAO_SIMULADA);
   }
 
   /**
@@ -116,6 +120,9 @@ class AvaliacaoAntifraudeTest {
     // Suspeito não é rejeitado: motivoRejeicao continua nulo, senão "motivo_rejeicao IS NOT NULL"
     // deixaria de significar "rejeitado" em toda consulta de fraude escrita depois.
     assertThat(avaliacao.motivoRejeicao()).isNull();
+    // E o código também — ck_checkin_rejeicao_coerente (V17) recusaria no banco uma linha com
+    // valido=true e codigo_rejeicao preenchido.
+    assertThat(avaliacao.codigoRejeicao()).isNull();
   }
 
   @Test
