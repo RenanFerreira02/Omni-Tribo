@@ -1,11 +1,19 @@
 import type {
+  AlertaResponse,
   CarteiraResponse,
+  ClimaResponse,
+  ConsentimentoResponse,
+  EnderecoResponse,
   LancamentoResponse,
   LoginResponse,
   MeResponse,
   MissaoProximaResponse,
   MissaoResponse,
   PaginaResponse,
+  PerfilResponse,
+  PontoCustodiaResponse,
+  PreviaRecompensaResponse,
+  TriboResponse,
 } from '@/api/tipos';
 
 export const TOKENS: LoginResponse = {
@@ -100,6 +108,133 @@ export const LANCAMENTO: LancamentoResponse = {
   saldoAposBrl: 0,
   saldoAposTokens: 41,
   criadoEm: '2026-08-07T18:30:00Z',
+};
+
+export const TRIBO: TriboResponse = {
+  id: 'aaaaaaaa-0000-0000-0000-000000000001',
+  nome: 'Tribo Pinheiros',
+  bairro: 'Pinheiros',
+  centroLat: -23.561807,
+  centroLon: -46.687173,
+};
+
+/**
+ * Perfil da Alice, com os mesmos números do seed do backend.
+ *
+ * `nivel: 2` para `xp: 320` é o valor DERIVADO pela fórmula. O seed grava 3 na coluna cache, e a
+ * divergência é proposital — se este fixture dissesse 3, o teste da tela deixaria de exercitar o
+ * comportamento que o backend garante.
+ */
+export const PERFIL: PerfilResponse = {
+  id: USUARIO.id,
+  nome: 'Alice Ferreira',
+  email: 'alice@omnitribo.dev',
+  handle: 'alice',
+  papel: 'USUARIO',
+  tribo: TRIBO,
+  xp: 320,
+  nivel: 2,
+  xpNivelAtual: 100,
+  xpProximoNivel: 400,
+  streak: 7,
+  conquistas: [
+    {
+      codigo: 'INICIANTE',
+      titulo: 'Primeiro passo',
+      descricao: 'Conclua a primeira missão do bairro.',
+      conquistada: true,
+      progresso: 1,
+      meta: 1,
+    },
+    {
+      codigo: 'VIZINHO_PRESENTE',
+      titulo: 'Vizinho presente',
+      descricao: 'Acumule experiência ajudando por perto.',
+      conquistada: false,
+      progresso: 320,
+      meta: 500,
+    },
+  ],
+};
+
+export const CONSENTIMENTOS: ConsentimentoResponse[] = [
+  {
+    tipo: 'LOCALIZACAO',
+    concedido: true,
+    versaoTexto: '2026-08-01',
+    registradoEm: '2026-07-10T02:00:00Z',
+  },
+  // Concedida e depois revogada no seed: vale a linha mais recente.
+  {
+    tipo: 'NOTIFICACAO',
+    concedido: false,
+    versaoTexto: '2026-08-01',
+    registradoEm: '2026-08-07T02:00:00Z',
+  },
+  {
+    tipo: 'TERMOS',
+    concedido: true,
+    versaoTexto: '2026-08-01',
+    registradoEm: '2026-07-10T02:00:00Z',
+  },
+];
+
+export function alerta(sobrescrever: Partial<AlertaResponse> = {}): AlertaResponse {
+  return {
+    id: 'dddddddd-0000-0000-0000-000000000002',
+    tipo: 'MISSAO_CONCLUIDA',
+    titulo: 'Recompensa creditada',
+    corpo: 'Missão concluída. A recompensa já está na sua carteira.',
+    missaoId: null,
+    lido: false,
+    criadoEm: '2026-08-08T02:00:00Z',
+    ...sobrescrever,
+  };
+}
+
+/** Uma lida e duas pendentes — casa com o contador padrão de 2 não lidas. */
+export const ALERTA_PAGINA: PaginaResponse<AlertaResponse> = pagina([
+  alerta({ id: 'dddddddd-0000-0000-0000-000000000003', titulo: 'Recompensa creditada' }),
+  alerta({
+    id: 'dddddddd-0000-0000-0000-000000000002',
+    corpo: 'Missão concluída e recompensa creditada. Você subiu para o nível 2.',
+  }),
+  alerta({ id: 'dddddddd-0000-0000-0000-000000000001', lido: true, titulo: 'Já lida' }),
+]);
+
+export const PONTO_CUSTODIA: PontoCustodiaResponse = {
+  id: 'cccccccc-0000-0000-0000-000000000001',
+  codigo: 'LM-PIN-001',
+  tipo: 'LOJA',
+  apelido: 'Leroy Merlin Pinheiros',
+  lat: -23.564,
+  lon: -46.6934,
+  capacidade: 50,
+  ocupacao: 3,
+  distanciaM: 0,
+};
+
+export const CLIMA: ClimaResponse = {
+  temperaturaC: 21.8,
+  sensacaoC: 21.6,
+  codigo: 1,
+  descricao: 'Parcialmente nublado',
+  medidoEm: '2026-08-09T02:00:00Z',
+};
+
+export const ENDERECO: EnderecoResponse = {
+  cep: '01001000',
+  logradouro: 'Praça da Sé',
+  bairro: 'Sé',
+  cidade: 'São Paulo',
+  uf: 'SP',
+};
+
+export const PREVIA: PreviaRecompensaResponse = {
+  xpRecompensa: 69,
+  tokensRecompensa: 23,
+  complexidade: 'MEDIA',
+  versaoFormula: 1,
 };
 
 /** Corpo RFC 9457 como o backend o emite, incluindo `traceId`. */

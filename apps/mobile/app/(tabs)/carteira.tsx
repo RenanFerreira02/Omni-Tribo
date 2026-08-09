@@ -1,14 +1,20 @@
+import { useRef, useState } from 'react';
 import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { mensagemDe } from '@/api/erros';
 import type { LancamentoResponse } from '@/api/tipos';
+import { Aviso } from '@/components/Aviso';
+import { Botao } from '@/components/Botao';
+import { CampoTexto } from '@/components/CampoTexto';
 import { Card } from '@/components/Card';
 import { Esqueleto } from '@/components/Esqueleto';
 import { EstadoVazio } from '@/components/EstadoVazio';
+import { FolhaInferior } from '@/components/FolhaInferior';
 import { SaldoToken } from '@/components/SaldoToken';
-import { useCarteira, useLancamentos } from '@/features/carteira/hooks';
+import { useCarteira, useLancamentos, useTransferirTokens } from '@/features/carteira/hooks';
 import { formatarDataHora } from '@/lib/formatar';
+import { novaChaveIdempotencia } from '@/lib/ids';
 import { cores, espaco, tipografia } from '@/theme';
 
 const ROTULOS_MOTIVO: Record<LancamentoResponse['motivo'], string> = {
@@ -24,8 +30,46 @@ const ROTULOS_MOTIVO: Record<LancamentoResponse['motivo'], string> = {
 export default function TelaCarteira() {
   const carteira = useCarteira();
   const extrato = useLancamentos();
+  const transferir = useTransferirTokens();
+
+  const [transferirAberto, setTransferirAberto] = useState(false);
+  const [destinatario, setDestinatario] = useState('');
+  const [quantidade, setQuantidade] = useState('');
+  const [mensagem, setMensagem] = useState('');
+
+  /**
+   * A chave de idempotência nasce com a INTENÇÃO, não com o toque.
+   *
+   * É gerada quando a folha abre e só é rotacionada depois de uma transferência bem-sucedida. Assim
+   * um retry de rede — o caso em que o servidor recebeu mas a resposta se perdeu — repete a mesma
+   * chave e o backend devolve o replay, em vez de transferir tokens duas vezes.
+   */
+  const chave = useRef(novaChaveIdempotencia());
 
   const lancamentos = (extrato.data?.pages ?? []).flatMap((pagina) => pagina.conteudo);
+
+  function enviarTransferencia() {
+    const tokens = Number(quantidade);
+    if (!Number.isInteger(tokens) || tokens <= 0) return;
+
+    transferir.mutate(
+      {
+        destinatarioId: destinatario.trim(),
+        tokens,
+        chaveIdempotencia: chave.current,
+        mensagem: mensagem.trim() || undefined,
+      },
+      {
+        onSuccess: () => {
+          chave.current = novaChaveIdempotencia();
+          setTransferirAberto(false);
+          setDestinatario('');
+          setQuantidade('');
+          setMensagem('');
+        },
+      },
+    );
+  }
 
   return (
     <SafeAreaView style={estilos.tela} edges={['top']}>
@@ -76,6 +120,37 @@ export default function TelaCarteira() {
               </Text>
             </Card>
 
+            <View style={estilos.acoesCarteira}>
+              <Botao
+                titulo="Transferir tokens"
+                onPress={() => setTransferirAberto(true)}
+                estilo={estilos.acaoLarga}
+                testID="botao-abrir-transferencia"
+              />
+
+              {/*
+                SAQUE: visível e DESABILITADO, com a explicação ao lado.
+
+                A alternativa era escondê-lo. Um botão ausente não ensina nada — a pessoa procura
+                "sacar", não encontra, e conclui que o app está quebrado ou que o dinheiro sumiu.
+                Desabilitado com motivo responde a pergunta antes de ela ser feita. E o usuário
+                nunca toca para receber um erro cru: o gate do servidor (422 saque-desabilitado) é
+                a verdade, e a UI apenas a reflete. Ver ADR 0009 e o teste do 422.
+              */}
+              <Botao
+                titulo="Sacar em reais"
+                variante="secundario"
+                disabled
+                onPress={() => undefined}
+                estilo={estilos.acaoLarga}
+                testID="botao-saque"
+              />
+              <Text style={estilos.explicacao} testID="explicacao-saque">
+                O saque em reais está indisponível nesta versão: a recompensa das missões é em XP e
+                tokens, resgatáveis em benefícios de parceiros.
+              </Text>
+            </View>
+
             <Text style={estilos.subtitulo}>Extrato</Text>
           </View>
         }
@@ -103,6 +178,53 @@ export default function TelaCarteira() {
         }
         renderItem={({ item }) => <LinhaLancamento lancamento={item} />}
       />
+
+      <FolhaInferior
+        visivel={transferirAberto}
+        aoFechar={() => setTransferirAberto(false)}
+        titulo="Transferir tokens"
+        testID="folha-transferencia"
+      >
+        <Text style={estilos.explicacao}>
+          Só para membros da sua tribo. O destinatário recebe na hora, e a operação entra no extrato
+          dos dois.
+        </Text>
+
+        <CampoTexto
+          rotulo="Identificador do destinatário"
+          value={destinatario}
+          onChangeText={setDestinatario}
+          autoCapitalize="none"
+          testID="campo-destinatario"
+        />
+        <CampoTexto
+          rotulo="Quantidade de tokens"
+          keyboardType="number-pad"
+          value={quantidade}
+          onChangeText={(texto) => setQuantidade(texto.replace(/\D/g, ''))}
+          testID="campo-tokens"
+        />
+        <CampoTexto
+          rotulo="Mensagem (opcional)"
+          value={mensagem}
+          onChangeText={setMensagem}
+          maxLength={200}
+          testID="campo-mensagem"
+        />
+
+        {transferir.error ? (
+          // Tribo diferente e saldo insuficiente respondem os DOIS 422 `regra-negocio-violada`, sem
+          // URI própria — aqui o `detail` do servidor é a única fonte que distingue as duas causas.
+          <Aviso tom="erro" mensagem={mensagemDe(transferir.error)} testID="erro-transferencia" />
+        ) : null}
+
+        <Botao
+          titulo="Transferir"
+          carregando={transferir.isPending}
+          onPress={enviarTransferencia}
+          testID="botao-confirmar-transferencia"
+        />
+      </FolhaInferior>
     </SafeAreaView>
   );
 }
@@ -130,6 +252,8 @@ function LinhaLancamento({ lancamento }: { lancamento: LancamentoResponse }) {
 }
 
 const estilos = StyleSheet.create({
+  acoesCarteira: { gap: espaco.sm },
+  acaoLarga: { width: '100%' },
   tela: { flex: 1, backgroundColor: cores.papel },
   corpo: { padding: espaco.lg, gap: espaco.md },
   cabecalho: { gap: espaco.lg, marginBottom: espaco.sm },

@@ -1,13 +1,20 @@
 import { cliente } from './cliente';
 import type {
+  CriarMissaoRequest,
   FiltroMissoes,
   FiltroProximas,
   MissaoProximaResponse,
   MissaoResponse,
   PaginaResponse,
+  PreviaRecompensaResponse,
   RegistrarCheckinRequest,
 } from './tipos';
-import { missaoProximaResponseSchema, missaoResponseSchema, paginaSchema } from '@/schemas';
+import {
+  missaoProximaResponseSchema,
+  missaoResponseSchema,
+  paginaSchema,
+  previaRecompensaResponseSchema,
+} from '@/schemas';
 import { validarEmDev } from '@/schemas/validar';
 import { z } from 'zod';
 
@@ -34,6 +41,35 @@ export async function missoesProximas(filtro: FiltroProximas): Promise<MissaoPro
 export async function buscarMissao(id: string): Promise<MissaoResponse> {
   const { data } = await cliente.get<MissaoResponse>(`/missoes/${id}`);
   return validarEmDev(missaoResponseSchema, data, `GET /missoes/${id}`);
+}
+
+/**
+ * Cria a missão. Ela nasce em RASCUNHO — publicar é uma ação separada.
+ *
+ * O corpo NÃO carrega recompensa: o servidor calcula e congela na criação (ADR 0009). Ver
+ * `CriarMissaoRequest`.
+ */
+export async function criarMissao(corpo: CriarMissaoRequest): Promise<MissaoResponse> {
+  const { data } = await cliente.post<MissaoResponse>('/missoes', corpo);
+  return validarEmDev(missaoResponseSchema, data, 'POST /missoes');
+}
+
+/**
+ * Prévia da recompensa, sem criar nada.
+ *
+ * Recebe o MESMO corpo da criação — inclusive as seis regras cruzadas —, e é a única forma
+ * autorizada de o app mostrar XP e tokens antes de publicar. **A fórmula não é reimplementada em
+ * TypeScript**: duas fontes de verdade divergem no primeiro ajuste de parâmetro do servidor, e o
+ * usuário veria um número na criação e outro na missão publicada.
+ */
+export async function previaRecompensa(
+  corpo: CriarMissaoRequest,
+): Promise<PreviaRecompensaResponse> {
+  const { data } = await cliente.post<PreviaRecompensaResponse>(
+    '/missoes/previa-recompensa',
+    corpo,
+  );
+  return validarEmDev(previaRecompensaResponseSchema, data, 'POST /missoes/previa-recompensa');
 }
 
 export type AcaoMissao =

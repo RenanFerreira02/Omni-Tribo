@@ -51,11 +51,16 @@ const config: ExpoConfig = {
     [
       'expo-location',
       {
-        // Texto exibido pelo sistema no diálogo de permissão. O check-in é o único uso.
+        // Texto exibido pelo sistema no diálogo de permissão. Agora são DOIS usos: validar o
+        // check-in e centrar o mapa. A tela mostra a justificativa ANTES de disparar este diálogo —
+        // ver app/(tabs)/mapa.tsx.
         locationWhenInUsePermission:
           'O Omni-Tribo usa sua localização para mostrar missões perto de você e validar o check-in.',
       },
     ],
+    // Seletor nativo de data e hora, para a janela da missão. Config plugin exigido a partir da
+    // versão 8: sem ele o módulo nativo não é registrado no prebuild.
+    '@react-native-community/datetimepicker',
   ],
   experiments: {
     typedRoutes: true,

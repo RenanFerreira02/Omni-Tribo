@@ -1,6 +1,7 @@
 package com.omnitribo.missoes.api;
 
 import com.omnitribo.geolocalizacao.api.MotivoRejeicaoCheckin;
+import java.math.BigDecimal;
 
 /**
  * Desfecho de um check-in, devolvido pelo serviço em vez de lançado como exceção.
@@ -22,14 +23,25 @@ public record ResultadoRegistroCheckin(
     MissaoResponse missao,
     boolean aceito,
     MotivoRejeicaoCheckin codigoRejeicao,
-    String motivoRejeicao) {
+    String motivoRejeicao,
+    /**
+     * Medidas que acompanham a recusa, para o controller as expor como campos do ProblemDetail. São
+     * nulas quando aceito — e podem ser nulas mesmo na recusa, se a linha antiga de um replay não
+     * as tiver. Ver {@code CheckinRejeitadoException.de}.
+     */
+    BigDecimal distanciaM,
+    BigDecimal acuraciaM) {
 
   public static ResultadoRegistroCheckin aceito(MissaoResponse missao) {
-    return new ResultadoRegistroCheckin(missao, true, null, null);
+    return new ResultadoRegistroCheckin(missao, true, null, null, null, null);
   }
 
   public static ResultadoRegistroCheckin rejeitado(
-      MissaoResponse missao, MotivoRejeicaoCheckin codigo, String motivo) {
-    return new ResultadoRegistroCheckin(missao, false, codigo, motivo);
+      MissaoResponse missao,
+      MotivoRejeicaoCheckin codigo,
+      String motivo,
+      BigDecimal distanciaM,
+      BigDecimal acuraciaM) {
+    return new ResultadoRegistroCheckin(missao, false, codigo, motivo, distanciaM, acuraciaM);
   }
 }

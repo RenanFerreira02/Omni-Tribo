@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { mensagemDe } from '@/api/erros';
 import type { CategoriaMissao, MissaoResponse } from '@/api/tipos';
+import { Botao } from '@/components/Botao';
 import { Chip } from '@/components/Chip';
 import { EsqueletoMissaoCard } from '@/components/Esqueleto';
 import { EstadoVazio } from '@/components/EstadoVazio';
@@ -64,7 +65,17 @@ export default function TelaMissoes() {
   return (
     <SafeAreaView style={estilos.tela} edges={['top']}>
       <View style={estilos.cabecalho}>
-        <Text style={estilos.titulo}>Missões</Text>
+        <View style={estilos.linhaTitulo}>
+          <Text style={estilos.titulo} accessibilityRole="header">
+            Missões
+          </Text>
+          <Botao
+            titulo="Criar"
+            onPress={() => router.push('/missao/criar')}
+            estilo={estilos.botaoCriar}
+            testID="botao-criar-missao"
+          />
+        </View>
         <View style={estilos.modos}>
           <Chip
             rotulo="Perto de mim"
@@ -170,6 +181,8 @@ const estilos = StyleSheet.create({
   tela: { flex: 1, backgroundColor: cores.papel },
   cabecalho: { paddingHorizontal: espaco.lg, paddingTop: espaco.md, gap: espaco.md },
   titulo: { ...tipografia.titulo, color: cores.tinta },
+  linhaTitulo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  botaoCriar: { paddingHorizontal: espaco.lg },
   modos: { flexDirection: 'row', gap: espaco.sm },
   filtros: {
     flexDirection: 'row',

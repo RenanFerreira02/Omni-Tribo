@@ -63,3 +63,28 @@ export const coresCategoria = {
   TRIBO: { fundo: cores.verdeClaro, texto: cores.verdeEscuro },
   AJUDA: { fundo: cores.coralClaro, texto: cores.coral },
 } as const;
+
+/**
+ * Cor por STATUS de missão, para o chip do detalhe e da lista.
+ *
+ * Antes o chip de status saía sem cor nenhuma, e os nove estados eram indistinguíveis à distância —
+ * o usuário tinha de ler para saber se a própria missão estava aberta, em disputa ou expirada.
+ *
+ * A paleta agrupa por SIGNIFICADO, não por estado: neutro para o que só espera (RASCUNHO,
+ * CANCELADA, EXPIRADA), verde para o que avança, âmbar para o que exige ação de alguém, coral para
+ * o que deu errado. Dois estados com a mesma cor é intencional quando pedem a mesma leitura.
+ *
+ * A chave é o enum `StatusMissao` do backend, com o mesmo efeito de `coresCategoria`: um status novo
+ * sem cor quebra o typecheck em vez de cair em `undefined` na tela.
+ */
+export const coresStatus = {
+  RASCUNHO: { fundo: cores.papel, texto: cores.tinta70 },
+  ABERTA: { fundo: cores.verdeClaro, texto: cores.verdeEscuro },
+  ACEITA: { fundo: cores.verdeClaro, texto: cores.verdePrimario },
+  EM_ANDAMENTO: { fundo: cores.verdeClaro, texto: cores.verdePrimario },
+  AGUARDANDO_CONFIRMACAO: { fundo: cores.ambarClaro, texto: cores.ambar },
+  CONCLUIDA: { fundo: cores.verdePrimario, texto: cores.branco },
+  CANCELADA: { fundo: cores.papel, texto: cores.tinta50 },
+  EXPIRADA: { fundo: cores.papel, texto: cores.tinta50 },
+  EM_DISPUTA: { fundo: cores.coralClaro, texto: cores.coral },
+} as const;

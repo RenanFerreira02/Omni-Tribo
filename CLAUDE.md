@@ -24,7 +24,7 @@ deliberadamente cortados do MVP. Se achar que algum é necessário, me pergunte 
 
 Monólito modular (ver docs/adr/0001). Raiz do pacote Java: `com.omnitribo` — sem prefixo `br.`.
 Um pacote por módulo, `com.omnitribo.<modulo>.{api,dominio,infra}`:
-compartilhado · identidade · missoes · geolocalizacao · carteira · logistica · notificacoes
+compartilhado · identidade · missoes · geolocalizacao · carteira · logistica · notificacoes · integracoes
 Cada um com api/ (controllers, DTOs, portas), dominio/ (entidades, regras), infra/ (repositórios,
 clientes). Regra verificada por ArchUnit: módulo só acessa outro por api/ pública ou evento. Nunca
 repositório ou entidade JPA alheia. carteira referencia missao_id como UUID puro, sem FK,
@@ -34,8 +34,8 @@ Maturidade real por módulo (o alvo é o de cima; o de hoje é este):
 - Três camadas povoadas: `compartilhado`, `identidade`, `missoes`, `carteira`, `geolocalizacao`.
   `geolocalizacao/api/` são só portas — o endpoint de check-in vive em `missoes`, porque a missão é
   o agregado que a transição pertence.
-- Só `dominio/` + `infra/` — entidades e repositórios, nenhum controller: `logistica`.
-- Vazio, só `.gitkeep`: `notificacoes`.
+- Também com três camadas: `logistica` (ponto de custódia), `notificacoes` (caixa de entrada) e
+  `integracoes` (clima e CEP — módulo NOVO, ver ADR 0011). Nenhum módulo está vazio hoje.
 
 Módulo só fala com módulo por porta em `api/`. As de hoje:
 - `carteira/api/` — `CreditoRecompensa`, `FinanciamentoMissao`, `EstornoPote`,
@@ -44,7 +44,12 @@ Módulo só fala com módulo por porta em `api/`. As de hoje:
 - `geolocalizacao/api/` — `RegistroCheckin` (`missoes` injeta pela INTERFACE, porque é o tipo
   declarado no campo que o ArchUnit inspeciona — injetar a implementação passaria a compilar e
   quebraria o teste de arquitetura)
-- `compartilhado/api/` — `PublicadorEventos`, `PaginaResponse`, `RecursoAuditavel`
+- `notificacoes/api/` — `DespachoAlerta` (`compartilhado` injeta pela INTERFACE: é isento como
+  ALVO, mas continua sendo ORIGEM, e nomear a implementação reprovaria o ArchUnit)
+- `compartilhado/api/` — `PublicadorEventos`, `PaginaResponse`, `RecursoAuditavel`,
+  `DadosPessoaisDoUsuario` (porta com PLUGINS: cada módulo publica a própria seção da exportação
+  LGPD, e quem monta o arquivo não nomeia módulo nenhum — é o que evita o ciclo
+  `identidade → missoes → identidade`)
 
 Toda implementação roda `REQUIRED`/`MANDATORY` — **`REQUIRES_NEW` é proibido no caminho de valor**,
 porque a transação externa segura `FOR UPDATE` e a interna pediria uma segunda conexão: com N ≥
@@ -56,7 +61,7 @@ código correspondente é o estado esperado, não resíduo. Mesma coisa fora de 
 `tools/carrier-mock/` (logística) e `tools/seed/` (`make seed`) são diretórios reservados, hoje
 vazios.
 
-`RegrasArquiteturaTest` aplica a regra aos 6 módulos de negócio; `compartilhado` é **isento** por
+`RegrasArquiteturaTest` aplica a regra aos 7 módulos de negócio; `compartilhado` é **isento** por
 ser shared por design (ver o array `MODULOS` no teste). Violação em `compartilhado` não é pega por
 teste nenhum — é só disciplina.
 
@@ -143,7 +148,10 @@ cd apps/mobile && npm run android                         # emulador (exige ANDR
 cd apps/mobile && npm run typecheck && npm run lint && npm test
 cd apps/mobile && npx jest --testPathPattern=nomeDoArquivo
 # Integração contra o backend EM EXECUÇÃO — fora do `npm test` de propósito:
-cd apps/mobile && E2E_API_URL=http://192.168.15.6:8080 npm run test:e2e
+cd apps/mobile && E2E_API_URL=http://<ip-da-sua-maquina>:8080 npm run test:e2e
+# `localhost` dentro do emulador ou do celular é o próprio aparelho, não o seu PC. A tabela de
+# endereços (celular físico · 10.0.2.2 no AVD · web) e a nota de firewall do Fedora estão em
+# apps/mobile/README.md — não fixe um IP aqui, ele muda de rede para rede.
 # npx expo install <pacote>, NUNCA npm install, para pacotes do ecossistema Expo.
 
 # Infra
@@ -164,7 +172,9 @@ principal alcança a porta de gestão e `/actuator/health` responde 401.
 
 O `verify` não é só teste: SpotBugs roda com effort `Max`, threshold `Medium` e `failOnError=true`,
 então achado de análise estática **quebra o build** como um teste vermelho quebraria. JaCoCo grava o
-relatório de cobertura em `services/api/target/site/jacoco/`, publicado como artefato pelo CI.
+relatório de cobertura em `services/api/target/site/jacoco/`, publicado como artefato pelo CI — mas
+**não há gate de cobertura**: o pom declara só `prepare-agent` e `report`, sem `check`, `rule` nem
+`minimum`. Cobertura é evidência para ler, não barreira; quem barra é SpotBugs, Spotless e teste.
 
 ## Superfície de API hoje
 
@@ -185,15 +195,50 @@ volta da linha 335) afirmando que `confirmar`/`resolver` ainda são stubs. Não 
 
 `/api/v1/admin/carteiras/reconciliacao` — `GET`, só ADMIN.
 
+`/api/v1/usuarios` — `GET me` (perfil completo: nome, handle, tribo, XP, nível derivado,
+conquistas) · `GET me/dados` (exportação LGPD) · `GET|PUT me/consentimentos[/{tipo}]` ·
+`DELETE me` (anonimização; exige a senha atual no corpo). **`GET /auth/me` continua existindo e é
+outra coisa**: a checagem barata do boot, resolvida só dos claims do JWT.
+
+`/api/v1/tribos` — `GET` (lista) · `GET /{id}` (com centro geográfico DERIVADO por `ST_Centroid`).
+
+`/api/v1/alertas` — `GET` (paginado, `?apenasNaoLidos`) · `PATCH /{id}/lido` ·
+`GET /nao-lidos/contagem`.
+
+`/api/v1/pontos-custodia` — `GET /{id}` · `GET ?lat&lon&raioMetros` (ativos, por distância).
+
+`/api/v1/clima?lat&lon` e `/api/v1/enderecos/{cep}` — provedores EXTERNOS (Open-Meteo, ViaCEP)
+atrás da nossa fronteira. Falha do provedor responde **503** com
+`type` `servico-externo-indisponivel`, e a reação de UI é ESCONDER o recurso. Ver ADR 0011.
+
 `GET /api/v1/ping`, do `PingController` em `compartilhado`.
 
 ## Automação
 
-- Hook `PreToolUse` (`.claude/hooks/checar-segredo.sh`) bloqueia `git commit` se o diff staged tiver
-  padrão de chave/senha/token — não é substituto de revisão manual, é uma segunda barreira.
-- CI (`.github/workflows/`): `api.yml` gera as chaves RSA e roda `./mvnw verify` a cada push/PR que
-  toque `services/api/**`, arquivando o relatório JaCoCo; `security.yml` roda Gitleaks no histórico
-  completo em todo push/PR.
+São **três** hooks em `.claude/hooks/`, declarados em `.claude/settings.json`. Dois deles NEGAM a
+operação, e quem não souber que existem vai apanhar de um bloqueio sem entender a causa:
+
+- `checar-segredo.sh` — `PreToolUse`/`Bash`. Só age se o comando contém `git commit`: faz grep no
+  `git diff --cached` por chave privada PEM, chave `AIza…` e pares `senha|password|secret|token|
+  api_key = "…"`. Não é substituto de revisão manual, é uma segunda barreira.
+- `guardar-migration.sh` — `PreToolUse`/`Write`. **Nega** a criação de migration com nome fora de
+  `V<N>__<snake_case>.sql`, com seed abaixo de 900, com schema em 900+, com **V9 ou V10** (as
+  queimadas), ou com uma versão que já exista no working tree **ou em qualquer ref** — inclusive
+  `refs/remotes`, que é como ele pega a colisão entre branches de fases paralelas. É a seção Banco
+  deste arquivo, virada bloqueio: prefira `/migration` a escrever o arquivo à mão.
+- `formatar-java.sh` — `Stop`. Se há `.java` pendente em `services/api`, resolve `JAVA_HOME`
+  (SDKMAN, ou `/usr/lib/jvm/java-21-openjdk` — o `java` do PATH no Fedora é JRE-only) e roda
+  `./mvnw -q spotless:apply` ao fim do turno. Ou seja: formatação de Java já não é passo manual
+  antes do `verify`. O mobile **não** tem equivalente — lá o Prettier entra pelo ESLint, e
+  formatação errada aparece como lint vermelho.
+
+CI (`.github/workflows/`), três workflows:
+- `api.yml` — push/PR que toque `services/api/**`. Gera as chaves RSA (`tools/gerar-chaves-dev.sh`)
+  ANTES do `./mvnw verify` e arquiva o relatório JaCoCo.
+- `mobile.yml` — push/PR que toque `apps/mobile/**`. Node 22, `npm ci`, `typecheck`, `lint`,
+  `npm test -- --ci --coverage`, arquiva a cobertura. **Não roda `test:e2e`**, de propósito: aquele
+  teste exige o backend de pé.
+- `security.yml` — todo push/PR, sem filtro de path. Gitleaks no histórico completo.
 
 ## Onde está o quê, na documentação
 
@@ -221,9 +266,14 @@ volta da linha 335) afirmando que `confirmar`/`resolver` ainda são stubs. Não 
 ## Skills e agentes disponíveis
 
 - `/verificar` — roda verificação completa (mvnw verify + typecheck + lint + test + docker compose ps) e reporta verde/vermelho. Use antes de abrir PR. **Nunca declare sucesso sem rodar isso.**
-  O passo 2 (mobile) reporta NÃO VERIFICADO enquanto `apps/mobile/package.json` não existir (F9+);
-  isso não é falha e não invalida os passos 1, 3 e 4.
+  O passo 0 é condicional: se o diff tocou `db/migration` ou `db/seed`, `make reset` vem ANTES do
+  resto — ver a seção Banco para o porquê.
 - `/adr <assunto>` — cria `docs/adr/NNNN-<slug>.md` com o próximo número. Template exige Alternativas descartadas com motivo real.
+- `/migration <assunto>` — cria a migration Flyway já com o número certo da sequência GLOBAL,
+  conferindo faixas queimadas, faixa de seed e branches abertas. É o caminho sancionado; escrever o
+  arquivo à mão esbarra no hook `guardar-migration.sh`.
+- `/commit` — aplica o checklist pré-commit do `CONTRIBUTING.md` e monta a mensagem Conventional
+  Commit. Só o usuário dispara (`disable-model-invocation: true`) — não é invocável por mim.
 - Agente `auditor` — audita uma fase contra a especificação e entrega relatório em
   `docs/auditoria/FN.md`. **Não altera arquivo do projeto.** Regra central: medir antes de afirmar.
 - Agente `revisor-seguranca` — revisa autenticação, autorização, endpoints de valor, webhooks, dados pessoais. Checar após implementar qualquer um desses.
@@ -231,129 +281,23 @@ volta da linha 335) afirmando que `confirmar`/`resolver` ainda são stubs. Não 
 
 ## Convenções por camada
 
-**Backend** (`services/api/`):
-- DTOs são `record`. Entidade JPA nunca cruza fronteira do controller.
-- Exceções de domínio herdam de `DominioException` → mapeadas para status HTTP no handler global → resposta RFC 9457 `ProblemDetail`.
-- Identidade do usuário logado no controller: injete `@AuthenticationPrincipal AutenticadoPrincipal principal` — nunca extraia do corpo ou query string.
-- Teste de integração: use `TesteIntegracaoBase` (RANDOM_PORT + TestRestTemplate) para roundtrip HTTP real; use `TesteIntegracaoMvcBase` (WebEnvironment.MOCK + MockMvc) quando precisar inspecionar headers de resposta. Ambas estendem `ContainerConfig` (PostgreSQL+PostGIS singleton). Spring Boot 4.1 removeu `@AutoConfigureMockMvc` — não tente usá-lo.
-- **MockMvc não herda filtro de servlet auto-registrado por `@Component`** — monta só a cadeia do
-  Spring Security. Por isso o `CorrelationIdFilter` é adicionado à mão em `MockMvcTestConfig`, e por
-  isso o `RateLimitFilter` funciona sem gambiarra (entra pela cadeia, via `addFilterBefore` no
-  `SecurityConfig`). Filtro novo exige decidir por qual dos dois caminhos ele entra; esquecer disso
-  não quebra teste nenhum, só faz a suíte exercitar uma cadeia diferente da que roda em produção.
-- **Toda função PostGIS vive numa ÚNICA classe: `compartilhado/infra/ConsultasGeoespaciais`.** Nenhum
-  `ST_*` existe fora dela. Substitui a regra "um `*GeoRepository` por módulo" do ADR 0002, que não
-  sobreviveu à segunda consulta — as duas consultas geoespaciais estão em módulos diferentes e a
-  regra ArchUnit é direcional, então `ST_*` acabaria em dois arquivos. Ver **ADR 0007**; os stubs
-  `CheckinGeoRepository` e `PontoCustodiaGeoRepository` foram apagados. Usa `JdbcClient`, não
-  `@Query(nativeQuery=true)`, que exigiria interface ligada a uma `@Entity` — e a única entidade
-  visível de `compartilhado` seria `Outbox`. Parâmetros nomeados e zero concatenação continuam
-  obrigatórios. Query nativa NÃO geoespacial continua em `infra/` do próprio módulo.
-- `CAST(:param AS ...)` nas queries nativas não é decoração: um parâmetro nulo sem tipo chega ao
-  PostgreSQL como `bytea` e a consulta estoura com "function ... does not exist". Ver
-  `MissaoRepository.buscarComFiltros` e `ConsultasGeoespaciais`.
-- Escrita de domínio auditável tem DUAS metades, e faltar uma não quebra nada em tempo de compilação:
-  o método de serviço leva `@Auditavel(acao=..., entidade=...)`, e o DTO de resposta que ele devolve
-  implementa `RecursoAuditavel.idAuditoria()`. Sem a anotação o `AuditoriaAspecto` é advice que nunca
-  dispara; sem a interface ele grava `entidade_id` nulo e a trilha vira "alguém publicou uma missão"
-  sem dizer QUAL — inútil para reconstruir incidente. Padrão a copiar: os métodos anotados em
-  `MissaoService` + `MissaoResponse implements RecursoAuditavel`. Eventos de autenticação são a
-  exceção deliberada: gravados à mão no `AutenticacaoService`, porque precisam de `atorId` nulo.
-- `fail-on-unknown-properties: false` (em `application.yml`) é decisão de segurança, não default
-  frouxo: o DTO de request declara só o que pode mudar, então mandar `status`, `executorId` ou
-  `xpRecompensa` num PATCH é silenciosamente ignorado. É a proteção contra mass assignment — não
-  "endureça" isso para 400 achando que melhora.
-- Spotless (Google Java Format) é verificado no `verify`. Se falhar por formatação, rode `./mvnw spotless:apply`.
-- Jackson é **3** (`tools.jackson`) em todo o repositório, main e test. Spring Boot 4.1 autoconfigura
-  esse mapper e não existe bean de `com.fasterxml.jackson.databind.ObjectMapper` — injetá-lo impede
-  o contexto de subir. Quem precisa serializar constrói o próprio `JsonMapper`, sem injeção: veja
-  `MissaoService.MAPPER_TRILHA` no main e `TesteIntegracaoMvcBase.JSON` nos testes. Em teste novo,
-  use `JSON` — não declare bean de mapper.
-- AOP: `spring-boot-starter-aop` não existe no Boot 4.x. O suporte a `@Aspect` vem de
-  `aspectjweaver` declarado direto no `pom.xml`.
-- Mudança de status de missão passa SEMPRE por `MissaoStateMachine`. Nunca chame `missao.setStatus(...)` fora dela.
-- Mudança de SALDO passa SEMPRE por `LivroRazaoService`. Nunca chame `carteira.creditar/debitar(...)`
-  fora dele: o ledger e a projeção têm de ser escritos na mesma transação, ou divergem em silêncio.
-- **Toda operação de valor segue esta ordem, sem exceção: adquira todos os locks → sonde a chave de
-  idempotência → valide as regras → escreva.** É o lock que fecha a corrida entre sondar e inserir,
-  não a sondagem. Ordem global dos locks: `missao` → `carteira` (id CRESCENTE) → `usuario`; travar
-  duas carteiras fora de ordem crescente reabre o deadlock A→B / B→A.
-- Nada captura `DataIntegrityViolationException` para tratar replay. O no-op é decidido pela sondagem
-  sob lock; se `uk_lancamento_idempotencia` disparar é defeito, e sobe como 500. Capturar dentro da
-  transação já a marcou rollback-only, então o "tratamento" produziria um commit impossível.
-- **Armadilha da primeira leitura, em três entidades.** Se `Carteira` (ou `Missao`, ou `Usuario`) já
-  estiver no persistence context, o Hibernate devolve a instância em cache SEM reemitir o
-  `SELECT ... FOR UPDATE` — o teste passa e o lock nunca existiu. Por isso resolver
-  `usuarioId → carteiraId` usa a projeção escalar `buscarIdPorUsuario`, nunca `findByUsuarioId`, e
-  por isso `buscarParaAtualizar(missaoId)` é sempre a PRIMEIRA leitura da transação (inclusive antes
-  da checagem de rascunho alheio, em `registrarCheckin`).
-- **Todo corpo de erro sai com `type` do catálogo `TipoProblema`, nunca `about:blank`.** O `type` é
-  o que o app usa para decidir comportamento; status HTTP sozinho é ambíguo (dois 409 diferentes
-  pedem reações diferentes) e `detail` é texto para humano, que muda a cada revisão de copy. Há
-  TRÊS caminhos que produzem erro e os três precisam concordar: o `GlobalExceptionHandler`, os ~15
-  handlers herdados do `ResponseEntityExceptionHandler` (cobertos pelo override de
-  `createResponseEntity`) e os escritores manuais de JSON em `SecurityConfig` e `RateLimitFilter`,
-  que rodam na cadeia de filtros, antes do DispatcherServlet. Esquecer o terceiro é o erro fácil:
-  401 e 429 são justamente os que o app mais recebe.
-- **Quem escreve JSON à mão num filtro precisa de `setCharacterEncoding(UTF_8)` explícito.**
-  `setContentType("application/problem+json")` não define charset, o servlet cai em ISO-8859-1 e
-  "Autenticação necessária" chega ao cliente como Latin-1 rotulado de JSON — que é UTF-8 por
-  definição (RFC 8259 §8.1). Não aparece em teste que só olha status code.
-- Erro de regra de negócio no servidor é `RegraNegocioVioladaException` → **422**, não 409. O 409 diz
-  "não cabe neste estado, caberia em outro"; o 422 diz "cabe no estado, mas os dados não satisfazem".
-  A ordem de checagem é 403 → 409 → 422: inverter 409 e 422 quebra o contrato que o app já integra.
-  **O check-in insere a sondagem de idempotência no meio: 403 → sondagem → 409 → gravação.** Fica
-  depois do 403 porque antes dele um não-executor receberia dados da missão; e antes do 409 porque um
-  replay legítimo chega com a missão já em `AGUARDANDO_CONFIRMACAO` e levaria 409. É por isso que
-  `MissaoStateMachine.validarAutorizacao` é pública.
-- **Recusa de regra que precisa ser GRAVADA volta como VALOR, não como exceção.** Lançar de dentro da
-  transação apagaria a linha no rollback; usar `REQUIRES_NEW` para preservá-la trava a aplicação
-  inteira (ver Arquitetura). O serviço devolve um resultado (`ResultadoRegistroCheckin`,
-  `ResultadoCheckin`), a transação commita nos dois casos, e o **controller** lança o 422 depois do
-  commit. Padrão a copiar em qualquer trilha antifraude/auditoria futura.
-- Evento de domínio vai para a outbox por `PublicadorEventos`, na mesma transação do fato. Nunca
-  notifique direto: antes do commit você anuncia o que o rollback desfaz; depois, perde o que falhar.
-  O `DrenadorOutboxJob` drena com `SKIP LOCKED` e backoff exponencial (30s, 1min, 2min, 4min, 8min;
-  `maximo-tentativas: 5`), e o `DespachanteAlerta` grava uma linha em `alerta` — destino provisório
-  até o push real do mobile. Garantia é **at-least-once**: o consumidor tolera duplicata.
-- Cache de proximidade (`CacheMissoesProximas`, Caffeine, TTL 30s, chave por geohash de precisão 7 +
-  raio + categoria + limite) é invalidado **depois do commit**, via
-  `TransactionSynchronization.afterCommit` — invalidar dentro da transação deixaria uma leitura
-  concorrente repopular com estado pré-commit, e a entrada obsoleta sobreviveria o TTL inteiro. Por
-  isso NÃO se usa `spring-boot-starter-cache`/`@CacheEvict`, que dispara dentro da transação. São
-  **cinco** pontos de invalidação, não dois: `criar`, `atualizar`, `aplicar`, `registrarCheckin` e
-  `expirarLote` — este último chama a máquina de estados direto, sem passar por `aplicar`.
-- Ao escrever teste, saiba o que `application-test.yml` desliga de propósito — três coisas, todas
-  para não mascarar o que o teste mede:
-  - rate limit de leitura/escrita em 10000/min: um teste de rate limit precisa sobrescrever o valor;
-  - `app.agendamento.habilitado: false`: o job de expiração não roda, para não mudar status entre
-    arrange e assert. A regra é testada chamando `expirarLote()` direto;
-  - pool Hikari em **40**, dimensionado pelo teste mais pesado (`ConclusaoConcorrenteTest`, 100
-    threads). Não é 100 porque as threads serializam atrás de um único `FOR UPDATE` na missão; 40 é
-    margem para runner de CI lento não virar `SQLTransientConnectionException` — que apareceria como
-    500 e seria lido como bug de concorrência em vez do problema de infra que é.
-- Para autenticar em teste sem passar pelo `/auth/login`, use `JwtTestConfig.gerarTokenValido(...)`
-  e `gerarTokenExpirado(...)`. Login real esbarra no bloqueio de 5 tentativas/min, e um teste com
-  muitos usuários falharia por 429 em vez de pela regra em avaliação. Fixtures: `MissaoFixture` e
-  `SuporteCarteira`.
-- O `@Primary` do `JwtTestConfig` **não** impede o `JwtService` real de ser instanciado — `@Primary`
-  só desempata injeção quando há mais de um candidato. O `@PostConstruct` do bean real roda de
-  qualquer jeito e lê os PEM do disco, e é por isso que as chaves são obrigatórias mesmo para rodar
-  só testes, e que `api.yml` tem um passo `gerar-chaves-dev.sh` antes do `verify`. Remover esse
-  passo do CI derruba TODA a suíte de integração no GitHub enquanto tudo continua verde local.
+São **três** arquivos `CLAUDE.md`, e os dois aninhados entram em contexto sozinhos quando se
+trabalha naquele diretório — por isso o detalhe de cada camada vive lá, e não aqui:
+
+| Arquivo | Cobre | Quando carrega |
+|---|---|---|
+| `CLAUDE.md` (raiz) | produto, arquitetura, economia, banco, segurança, estado, pendências | toda sessão |
+| `services/api/CLAUDE.md` | convenção e armadilha de backend: transação, lock, idempotência, erro, teste de integração, Jackson 3, AOP, MockMvc | ao mexer em `services/api/` |
+| `apps/mobile/CLAUDE.md` | estrutura do app, economia vista pela UI, discriminação de erro por `type`, armadilhas do jest-expo | ao mexer em `apps/mobile/` |
+
+O que é regra transversal — banco, segurança, teste, git — fica nas **Regras não negociáveis**
+abaixo, porque vale nos dois lados.
+
+**Backend** (`services/api/`): as convenções vivem em `services/api/CLAUDE.md`, que entra em
+contexto ao mexer lá — não duplicadas aqui.
 
 **Mobile** (`apps/mobile/`): F9–F11 implementadas. As convenções vivem em `apps/mobile/CLAUDE.md`,
-que entra em contexto ao mexer lá — não duplicadas aqui. Três armadilhas do ambiente de teste, que
-custaram tempo e não aparecem em lugar nenhum da documentação do Expo:
-- **jest-expo 57 fixa o ecossistema jest 29.** Instalar o `jest` 30 (que é o `latest` do npm) mistura
-  `jest-runtime` 30 com `jest-environment-node` 29 e a suíte morre em
-  `this._moduleMocker.clearMocksOnScope is not a function` — erro que não menciona versão nenhuma.
-- **RNTL 14 tornou `render` e `fireEvent` ASSÍNCRONOS.** Sem `await`, `screen` fica vazio e todo
-  `getByTestId` estoura com "`render` function has not been called".
-- **O ambiente do jest-expo não faz rede de verdade** — o `XMLHttpRequest` e o `fetch` dele são
-  dublês. Por isso o teste de integração roda em `testEnvironment: 'node'`
-  (`jest.e2e.config.js`), com stub de `react-native`; sob o preset do RN toda chamada volta como
-  `semRede`, indistinguível de backend desligado.
+que entra em contexto ao mexer lá — não duplicadas aqui.
 
 ## Regras não negociáveis
 
@@ -368,15 +312,17 @@ Banco
 - Flyway é a ÚNICA fonte de schema. ddl-auto é sempre validate. Nunca resolva divergência mudando
   ddl-auto — escreva migration.
 - **Versão de migration é sequência GLOBAL, não por diretório.** Duas faixas, separadas de propósito:
-  - `db/migration` — schema, **V1–V8 e V11–V17**; único location do perfil default/prod.
-    Próxima é **V18**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
+  - `db/migration` — schema, **V1–V8 e V11–V18**; único location do perfil default/prod.
+    Próxima é **V19**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
     antes da renomeação para `V900__seed_dev.sql`, então um banco de dev criado antes dela tem as
     versões 9 e 10 gravadas no `flyway_schema_history` com descrição de seed. Um `V9__*.sql` novo em
     `db/migration` passaria em clone novo e falharia em máquina antiga com erro de checksum ou
     "detected applied migration not resolved locally" — divergência que não aparece no CI.
   - `db/seed` — só dev e test (via `application-dev.yml` / `application-test.yml`), faixa **900+**.
-  - A faixa 900+ garante por construção que o seed roda depois de todo schema. Seed novo usa
-    V901, V902… e NUNCA um número que o schema possa alcançar. Ver ADR 0006, Notas de manutenção.
+    Hoje são três: `V900__seed_dev.sql`, `V901__seed_entregas_falidas.sql` e
+    `V902__seed_alertas_consentimentos.sql`. **Próximo seed é V903.**
+  - A faixa 900+ garante por construção que o seed roda depois de todo schema. Seed novo continua na
+    faixa e NUNCA usa um número que o schema possa alcançar. Ver ADR 0006, Notas de manutenção.
   - Como o seed é o último, ele grava dados em forma final: não conte com migration posterior para
     corrigir valor de seed.
   - **Fases em paralelo devem reservar faixas disjuntas.** F5 pulou de V11 para V13 exatamente para
@@ -473,9 +419,11 @@ entrega é um relatório em `docs/auditoria/FN.md`, e só ele.
 
 ## Estado atual
 
-**Backend fechado até F7, auditado fase a fase.** Build verde com **383 testes**, 0 falhas, SpotBugs
-limpo. Os oito relatórios em `docs/auditoria/` são o registro do que foi verificado e do que ficou
-em aberto; a rodada corrigiu 7 defeitos, cinco deles invisíveis na leitura do código.
+**Backend fechado até F7, auditado fase a fase.** Build verde, 0 falhas, SpotBugs limpo. Os oito
+relatórios em `docs/auditoria/` são o registro do que foi verificado e do que ficou em aberto; a
+rodada corrigiu 7 defeitos, cinco deles invisíveis na leitura do código. **F8 (logística,
+notificações e patrocinador) segue pendente** — o commit intitulado "F8 - Fundação Mobile" entregou,
+na verdade, F9–F11; `docs/PROGRESSO.md` tem a numeração correta, o histórico do git é que engana.
 
 **Mobile: F9, F10 e F11 implementadas** em `apps/mobile/` (Expo SDK 57). Design system em
 `src/theme` + `src/components`, cliente HTTP com rotação única de refresh, sessão com access token
@@ -553,19 +501,9 @@ do challenge. Preferimos uma lacuna documentada a uma regra errada codificada. F
 carteira de patrocinador financiar o pote pela mecânica que já existe (`FinanciamentoMissao`), e aí
 `pagaTokensDoPote` passa a valer para todas as categorias.
 
-**3. Quatro leituras que o app mobile vai pedir e ainda não existem.** Nenhuma bloqueia começar o
-front — o núcleo (auth, radar, ciclo de vida, check-in, carteira, extrato) está completo e foi
-exercitado ponta a ponta. Cada uma é um `GET` sem regra de negócio nova, e deve entrar quando a tela
-que a consome existir, não antes:
-
-| Falta | Tela afetada | Situação hoje |
-|---|---|---|
-| `GET /alertas` | notificações | `DespachanteAlerta` grava em `alerta`, e ninguém lê — caixa de entrada invisível |
-| `GET /auth/me` completo | perfil | devolve só `{id, email, papel}`; sem nome, handle, XP, nível, tribo |
-| `GET /tribos` | perfil, registro | "sua tribo" só existe como UUID |
-| `GET /pontos-custodia/{id}` | detalhe de ENTREGA | `MissaoResponse` traz `pontoCustodiaId` cru; o app mostraria um UUID em vez de "Leroy Merlin Pinheiros". `PontoCustodiaRepository` é repositório órfão, sem serviço nem controller |
-
-**4. As telas do app que dependem dessas quatro leituras estão incompletas por consequência, não por
-descuido.** Perfil mostra e-mail, papel e id, e diz na própria tela que o resto não vem da API; o
-detalhe de ENTREGA não exibe o ponto de custódia; não há caixa de alertas; e o registro não deixa
-escolher tribo, porque escolher sem poder listar seria digitar um UUID. Fecham junto com a #3.
+**3. Uma decisão de contrato que divergiu da Pendência #3 original, e o motivo.** As quatro
+leituras que faltavam foram implementadas — `GET /alertas`, `GET /tribos`, `GET /pontos-custodia/{id}`
+e o perfil completo —, mas o perfil **não** ampliou `GET /auth/me`: virou `GET /usuarios/me`.
+`/auth/me` é chamado no boot e se resolve só dos claims do JWT, sem tocar o banco; enriquecê-lo
+trocaria uma checagem barata de identidade por uma consulta com joins em toda abertura do app. São
+duas perguntas com custos e frequências diferentes.

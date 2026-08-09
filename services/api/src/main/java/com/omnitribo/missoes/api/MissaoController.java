@@ -340,8 +340,15 @@ public class MissaoController {
     if (!resultado.aceito()) {
       // Continua 422; o que o código da rejeição acrescenta é o `type` específico, para que o app
       // distinga "desligue o mock" de "aproxime-se" de "procure céu aberto" sem parsear a mensagem.
-      // Ver ADR 0010.
-      throw new CheckinRejeitadoException(resultado.codigoRejeicao(), resultado.motivoRejeicao());
+      // Ver ADR 0010. Os números vão junto como campos de extensão do ProblemDetail: sem eles a
+      // tela conseguiria escolher a reação, mas não escreveria "você está a 180 m; aproxime-se para
+      // até 50 m" sem parsear o `detail` — que é copy e muda a cada revisão.
+      throw CheckinRejeitadoException.de(
+          resultado.codigoRejeicao(),
+          resultado.motivoRejeicao(),
+          resultado.distanciaM(),
+          resultado.missao().raioCheckinM(),
+          resultado.acuraciaM());
     }
     return resultado.missao();
   }

@@ -20,6 +20,101 @@ export const registroSchema = z.object({
 });
 export type RegistroForm = z.infer<typeof registroSchema>;
 
+export const transferenciaSchema = z.object({
+  destinatarioId: z.guid('Escolha um membro da sua tribo.'),
+  tokens: z
+    .number('Informe a quantidade de tokens.')
+    .int('Token não é fracionado.')
+    .positive('A transferência precisa ser maior que zero.')
+    // Teto por transação do backend. Deixar passar aqui só trocaria um aviso imediato por um 422.
+    .max(500, 'O máximo por transferência é 500 tokens.'),
+  mensagem: z.string().max(200, 'A mensagem pode ter no máximo 200 caracteres.').optional(),
+});
+export type TransferenciaForm = z.infer<typeof transferenciaSchema>;
+
+/**
+ * Criação de missão.
+ *
+ * **Espelha as SEIS regras cruzadas de `CriacaoMissaoVerificador`**, e não só os campos. Elas não
+ * são validação redundante: o servidor RECUSA com 400 uma combinação que a tela deixaria montar —
+ * mandar `complexidade` junto com peso e volume, por exemplo, não é ignorado, é erro. Sem espelhar,
+ * o usuário preencheria o formulário inteiro para descobrir isso no envio.
+ *
+ * O que NÃO está aqui, deliberadamente: recompensa. Não há campo de XP nem de token, e a fórmula
+ * não é reimplementada — o número vem de `POST /missoes/previa-recompensa`. Duas fontes de verdade
+ * divergiriam no primeiro ajuste de parâmetro do servidor. Ver ADR 0009.
+ */
+export const criarMissaoSchema = z
+  .object({
+    categoria: z.enum(['ENTREGA', 'COLETA', 'TRIBO', 'AJUDA']),
+    titulo: z
+      .string()
+      .min(5, 'O título precisa de ao menos 5 caracteres.')
+      .max(120, 'O título pode ter no máximo 120 caracteres.'),
+    descricao: z
+      .string()
+      .min(1, 'Descreva o que precisa ser feito.')
+      .max(2000, 'A descrição pode ter no máximo 2000 caracteres.'),
+    complexidade: z.enum(['LEVE', 'MEDIA', 'PESADA']).optional(),
+    pesoKg: z.number().min(0, 'O peso não pode ser negativo.').optional(),
+    volumeL: z.number().min(0, 'O volume não pode ser negativo.').optional(),
+    origemLat: z.number().min(-90).max(90),
+    origemLon: z.number().min(-180).max(180),
+    cep: z.string().regex(/^\d{8}$/, 'O CEP tem 8 dígitos, sem hífen.'),
+    logradouro: z.string().min(1, 'Informe o logradouro.').max(200),
+    bairro: z.string().min(1, 'Informe o bairro.').max(100),
+    cidade: z.string().min(1, 'Informe a cidade.').max(100),
+    uf: z.string().regex(/^[A-Z]{2}$/, 'UF com 2 letras maiúsculas.'),
+    raioCheckinM: z
+      .number()
+      .int()
+      .min(10, 'O raio mínimo de check-in é 10 m.')
+      .max(2000, 'O raio máximo de check-in é 2000 m.'),
+    janelaInicio: z.date(),
+    janelaFim: z.date(),
+    pontoCustodiaId: z.guid().optional(),
+  })
+  .superRefine((dados, ctx) => {
+    if (dados.janelaFim <= dados.janelaInicio) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['janelaFim'],
+        message: 'O fim da janela precisa ser depois do início.',
+      });
+    }
+
+    const temPeso = dados.pesoKg !== undefined;
+    const temVolume = dados.volumeL !== undefined;
+    const movimentaObjeto = dados.categoria === 'ENTREGA' || dados.categoria === 'COLETA';
+
+    if (movimentaObjeto && !(temPeso && temVolume)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: temPeso ? ['volumeL'] : ['pesoKg'],
+        message: 'Entrega e coleta exigem peso e volume — é deles que sai a complexidade.',
+      });
+    }
+
+    if (temPeso && temVolume && dados.complexidade !== undefined) {
+      // Recusa, não "ignora": com peso e volume o servidor DERIVA a complexidade, e um valor
+      // declarado junto vira 400.
+      ctx.addIssue({
+        code: 'custom',
+        path: ['complexidade'],
+        message: 'Com peso e volume, a complexidade é calculada — não a informe.',
+      });
+    }
+
+    if (!temPeso && !temVolume && dados.complexidade === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['complexidade'],
+        message: 'Sem peso e volume, informe a complexidade.',
+      });
+    }
+  });
+export type CriarMissaoForm = z.infer<typeof criarMissaoSchema>;
+
 // ─── Respostas ────────────────────────────────────────────────────────────────────────────────
 //
 // `z.guid()` e NÃO `z.uuid()`. O Zod 4 valida a versão do UUID em `uuid()`, e os identificadores do
@@ -116,6 +211,99 @@ export const lancamentoResponseSchema = z.object({
   saldoAposBrl: z.number(),
   saldoAposTokens: z.number(),
   criadoEm: z.string(),
+});
+
+export const triboResponseSchema = z.object({
+  id: z.guid(),
+  nome: z.string(),
+  bairro: z.string(),
+  centroLat: z.number().nullable(),
+  centroLon: z.number().nullable(),
+});
+
+export const conquistaResponseSchema = z.object({
+  codigo: z.string(),
+  titulo: z.string(),
+  descricao: z.string(),
+  conquistada: z.boolean(),
+  progresso: z.number(),
+  meta: z.number(),
+});
+
+export const perfilResponseSchema = z.object({
+  id: z.guid(),
+  nome: z.string(),
+  email: z.string(),
+  handle: z.string(),
+  papel: z.enum(['USUARIO', 'ADMIN']),
+  // `.nullable()` e não `.optional()`: o backend emite a chave com null quando o usuário não tem
+  // tribo. Marcar como opcional deixaria passar uma resposta SEM a chave, que é outra coisa.
+  tribo: triboResponseSchema.nullable(),
+  xp: z.number(),
+  nivel: z.number(),
+  xpNivelAtual: z.number(),
+  xpProximoNivel: z.number(),
+  streak: z.number(),
+  conquistas: z.array(conquistaResponseSchema),
+});
+
+export const consentimentoResponseSchema = z.object({
+  tipo: z.enum(['LOCALIZACAO', 'NOTIFICACAO', 'TERMOS']),
+  concedido: z.boolean(),
+  versaoTexto: z.string().nullable(),
+  registradoEm: z.string().nullable(),
+});
+
+export const alertaResponseSchema = z.object({
+  id: z.guid(),
+  tipo: z.string(),
+  titulo: z.string(),
+  corpo: z.string(),
+  missaoId: z.guid().nullable(),
+  lido: z.boolean(),
+  criadoEm: z.string(),
+});
+
+export const pontoCustodiaResponseSchema = z.object({
+  id: z.guid(),
+  codigo: z.string(),
+  tipo: z.enum(['LOJA', 'LOCKER', 'PORTARIA', 'VIZINHO']),
+  apelido: z.string(),
+  lat: z.number(),
+  lon: z.number(),
+  capacidade: z.number(),
+  ocupacao: z.number(),
+  distanciaM: z.number().nullable(),
+});
+
+export const climaResponseSchema = z.object({
+  temperaturaC: z.number(),
+  sensacaoC: z.number(),
+  codigo: z.number(),
+  descricao: z.string(),
+  medidoEm: z.string().nullable(),
+});
+
+export const enderecoResponseSchema = z.object({
+  cep: z.string(),
+  logradouro: z.string(),
+  bairro: z.string(),
+  cidade: z.string(),
+  uf: z.string(),
+});
+
+export const previaRecompensaResponseSchema = z.object({
+  xpRecompensa: z.number(),
+  tokensRecompensa: z.number(),
+  complexidade: z.enum(['LEVE', 'MEDIA', 'PESADA']),
+  versaoFormula: z.number(),
+});
+
+export const transferenciaResponseSchema = z.object({
+  lancamentoSaidaId: z.guid(),
+  lancamentoEntradaId: z.guid().nullable(),
+  saldoTokensRemetente: z.number(),
+  replay: z.boolean(),
 });
 
 /** `PaginaResponse<T>` do backend — envelope próprio, não o `Page` do Spring Data. */

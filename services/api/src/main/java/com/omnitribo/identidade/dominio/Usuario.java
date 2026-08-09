@@ -55,6 +55,10 @@ public class Usuario {
   @Column(nullable = false, length = 10)
   private StatusUsuario status;
 
+  /** Quando o titular exerceu o direito ao esquecimento. Null = conta normal. Ver V18. */
+  @Column(name = "anonimizado_em")
+  private Instant anonimizadoEm;
+
   @Column(name = "criado_em", nullable = false, updatable = false)
   private Instant criadoEm;
 
@@ -169,6 +173,40 @@ public class Usuario {
 
   public void setStatus(StatusUsuario status) {
     this.status = status;
+  }
+
+  /**
+   * Descaracteriza o titular, preservando os fatos contábeis. Direito ao esquecimento (LGPD art.
+   * 18, VI).
+   *
+   * <p><b>Um método só, e não setters de e-mail e handle.</b> Anonimizar é uma operação com cinco
+   * mutações que só fazem sentido juntas; expor {@code setEmail} para viabilizá-la abriria a porta
+   * para trocar e-mail em qualquer lugar do código, sem revalidação e sem reconfirmação. Não existe
+   * caso de uso de "mudar e-mail" neste sistema — existe o de esquecer alguém.
+   *
+   * <p>{@code email} e {@code handle} recebem valores derivados de UUID porque as duas colunas são
+   * UNIQUE: esvaziá-las ou usar um literal faria a segunda exclusão de conta violar a constraint.
+   *
+   * <p>A senha é sobrescrita por um hash impossível de reproduzir — a conta não pode ser reaberta
+   * por quem souber a senha antiga, e {@code status = INATIVO} já barra o login antes disso.
+   */
+  public void anonimizar(Instant quando, String hashInutilizavel) {
+    String sufixo = UUID.randomUUID().toString();
+    this.nome = "Usuário removido";
+    this.email = "removido+" + sufixo + "@anonimizado.invalid";
+    this.handle = "removido_" + sufixo.substring(0, 8);
+    this.senhaHash = hashInutilizavel;
+    this.status = StatusUsuario.INATIVO;
+    this.anonimizadoEm = quando;
+    this.atualizadoEm = quando;
+  }
+
+  public boolean anonimizado() {
+    return anonimizadoEm != null;
+  }
+
+  public Instant getAnonimizadoEm() {
+    return anonimizadoEm;
   }
 
   public Instant getCriadoEm() {

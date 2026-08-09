@@ -14,6 +14,12 @@ public record ResultadoCheckin(
     UUID checkinId,
     Veredito veredito,
     BigDecimal distanciaM,
+    /**
+     * Acurácia REPORTADA pelo dispositivo, ecoada de volta. Existe para o chamador poder explicar a
+     * recusa por acurácia com o número que o próprio aparelho informou — inclusive num replay, em
+     * que ela vem da linha persistida e não de uma leitura nova.
+     */
+    BigDecimal acuraciaM,
     BigDecimal velocidadeImplicitaKmh,
     /** Causa estável da rejeição; null quando aceito. É ela que escolhe o `type`. Ver ADR 0010. */
     MotivoRejeicaoCheckin codigoRejeicao,

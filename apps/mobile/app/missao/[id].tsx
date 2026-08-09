@@ -1,67 +1,79 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { mensagemDe } from '@/api/erros';
-import type { MissaoResponse } from '@/api/tipos';
+import { mensagemDe, type ErroApi } from '@/api/erros';
+import type { AcaoMissao } from '@/api/missoes';
+import { Aviso } from '@/components/Aviso';
 import { Botao } from '@/components/Botao';
 import { Card } from '@/components/Card';
 import { Chip } from '@/components/Chip';
+import { DialogoConfirmacao } from '@/components/DialogoConfirmacao';
 import { Esqueleto } from '@/components/Esqueleto';
 import { EstadoVazio } from '@/components/EstadoVazio';
 import { SaldoToken } from '@/components/SaldoToken';
+import { acoesDisponiveis, papelNaMissao, type AcaoDisponivel } from '@/features/missoes/acoes';
 import { useAcaoMissao, useCheckin, useMissao } from '@/features/missoes/hooks';
 import { orientacaoDe, type OrientacaoCheckin } from '@/features/missoes/mensagensCheckin';
 import { useLocalizacao } from '@/features/missoes/useLocalizacao';
+import { usePontoCustodia } from '@/features/mapa/hooks';
 import { formatarDataHora, rotuloCategoria, rotuloStatus } from '@/lib/formatar';
 import { novaChaveIdempotencia } from '@/lib/ids';
 import { useSessao } from '@/stores/sessao';
-import { cores, coresCategoria, espaco, tipografia } from '@/theme';
+import { cores, coresCategoria, coresStatus, espaco, tipografia } from '@/theme';
 
 export default function DetalheMissao() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const usuario = useSessao((estado) => estado.usuario);
-  const consulta = useMissao(id);
+
+  const { data: missao, isLoading, error, refetch } = useMissao(id);
   const acao = useAcaoMissao(id);
   const checkin = useCheckin(id);
   const { recarregar: obterLocalizacao } = useLocalizacao(false);
 
   const [orientacao, setOrientacao] = useState<OrientacaoCheckin | null>(null);
+  const [aConfirmar, setAConfirmar] = useState<AcaoDisponivel | null>(null);
 
   /**
-   * A chave de idempotência nasce com a INTENÇÃO e sobrevive aos retries dela.
+   * A chave de idempotência nasce na MONTAGEM e sobrevive às tentativas.
    *
-   * Guardar num ref, e não gerar dentro do `mutate`, é o que faz o retry de rede repetir a MESMA
-   * chave: o servidor devolve o resultado anterior em vez de gravar um segundo check-in. Ela só é
-   * trocada depois de um desfecho definitivo — senão o usuário ficaria preso no replay eterno do
-   * primeiro resultado, inclusive no de uma rejeição.
+   * É o que faz um retry de rede repetir o mesmo check-in em vez de gravar um segundo. Ela só é
+   * rotacionada quando a tentativa produziu um veredito do servidor — insistir com a mesma chave
+   * depois de uma rejeição devolveria o replay daquela rejeição para sempre.
    */
-  const chaveCheckin = useRef<string>(novaChaveIdempotencia());
+  const chaveCheckin = useRef(novaChaveIdempotencia());
 
-  if (consulta.isLoading) {
+  if (isLoading) {
     return (
-      <View style={estilos.corpo}>
-        <Esqueleto largura="50%" altura={20} />
-        <Esqueleto altura={14} />
-        <Esqueleto altura={14} />
-      </View>
+      <SafeAreaView style={estilos.raiz}>
+        <View style={estilos.conteudo} testID="detalhe-carregando">
+          <Esqueleto altura={28} />
+          <Esqueleto altura={80} />
+          <Esqueleto altura={120} />
+        </View>
+      </SafeAreaView>
     );
   }
 
-  if (consulta.error || !consulta.data) {
+  if (error || !missao) {
     return (
-      <EstadoVazio
-        titulo="Missão indisponível"
-        descricao={consulta.error ? mensagemDe(consulta.error) : undefined}
-        acao={{ rotulo: 'Tentar de novo', onPress: () => void consulta.refetch() }}
-      />
+      <SafeAreaView style={estilos.raiz}>
+        <EstadoVazio
+          titulo="Não foi possível carregar a missão"
+          descricao={error ? mensagemDe(error) : undefined}
+          acao={{ rotulo: 'Tentar de novo', onPress: () => void refetch() }}
+          testID="detalhe-erro"
+        />
+      </SafeAreaView>
     );
   }
 
-  const missao = consulta.data;
-  const souCriador = usuario?.id === missao.criadorId;
-  const souExecutor = usuario?.id === missao.executorId;
-  const paleta = coresCategoria[missao.categoria];
+  const papel = papelNaMissao(missao, usuario?.id);
+  const estado = acoesDisponiveis(missao.status, papel);
+  const paletaCategoria = coresCategoria[missao.categoria];
+  const paletaStatus = coresStatus[missao.status];
 
   async function fazerCheckin() {
     setOrientacao(null);
@@ -69,7 +81,8 @@ export default function DetalheMissao() {
     if (!posicao) {
       setOrientacao({
         titulo: 'Sem acesso à localização',
-        instrucao: 'Autorize o acesso à localização para fazer o check-in.',
+        instrucao:
+          'O check-in prova que você chegou ao local, então precisa da sua posição. Autorize o acesso nas configurações do aparelho.',
         vaiAdiantarTentarDeNovo: false,
       });
       return;
@@ -77,8 +90,8 @@ export default function DetalheMissao() {
 
     checkin.mutate(
       {
-        // Enviamos o que o aparelho leu. A distância é medida no servidor pelo PostGIS; o que o app
-        // manda é a alegação, não a prova.
+        // Enviados verbatim do sensor. O app NÃO julga nem filtra: a régua é do servidor, e
+        // "melhorar" o número aqui seria fraude de nossa parte.
         corpo: {
           lat: posicao.lat,
           lon: posicao.lon,
@@ -92,13 +105,12 @@ export default function DetalheMissao() {
           chaveCheckin.current = novaChaveIdempotencia();
           setOrientacao(null);
         },
-        onError: (erro) => {
+        onError: (erro: ErroApi) => {
           const guia = orientacaoDe(erro);
           setOrientacao(guia);
-          // Rejeição já gravada no servidor: a chave está consumida e reusá-la só devolveria o
-          // replay da mesma recusa. Uma tentativa nova precisa de chave nova — exceto quando nada
-          // foi decidido lá (rede caiu), caso em que repetir a chave é justamente o certo.
-          if (!guia.vaiAdiantarTentarDeNovo || erro.tipo !== 'semRede') {
+          // Sem rede, a requisição pode nem ter chegado — manter a chave é o que permite ao retry
+          // ser reconhecido como a MESMA tentativa. Com veredito do servidor, chave nova.
+          if (erro.tipo !== 'semRede') {
             chaveCheckin.current = novaChaveIdempotencia();
           }
         },
@@ -106,177 +118,192 @@ export default function DetalheMissao() {
     );
   }
 
+  function disparar(item: AcaoDisponivel) {
+    if (item.acao === 'checkin') {
+      void fazerCheckin();
+      return;
+    }
+    acao.mutate({ acao: item.acao as AcaoMissao });
+  }
+
+  function aoTocar(item: AcaoDisponivel) {
+    // Confirmação só no que não tem volta. Aceitar não pede — quem aceitou pode desistir, e um
+    // diálogo ali somaria um toque ao caminho mais comum do app.
+    if (item.irreversivel) setAConfirmar(item);
+    else disparar(item);
+  }
+
   const erroAcao = acao.error;
+  const ocupado = acao.isPending || checkin.isPending;
 
   return (
-    <ScrollView contentContainerStyle={estilos.corpo}>
-      <View style={estilos.topo}>
-        <Chip
-          rotulo={rotuloCategoria(missao.categoria)}
-          corFundo={paleta.fundo}
-          corTexto={paleta.texto}
-        />
-        <Chip rotulo={rotuloStatus(missao.status)} />
-      </View>
-
-      <Text style={estilos.titulo}>{missao.titulo}</Text>
-      <Text style={estilos.descricao}>{missao.descricao}</Text>
-
-      <Card>
-        <Text style={estilos.rotulo}>Recompensa</Text>
-        <View style={estilos.recompensa}>
-          <View style={estilos.xp}>
-            <Text style={estilos.xpValor}>{missao.xpRecompensa}</Text>
-            <Text style={estilos.xpRotulo}>XP</Text>
-          </View>
-          <SaldoToken tokens={missao.tokensRecompensa} tamanho="grande" />
+    <SafeAreaView style={estilos.raiz}>
+      <ScrollView contentContainerStyle={estilos.conteudo}>
+        <View style={estilos.chips}>
+          <Chip
+            rotulo={rotuloCategoria(missao.categoria)}
+            corFundo={paletaCategoria.fundo}
+            corTexto={paletaCategoria.texto}
+            testID="chip-categoria"
+          />
+          <Chip
+            rotulo={rotuloStatus(missao.status)}
+            corFundo={paletaStatus.fundo}
+            corTexto={paletaStatus.texto}
+            testID="chip-status"
+          />
         </View>
-        <Text style={estilos.nota}>
-          Calculada pelo servidor na criação e congelada — não muda depois que você aceita.
+
+        <Text style={estilos.titulo} accessibilityRole="header">
+          {missao.titulo}
         </Text>
-      </Card>
+        <Text style={estilos.descricao}>{missao.descricao}</Text>
 
-      <Card>
-        <Linha rotulo="Endereço" valor={`${missao.logradouro}, ${missao.bairro}`} />
-        <Linha rotulo="Cidade" valor={`${missao.cidade}/${missao.uf}`} />
-        <Linha rotulo="Raio de check-in" valor={`${missao.raioCheckinM} m`} />
-        <Linha
-          rotulo="Janela"
-          valor={`${formatarDataHora(missao.janelaInicio)} → ${formatarDataHora(missao.janelaFim)}`}
-        />
-      </Card>
-
-      {orientacao ? (
-        <Card estilo={estilos.alerta} testID="orientacao-checkin">
-          <Text style={estilos.alertaTitulo}>{orientacao.titulo}</Text>
-          <Text style={estilos.alertaTexto}>{orientacao.instrucao}</Text>
+        <Card>
+          <Text style={estilos.rotulo}>Recompensa</Text>
+          {/* XP e TOKEN. `valorBrl` existe no DTO, chega sempre 0 e NÃO é exibido: mostrar
+              "R$ 0,00" sugeriria que um dia haverá outro número ali. Ver ADR 0009. */}
+          <View style={estilos.recompensa}>
+            <Text style={estilos.xp}>{missao.xpRecompensa} XP</Text>
+            <SaldoToken tokens={missao.tokensRecompensa} testID="recompensa-tokens" />
+          </View>
         </Card>
-      ) : null}
 
-      {erroAcao ? (
-        <Text style={estilos.erro} testID="erro-acao">
-          {mensagemDe(erroAcao)}
-        </Text>
-      ) : null}
+        <Card>
+          <Text style={estilos.rotulo}>Onde</Text>
+          <Text style={estilos.linha}>{missao.logradouro}</Text>
+          <Text style={estilos.linha}>
+            {missao.bairro}, {missao.cidade} — {missao.uf}
+          </Text>
+          <Text style={estilos.legenda}>Raio de check-in: {missao.raioCheckinM} m</Text>
+          <PontoDeCustodia id={missao.pontoCustodiaId} />
+        </Card>
 
-      <View style={estilos.acoes}>
-        <Acoes
-          missao={missao}
-          souCriador={souCriador}
-          souExecutor={souExecutor}
-          pendente={acao.isPending}
-          aoAgir={(qual) => acao.mutate({ acao: qual })}
-          checkinPendente={checkin.isPending}
-          aoFazerCheckin={fazerCheckin}
-        />
-      </View>
-    </ScrollView>
+        <Card>
+          <Text style={estilos.rotulo}>Janela</Text>
+          <Text style={estilos.linha}>
+            {formatarDataHora(missao.janelaInicio)} até {formatarDataHora(missao.janelaFim)}
+          </Text>
+        </Card>
+
+        {orientacao ? (
+          <Aviso
+            tom="atencao"
+            titulo={orientacao.titulo}
+            mensagem={orientacao.instrucao}
+            testID="orientacao-checkin"
+          />
+        ) : null}
+
+        {erroAcao ? (
+          <Aviso
+            tom={erroAcao.tipo === 'transicaoInvalida' ? 'atencao' : 'erro'}
+            titulo={tituloDoErro(erroAcao)}
+            mensagem={mensagemDoErro(erroAcao)}
+            testID="erro-acao"
+          />
+        ) : null}
+
+        <View style={estilos.acoes}>
+          {estado.explicacao ? (
+            <Text style={estilos.explicacao} testID="explicacao-sem-acao">
+              {estado.explicacao}
+            </Text>
+          ) : null}
+
+          {estado.acoes.map((item) => (
+            <Botao
+              key={item.acao}
+              titulo={item.rotulo}
+              variante={item.variante}
+              carregando={ocupado && item.variante === 'primario'}
+              disabled={ocupado}
+              onPress={() => aoTocar(item)}
+              testID={`acao-${item.acao}`}
+            />
+          ))}
+        </View>
+      </ScrollView>
+
+      <DialogoConfirmacao
+        visivel={aConfirmar !== null}
+        titulo={aConfirmar?.confirmacao?.titulo ?? ''}
+        mensagem={aConfirmar?.confirmacao?.mensagem ?? ''}
+        rotuloConfirmar={aConfirmar?.rotulo ?? 'Confirmar'}
+        rotuloCancelar="Voltar"
+        destrutivo
+        carregando={ocupado}
+        aoConfirmar={() => {
+          const item = aConfirmar;
+          setAConfirmar(null);
+          if (item) disparar(item);
+        }}
+        aoCancelar={() => setAConfirmar(null)}
+        testID="dialogo-confirmacao"
+      />
+
+      <Botao
+        titulo="Voltar"
+        variante="texto"
+        onPress={() => router.back()}
+        estilo={estilos.voltar}
+        testID="botao-voltar"
+      />
+    </SafeAreaView>
   );
 }
 
-interface AcoesProps {
-  missao: MissaoResponse;
-  souCriador: boolean;
-  souExecutor: boolean;
-  pendente: boolean;
-  aoAgir: (
-    acao: 'publicar' | 'aceitar' | 'iniciar' | 'desistir' | 'cancelar' | 'confirmar',
-  ) => void;
-  checkinPendente: boolean;
-  aoFazerCheckin: () => void;
-}
+/**
+ * Resolve o `pontoCustodiaId` cru num nome legível.
+ *
+ * Era a Pendência #3: o app exibia um UUID onde deveria dizer "Leroy Merlin Pinheiros". Falha
+ * silenciosamente — se o ponto foi desativado, o endpoint responde 404 e a linha simplesmente não
+ * aparece, em vez de mostrar um erro por um detalhe complementar.
+ */
+function PontoDeCustodia({ id }: { id: string | null }) {
+  const { data } = usePontoCustodia(id);
+  if (!data) return null;
 
-/** As ações espelham a máquina de estados do servidor — que continua sendo a autoridade. */
-function Acoes({
-  missao,
-  souCriador,
-  souExecutor,
-  pendente,
-  aoAgir,
-  checkinPendente,
-  aoFazerCheckin,
-}: AcoesProps) {
-  if (missao.status === 'RASCUNHO' && souCriador) {
-    return <Botao titulo="Publicar" onPress={() => aoAgir('publicar')} carregando={pendente} />;
-  }
-  if (missao.status === 'ABERTA') {
-    return souCriador ? (
-      <Botao
-        titulo="Cancelar missão"
-        variante="secundario"
-        onPress={() => aoAgir('cancelar')}
-        carregando={pendente}
-      />
-    ) : (
-      <Botao
-        titulo="Aceitar missão"
-        onPress={() => aoAgir('aceitar')}
-        carregando={pendente}
-        testID="botao-aceitar"
-      />
-    );
-  }
-  if (missao.status === 'ACEITA' && souExecutor) {
-    return (
-      <>
-        <Botao titulo="Iniciar" onPress={() => aoAgir('iniciar')} carregando={pendente} />
-        <Botao
-          titulo="Desistir"
-          variante="texto"
-          onPress={() => aoAgir('desistir')}
-          carregando={pendente}
-        />
-      </>
-    );
-  }
-  if (missao.status === 'EM_ANDAMENTO' && souExecutor) {
-    return (
-      <Botao
-        titulo="Fazer check-in"
-        onPress={aoFazerCheckin}
-        carregando={checkinPendente}
-        testID="botao-checkin"
-      />
-    );
-  }
-  if (missao.status === 'AGUARDANDO_CONFIRMACAO' && souCriador) {
-    return (
-      <Botao
-        titulo="Confirmar conclusão"
-        onPress={() => aoAgir('confirmar')}
-        carregando={pendente}
-        testID="botao-confirmar"
-      />
-    );
-  }
-  return null;
-}
-
-function Linha({ rotulo, valor }: { rotulo: string; valor: string }) {
   return (
-    <View style={estilos.linha}>
-      <Text style={estilos.rotulo}>{rotulo}</Text>
-      <Text style={estilos.valor}>{valor}</Text>
-    </View>
+    <Text style={estilos.legenda} testID="ponto-custodia">
+      Ponto de custódia: {data.apelido} ({data.codigo})
+    </Text>
   );
+}
+
+/**
+ * O 409 tem duas causas com reações OPOSTAS, e o `type` é o que as separa.
+ *
+ * `transicaoInvalida` é o caso de "outra pessoa aceitou primeiro": a tela já reverteu a atualização
+ * otimista e recarregou; insistir não adianta. `conflitoConcorrencia` é colisão de versão, e aí
+ * repetir tende a funcionar.
+ */
+function tituloDoErro(erro: ErroApi): string {
+  if (erro.tipo === 'transicaoInvalida') return 'Esta missão mudou enquanto você olhava';
+  if (erro.tipo === 'conflitoConcorrencia') return 'Alguém alterou a missão agora';
+  return 'Não foi possível concluir';
+}
+
+function mensagemDoErro(erro: ErroApi): string {
+  if (erro.tipo === 'transicaoInvalida') {
+    return 'Outra pessoa aceitou primeiro, ou o estado mudou. A tela já está atualizada — veja o que dá para fazer agora.';
+  }
+  if (erro.tipo === 'conflitoConcorrencia') return 'Tente novamente.';
+  return mensagemDe(erro);
 }
 
 const estilos = StyleSheet.create({
-  corpo: { padding: espaco.lg, gap: espaco.lg, backgroundColor: cores.papel, flexGrow: 1 },
-  topo: { flexDirection: 'row', gap: espaco.sm },
+  raiz: { flex: 1, backgroundColor: cores.papel },
+  conteudo: { padding: espaco.lg, gap: espaco.md, flexGrow: 1 },
+  chips: { flexDirection: 'row', gap: espaco.sm },
   titulo: { ...tipografia.titulo, color: cores.tinta },
   descricao: { ...tipografia.corpo, color: cores.tinta70 },
-  recompensa: { flexDirection: 'row', alignItems: 'center', gap: espaco.xl },
-  xp: { flexDirection: 'row', alignItems: 'baseline', gap: espaco.xs },
-  xpValor: { fontSize: 34, lineHeight: 40, fontWeight: '700', color: cores.ambar },
-  xpRotulo: { ...tipografia.rotulo, color: cores.ambar },
-  nota: { ...tipografia.legenda, color: cores.tinta50 },
-  linha: { gap: espaco.xs },
-  rotulo: { ...tipografia.legenda, color: cores.tinta50 },
-  valor: { ...tipografia.corpo, color: cores.tinta },
-  alerta: { backgroundColor: cores.coralClaro, borderColor: cores.coral },
-  alertaTitulo: { ...tipografia.subtitulo, color: cores.coral },
-  alertaTexto: { ...tipografia.corpo, color: cores.tinta },
-  erro: { ...tipografia.corpo, color: cores.coral },
-  acoes: { gap: espaco.sm, marginTop: 'auto' },
+  rotulo: { ...tipografia.rotulo, color: cores.tinta50 },
+  linha: { ...tipografia.corpo, color: cores.tinta },
+  legenda: { ...tipografia.legenda, color: cores.tinta50 },
+  recompensa: { flexDirection: 'row', alignItems: 'center', gap: espaco.lg },
+  xp: { ...tipografia.subtitulo, color: cores.ambar },
+  acoes: { marginTop: 'auto', gap: espaco.sm },
+  explicacao: { ...tipografia.corpo, color: cores.tinta70, textAlign: 'center' },
+  voltar: { marginHorizontal: espaco.lg, marginBottom: espaco.sm },
 });

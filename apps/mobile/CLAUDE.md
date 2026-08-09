@@ -54,3 +54,17 @@ Precisa de uma URI nova? Peça no backend — subclasse de `DominioException` so
 Campos garantidos em toda resposta de erro: `type`, `title`, `status`, `detail`, `instance` e
 `traceId`. Erros de validação trazem também `errors[{campo, mensagem}]`, prontos para marcar o campo
 no formulário.
+
+## Ambiente de teste — três armadilhas
+
+Custaram tempo e não aparecem em lugar nenhum da documentação do Expo:
+
+- **jest-expo 57 fixa o ecossistema jest 29.** Instalar o `jest` 30 (que é o `latest` do npm) mistura
+  `jest-runtime` 30 com `jest-environment-node` 29 e a suíte morre em
+  `this._moduleMocker.clearMocksOnScope is not a function` — erro que não menciona versão nenhuma.
+- **RNTL 14 tornou `render` e `fireEvent` ASSÍNCRONOS.** Sem `await`, `screen` fica vazio e todo
+  `getByTestId` estoura com "`render` function has not been called".
+- **O ambiente do jest-expo não faz rede de verdade** — o `XMLHttpRequest` e o `fetch` dele são
+  dublês. Por isso o teste de integração roda em `testEnvironment: 'node'`
+  (`jest.e2e.config.js`), com stub de `react-native`; sob o preset do RN toda chamada volta como
+  `semRede`, indistinguível de backend desligado.

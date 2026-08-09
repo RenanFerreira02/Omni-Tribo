@@ -98,7 +98,10 @@ const VISUAIS: Record<VarianteBotao, { container: ViewStyle; texto: { color: str
     texto: { color: cores.verdePrimario },
   },
   texto: {
-    container: { backgroundColor: cores.transparente, minHeight: 40 },
+    // 44, e não 40. É o mínimo recomendado para alvo de toque, e esta variante é usada em ações
+    // reais — "Desistir" no detalhe da missão —, não em decoração. Um alvo pequeno numa ação
+    // irreversível é a pior combinação possível: erra-se o toque, ou acerta-se sem querer.
+    container: { backgroundColor: cores.transparente, minHeight: 44 },
     texto: { color: cores.verdePrimario },
   },
 };

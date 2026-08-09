@@ -11,7 +11,13 @@ class RegrasArquiteturaTest {
 
   // compartilhado é shared por design — aplica a regra só aos módulos de negócio
   private static final String[] MODULOS = {
-    "identidade", "missoes", "geolocalizacao", "carteira", "logistica", "notificacoes"
+    "identidade",
+    "missoes",
+    "geolocalizacao",
+    "carteira",
+    "logistica",
+    "notificacoes",
+    "integracoes"
   };
 
   @Test

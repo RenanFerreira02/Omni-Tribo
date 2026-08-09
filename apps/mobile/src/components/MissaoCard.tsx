@@ -27,7 +27,17 @@ export function MissaoCard({ missao, distanciaM, onPress, testID }: Props) {
   const paleta = coresCategoria[missao.categoria];
 
   return (
-    <Pressable onPress={onPress} disabled={!onPress} testID={testID} accessibilityRole="button">
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      testID={testID}
+      accessibilityRole="button"
+      // `accessible` agrupa os filhos num nó só, e o label é a frase que substitui a leitura deles.
+      // Sem isto o leitor de tela anunciava fragmentos soltos — "Entrega", "413 m", o título,
+      // "Pinheiros", "69", "XP", "23 tokens" — sete paradas para entender um card.
+      accessible
+      accessibilityLabel={rotuloAcessivel(missao, distanciaM)}
+    >
       <Card>
         <View style={estilos.topo}>
           <Chip
@@ -58,6 +68,18 @@ export function MissaoCard({ missao, distanciaM, onPress, testID }: Props) {
       </Card>
     </Pressable>
   );
+}
+
+/** Uma frase, na ordem em que a pessoa decide: o que é, onde, quão longe, quanto paga. */
+function rotuloAcessivel(missao: MissaoResponse, distanciaM?: number): string {
+  const partes = [
+    rotuloCategoria(missao.categoria),
+    missao.titulo,
+    `em ${missao.bairro}, ${missao.cidade}`,
+  ];
+  if (distanciaM !== undefined) partes.push(`a ${formatarDistancia(distanciaM)}`);
+  partes.push(`recompensa ${missao.xpRecompensa} XP e ${missao.tokensRecompensa} tokens`);
+  return partes.join(', ') + '.';
 }
 
 const estilos = StyleSheet.create({

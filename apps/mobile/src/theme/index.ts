@@ -1,6 +1,6 @@
-import type { CategoriaMissao } from '@/api/tipos';
+import type { CategoriaMissao, StatusMissao } from '@/api/tipos';
 
-import { coresCategoria as mapaCategoria } from './tokens';
+import { coresCategoria as mapaCategoria, coresStatus as mapaStatus } from './tokens';
 
 export { cores, espaco, raio, tipografia } from './tokens';
 export type { NomeCor } from './tokens';
@@ -19,3 +19,6 @@ export interface ParCorCategoria {
  * typecheck. `tokens.ts` continua sem importar nada de `src/api`.
  */
 export const coresCategoria: Record<CategoriaMissao, ParCorCategoria> = mapaCategoria;
+
+/** Mesma disciplina de `coresCategoria`: status novo sem cor não compila. */
+export const coresStatus: Record<StatusMissao, ParCorCategoria> = mapaStatus;

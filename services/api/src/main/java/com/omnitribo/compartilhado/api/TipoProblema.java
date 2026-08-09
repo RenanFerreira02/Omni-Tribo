@@ -87,6 +87,17 @@ public final class TipoProblema {
   public static final URI ERRO_INTERNO = URI.create(BASE + "erro-interno");
 
   /**
+   * 503: um provedor EXTERNO (clima, CEP) não respondeu a tempo ou respondeu errado.
+   *
+   * <p>URI própria, e não {@link #ERRO_INTERNO}, porque a reação de UI é outra e específica: o card
+   * de clima simplesmente some, e o campo de endereço continua editável à mão. Tratar isso como 500
+   * faria a tela mostrar "erro inesperado" para uma degradação prevista e inofensiva. Ver ADR 0010,
+   * que define a granularidade como uma URI por REAÇÃO DE UI, e ADR 0011.
+   */
+  public static final URI SERVICO_EXTERNO_INDISPONIVEL =
+      URI.create(BASE + "servico-externo-indisponivel");
+
+  /**
    * Fallback para {@code DominioException} lançada sem subclasse (hoje, o fluxo de autenticação).
    *
    * <p>Deriva do status para que uma exceção nova nunca chegue ao cliente como {@code about:blank}:

@@ -9,7 +9,16 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ConsentimentoRepository extends JpaRepository<Consentimento, UUID> {
 
-  List<Consentimento> findByUsuarioId(UUID usuarioId);
+  List<Consentimento> findByUsuarioIdOrderByCriadoEmDesc(UUID usuarioId);
 
-  Optional<Consentimento> findByUsuarioIdAndTipo(UUID usuarioId, TipoConsentimento tipo);
+  /**
+   * Estado ATUAL de um consentimento: a linha mais recente daquele tipo.
+   *
+   * <p>{@code findFirst...OrderBy}, e não {@code findByUsuarioIdAndTipo}. A tabela é append-only —
+   * cada mudança de escolha grava uma linha nova, para que "quando ele consentiu, e sob qual versão
+   * do texto?" continue respondível. Um finder sem ordenação e sem limite estouraria com {@code
+   * NonUniqueResultException} na PRIMEIRA revogação de qualquer usuário.
+   */
+  Optional<Consentimento> findFirstByUsuarioIdAndTipoOrderByCriadoEmDesc(
+      UUID usuarioId, TipoConsentimento tipo);
 }

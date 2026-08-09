@@ -11,10 +11,9 @@ Execute e cole a saída REAL de cada comando (não resuma, não presuma):
    "Detected resolved migration not applied to database" — mensagem que não menciona seed nem
    ordenação. Seed alterado muda o checksum e falha com "Migration checksum mismatch".
 1. cd services/api && ./mvnw -q verify
-2. Mobile — SOMENTE se apps/mobile/package.json existir:
-   cd apps/mobile && npm run typecheck && npm run lint && npm test
-   Se o arquivo não existir, o app mobile ainda não foi iniciado (F9+): reporte este passo como
-   NÃO VERIFICADO e siga. Não é falha, e não invalida os demais passos.
+2. cd apps/mobile && npm run typecheck && npm run lint && npm test
+   O `test:e2e` fica FORA daqui de propósito: exige o backend em execução e um endereço de rede que
+   varia por máquina (ver apps/mobile/README.md). Rode-o à mão quando for validar integração real.
 3. git status --short e git diff --cached procurando segredo
 4. docker compose ps
 

@@ -27,20 +27,35 @@ export function orientacaoDe(erro: ErroApi): OrientacaoCheckin {
           'Andar até o local não resolve enquanto ela estiver ligada.',
         vaiAdiantarTentarDeNovo: false,
       };
-    case 'checkinAcuraciaInsuficiente':
+    case 'checkinAcuraciaInsuficiente': {
+      // Com os números medidos, a frase diz o TAMANHO do problema. "Precisão ruim" não informa se
+      // faltam 5 metros de erro ou 500 — e a ação (esperar, ou sair de baixo da laje) é diferente.
+      const medida =
+        erro.acuraciaM !== undefined && erro.acuraciaMaximaM !== undefined
+          ? `O GPS está com ${Math.round(erro.acuraciaM)} m de margem de erro e o máximo aceito é ${erro.acuraciaMaximaM} m. `
+          : '';
       return {
         titulo: 'Sinal de GPS impreciso',
         instrucao:
+          medida +
           'Saia de baixo de cobertura, aguarde alguns segundos para o GPS estabilizar e tente de novo — ' +
           'você pode continuar no mesmo lugar.',
         vaiAdiantarTentarDeNovo: true,
       };
-    case 'checkinForaDoRaio':
+    }
+    case 'checkinForaDoRaio': {
+      // A frase que o requisito pede, montada dos CAMPOS e não do `detail`: se um dia a copy do
+      // backend mudar, esta instrução continua correta.
+      const instrucao =
+        erro.distanciaM !== undefined && erro.raioM !== undefined
+          ? `Você está a ${Math.round(erro.distanciaM)} m do ponto; aproxime-se para até ${erro.raioM} m e tente de novo.`
+          : erro.detail;
       return {
         titulo: 'Você ainda não chegou',
-        instrucao: erro.detail,
+        instrucao,
         vaiAdiantarTentarDeNovo: false,
       };
+    }
     case 'transicaoInvalida':
       return {
         titulo: 'Esta missão mudou de estado',

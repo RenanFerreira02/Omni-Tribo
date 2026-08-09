@@ -431,7 +431,11 @@ public class MissaoService {
         // Replay de uma rejeição: mesmo 422, mesmo motivo, nenhuma linha nova. Idempotência vale
         // para o fracasso também, senão um retry de rede inventaria um padrão de tentativas.
         return ResultadoRegistroCheckin.rejeitado(
-            MissaoResponse.de(missao), anterior.codigoRejeicao(), anterior.motivoRejeicao());
+            MissaoResponse.de(missao),
+            anterior.codigoRejeicao(),
+            anterior.motivoRejeicao(),
+            anterior.distanciaM(),
+            anterior.acuraciaM());
       }
       // Replay de um aceito: a missão já transicionou no mesmo commit que gravou a linha, então
       // basta devolver o estado atual. Nenhuma linha nova, nenhum evento novo de trilha.
@@ -465,7 +469,11 @@ public class MissaoService {
       // check-in foi recusado — e o controller devolve 422 depois. É o que preserva a trilha
       // antifraude sem precisar de segunda conexão.
       return ResultadoRegistroCheckin.rejeitado(
-          MissaoResponse.de(missao), resultado.codigoRejeicao(), resultado.motivoRejeicao());
+          MissaoResponse.de(missao),
+          resultado.codigoRejeicao(),
+          resultado.motivoRejeicao(),
+          resultado.distanciaM(),
+          resultado.acuraciaM());
     }
 
     MissaoEvento trilha =

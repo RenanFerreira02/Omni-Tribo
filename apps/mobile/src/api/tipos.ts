@@ -61,6 +61,95 @@ export interface MeResponse {
   papel: PapelUsuario;
 }
 
+export interface TriboResponse {
+  id: string;
+  nome: string;
+  bairro: string;
+  /** Derivado por PostGIS das missões e pontos da tribo. Nulo quando ela não tem nenhum. */
+  centroLat: number | null;
+  centroLon: number | null;
+}
+
+export interface ConquistaResponse {
+  codigo: string;
+  titulo: string;
+  descricao: string;
+  conquistada: boolean;
+  /** Já saturado na meta pelo servidor — nunca vem maior que ela. */
+  progresso: number;
+  meta: number;
+}
+
+/**
+ * Perfil completo. Endpoint SEPARADO de `/auth/me`, que continua sendo a checagem barata de
+ * identidade do boot, resolvida só dos claims do JWT.
+ */
+export interface PerfilResponse {
+  id: string;
+  nome: string;
+  email: string;
+  handle: string;
+  papel: PapelUsuario;
+  tribo: TriboResponse | null;
+  xp: number;
+  /** DERIVADO do XP pela fórmula do servidor, não a coluna cache `usuario.nivel`. */
+  nivel: number;
+  xpNivelAtual: number;
+  xpProximoNivel: number;
+  streak: number;
+  conquistas: ConquistaResponse[];
+}
+
+export type TipoConsentimento = 'LOCALIZACAO' | 'NOTIFICACAO' | 'TERMOS';
+
+export interface ConsentimentoResponse {
+  tipo: TipoConsentimento;
+  concedido: boolean;
+  versaoTexto: string | null;
+  /** Nulo quando o titular nunca decidiu este tipo. */
+  registradoEm: string | null;
+}
+
+export interface AlertaResponse {
+  id: string;
+  /** Discriminador estável. O app ramifica por ele; título e corpo são copy. */
+  tipo: string;
+  titulo: string;
+  corpo: string;
+  missaoId: string | null;
+  lido: boolean;
+  criadoEm: string;
+}
+
+export interface PontoCustodiaResponse {
+  id: string;
+  codigo: string;
+  tipo: 'LOJA' | 'LOCKER' | 'PORTARIA' | 'VIZINHO';
+  apelido: string;
+  lat: number;
+  lon: number;
+  capacidade: number;
+  ocupacao: number;
+  /** Só na busca por raio; nulo no detalhe por id. */
+  distanciaM: number | null;
+}
+
+export interface ClimaResponse {
+  temperaturaC: number;
+  sensacaoC: number;
+  codigo: number;
+  descricao: string;
+  medidoEm: string | null;
+}
+
+export interface EnderecoResponse {
+  cep: string;
+  logradouro: string;
+  bairro: string;
+  cidade: string;
+  uf: string;
+}
+
 export interface MissaoResponse {
   id: string;
   criadorId: string;
@@ -135,6 +224,58 @@ export interface PreviaRecompensaResponse {
   tokensRecompensa: number;
   complexidade: ComplexidadeMissao;
   versaoFormula: number;
+}
+
+/**
+ * Corpo de `POST /missoes` e de `POST /missoes/previa-recompensa` — o backend usa o MESMO record
+ * para os dois.
+ *
+ * **Não existe `xpRecompensa` nem `tokensRecompensa` aqui, e a ausência é o contrato.** A recompensa
+ * é calculada pelo servidor e congelada na criação (ADR 0009); mandar um valor seria silenciosamente
+ * ignorado (`fail-on-unknown-properties: false`), o que é pior que um erro — o criador veria um
+ * número na tela e outro na missão publicada.
+ *
+ * `valorBrl` é obrigatório e tem de ser `0`: o campo é `@NotNull` no servidor e qualquer valor
+ * maior é recusado com 400 por `CriacaoMissaoVerificador`.
+ *
+ * `complexidade` só vai quando NÃO há peso e volume. Com os dois presentes o servidor deriva, e
+ * mandar junto é 400 — recusa, não "ignora".
+ */
+export interface CriarMissaoRequest {
+  categoria: CategoriaMissao;
+  titulo: string;
+  descricao: string;
+  valorBrl: 0;
+  complexidade?: ComplexidadeMissao;
+  origemLat: number;
+  origemLon: number;
+  destinoLat?: number;
+  destinoLon?: number;
+  cep: string;
+  logradouro: string;
+  bairro: string;
+  cidade: string;
+  uf: string;
+  raioCheckinM: number;
+  pesoKg?: number;
+  volumeL?: number;
+  janelaInicio: string;
+  janelaFim: string;
+  pontoCustodiaId?: string;
+}
+
+export interface TransferirRequest {
+  destinatarioId: string;
+  tokens: number;
+  mensagem?: string;
+}
+
+export interface TransferenciaResponse {
+  lancamentoSaidaId: string;
+  /** Nulo num replay de idempotência. */
+  lancamentoEntradaId: string | null;
+  saldoTokensRemetente: number;
+  replay: boolean;
 }
 
 export interface RegistrarCheckinRequest {

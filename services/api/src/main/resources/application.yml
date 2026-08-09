@@ -122,3 +122,33 @@ app:
     atraso-inicial: PT30S
     maximo-tentativas: 5         # depois disso o evento sai do lote e espera intervenção
     backoff-base: PT30S          # exponencial: 30s, 1min, 2min, 4min, 8min
+
+  identidade:
+    # Conquistas DERIVADAS de xp/nivel/streak — não há tabela. A FÓRMULA é código
+    # (CalculadoraDeConquistas), os NÚMEROS são estes. Mudou limiar aqui? SUBA a versao junto:
+    # sem isso um usuário perde uma conquista que já tinha e ninguém consegue explicar por quê.
+    # O teste dourado falha de propósito para forçar essa decisão.
+    conquistas:
+      versao: 1
+      xp-iniciante: 1              # a primeira missão concluída já concede XP
+      xp-vizinho-presente: 500
+      xp-pilar-da-tribo: 2000
+      nivel-veterano: 10           # 8100 de XP pela curva quadrática de RegraNivel
+      streak-constante: 7
+
+  # Provedores EXTERNOS (ADR 0011). Os dois foram escolhidos por não exigirem chave de API:
+  # nenhuma credencial nova entra no projeto, e .env.example continua descrevendo tudo.
+  integracoes:
+    # Vale para os dois clientes. Curto de propósito: sem timeout, um provedor que aceita a conexão
+    # e não responde prende a thread da requisição, e sob carga isso esgota o pool do servlet — o
+    # card de clima derrubaria o login.
+    timeout: PT2S
+    clima:
+      base-url: ${CLIMA_BASE_URL:https://api.open-meteo.com}
+      # 10 min: a previsão do provedor não muda mais rápido que isso, e o TTL é o que impede uma
+      # tela de mapa aberta de virar uma chamada externa por movimento de dedo.
+      ttl: PT10M
+    endereco:
+      base-url: ${CEP_BASE_URL:https://viacep.com.br}
+      # Sem TTL de propósito: logradouro de um CEP muda uma vez por década. Só o teto de entradas
+      # do Caffeine governa o despejo. Ver EnderecoService.

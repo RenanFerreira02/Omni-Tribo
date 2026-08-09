@@ -1,6 +1,16 @@
 import { cliente } from './cliente';
-import type { CarteiraResponse, LancamentoResponse, PaginaResponse } from './tipos';
-import { carteiraResponseSchema, lancamentoResponseSchema, paginaSchema } from '@/schemas';
+import type {
+  CarteiraResponse,
+  LancamentoResponse,
+  PaginaResponse,
+  TransferenciaResponse,
+} from './tipos';
+import {
+  carteiraResponseSchema,
+  lancamentoResponseSchema,
+  paginaSchema,
+  transferenciaResponseSchema,
+} from '@/schemas';
 import { validarEmDev } from '@/schemas/validar';
 
 export async function buscarCarteira(): Promise<CarteiraResponse> {
@@ -17,6 +27,31 @@ export async function listarLancamentos(
     params: { pagina, tamanho },
   });
   return validarEmDev(paginaSchema(lancamentoResponseSchema), data, 'GET /carteira/lancamentos');
+}
+
+/**
+ * Transferência de tokens para um membro da MESMA tribo.
+ *
+ * `Idempotency-Key` é obrigatória e tem no mínimo 8 caracteres — mesma regra do check-in, e pelo
+ * mesmo motivo: um retry de rede não pode virar uma segunda transferência.
+ *
+ * O remetente NUNCA vai no corpo; sai do JWT. Tribo diferente e saldo insuficiente respondem os
+ * dois **422 `regra-negocio-violada`**, então a tela distingue pelo `detail` — que é a única
+ * exceção honesta à regra de nunca ler `detail`, e existe porque o backend ainda não deu URI
+ * própria a essas duas causas.
+ */
+export async function transferirTokens(
+  destinatarioId: string,
+  tokens: number,
+  chaveIdempotencia: string,
+  mensagem?: string,
+): Promise<TransferenciaResponse> {
+  const { data } = await cliente.post<TransferenciaResponse>(
+    '/carteira/transferencias',
+    { destinatarioId, tokens, mensagem },
+    { headers: { 'Idempotency-Key': chaveIdempotencia } },
+  );
+  return validarEmDev(transferenciaResponseSchema, data, 'POST /carteira/transferencias');
 }
 
 export interface RespostaSaque {

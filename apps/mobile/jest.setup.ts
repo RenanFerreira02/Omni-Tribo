@@ -42,6 +42,42 @@ jest.mock('expo-location', () => ({
   Accuracy: { High: 4 },
 }));
 
+/**
+ * WebView dublê.
+ *
+ * O mapa é HTML dentro de uma WebView (ADR 0012), e nada disso executa sob o jest-expo — não há
+ * motor de renderização web no ambiente. Mockar é a escolha honesta: o teste verifica que a TELA
+ * passa os marcadores certos e reage às mensagens, não que o Leaflet os desenhou. Renderização de
+ * mapa continua sendo verificação manual, e está dito assim no ADR.
+ *
+ * O dublê expõe `injectJavaScript` como jest.fn() para o teste poder afirmar o que foi enviado à
+ * página, e guarda `onMessage` num campo estático para simular a mensagem de volta.
+ */
+jest.mock('react-native-webview', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+
+  const WebView = React.forwardRef((props: Record<string, unknown>, ref: unknown) => {
+    React.useImperativeHandle(ref, () => ({ injectJavaScript: jest.fn() }));
+    return React.createElement(View, { testID: 'webview-mapa', ...props });
+  });
+  WebView.displayName = 'WebView';
+
+  return { WebView, default: WebView, __esModule: true };
+});
+
+/**
+ * Seletor de data/hora dublê: renderiza nada e não abre diálogo nativo. Quem testa a janela da
+ * missão dispara `onChange` direto pelo componente que o embrulha.
+ */
+jest.mock('@react-native-community/datetimepicker', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  const DateTimePicker = (props: Record<string, unknown>) =>
+    React.createElement(View, { testID: 'seletor-data-nativo', ...props });
+  return { __esModule: true, default: DateTimePicker };
+});
+
 beforeAll(() => {
   // `error` e não `warn`: uma requisição sem manipulador é um teste testando a rede de verdade,
   // e isso precisa falhar alto em vez de virar um timeout misterioso.

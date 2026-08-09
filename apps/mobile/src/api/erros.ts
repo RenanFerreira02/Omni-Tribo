@@ -40,9 +40,19 @@ export type ErroApi =
   /** 422 genérico: saldo, pote, janela. Sem causa distinguível — exiba `detail`. */
   | (Base & { tipo: 'regraNegocioViolada' })
   | (Base & { tipo: 'saqueDesabilitado' })
-  | (Base & { tipo: 'checkinForaDoRaio' })
-  | (Base & { tipo: 'checkinAcuraciaInsuficiente' })
+  /**
+   * 422 fora do raio, COM os números medidos pelo servidor.
+   *
+   * `distanciaM` e `raioM` chegam como campos de extensão do RFC 9457 e existem para a tela poder
+   * escrever "você está a 180 m; aproxime-se para até 50 m". A alternativa seria parsear o
+   * `detail` — proibido, porque é copy e muda a cada revisão. Opcionais porque o replay de uma
+   * rejeição antiga pode não ter a medida persistida.
+   */
+  | (Base & { tipo: 'checkinForaDoRaio'; distanciaM?: number; raioM?: number })
+  | (Base & { tipo: 'checkinAcuraciaInsuficiente'; acuraciaM?: number; acuraciaMaximaM?: number })
   | (Base & { tipo: 'checkinLocalizacaoSimulada' })
+  /** 503: provedor externo (clima, CEP) fora do ar. A tela ESCONDE o recurso, não mostra erro. */
+  | (Base & { tipo: 'servicoExternoIndisponivel' })
   | (Base & { tipo: 'limiteRequisicoes'; retryAfter: number | null })
   | (Base & { tipo: 'naoImplementado' })
   | (Base & { tipo: 'erroInterno' })
@@ -69,6 +79,7 @@ const POR_SEGMENTO = {
   'checkin-fora-do-raio': 'checkinForaDoRaio',
   'checkin-acuracia-insuficiente': 'checkinAcuraciaInsuficiente',
   'checkin-localizacao-simulada': 'checkinLocalizacaoSimulada',
+  'servico-externo-indisponivel': 'servicoExternoIndisponivel',
 } as const satisfies Record<string, TipoErroApi>;
 
 const TIPOS_CONHECIDOS: ReadonlySet<string> = new Set<TipoErroApi>([
@@ -91,6 +102,11 @@ interface CorpoProblema {
   traceId?: unknown;
   errors?: unknown;
   retryAfter?: unknown;
+  /** Campos de extensão das rejeições de check-in. Ver `CheckinRejeitadoException` no backend. */
+  distanciaM?: unknown;
+  raioM?: unknown;
+  acuraciaM?: unknown;
+  acuraciaMaximaM?: unknown;
 }
 
 function texto(valor: unknown, padrao: string): string {
@@ -172,11 +188,25 @@ export function paraErroApi(erro: unknown): ErroApi {
         retryAfter:
           typeof corpo.retryAfter === 'number' ? corpo.retryAfter : cabecalhoRetryAfter(erro),
       };
+    case 'checkinForaDoRaio':
+      return { ...base, tipo, distanciaM: numero(corpo.distanciaM), raioM: numero(corpo.raioM) };
+    case 'checkinAcuraciaInsuficiente':
+      return {
+        ...base,
+        tipo,
+        acuraciaM: numero(corpo.acuraciaM),
+        acuraciaMaximaM: numero(corpo.acuraciaMaximaM),
+      };
     case null:
       return { ...base, tipo: 'desconhecido', type: texto(corpo.type, '') };
     default:
       return { ...base, tipo };
   }
+}
+
+/** `undefined` quando ausente ou não numérico — a tela cai no `detail` do servidor. */
+function numero(valor: unknown): number | undefined {
+  return typeof valor === 'number' && Number.isFinite(valor) ? valor : undefined;
 }
 
 function cabecalhoRetryAfter(erro: { response?: { headers?: unknown } }): number | null {

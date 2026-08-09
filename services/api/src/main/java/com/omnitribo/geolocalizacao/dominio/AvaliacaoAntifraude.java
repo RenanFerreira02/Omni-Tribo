@@ -1,5 +1,6 @@
 package com.omnitribo.geolocalizacao.dominio;
 
+import com.omnitribo.geolocalizacao.api.LimitesCheckin;
 import com.omnitribo.geolocalizacao.api.MotivoRejeicaoCheckin;
 import com.omnitribo.geolocalizacao.api.ResultadoCheckin.Veredito;
 import java.math.BigDecimal;
@@ -20,10 +21,11 @@ import java.time.Instant;
 public final class AvaliacaoAntifraude {
 
   /**
-   * Acima disto o fix não sustenta afirmação de presença: um raio de erro de 50 m sobre um alvo de
-   * 50 m torna "dentro" e "fora" indistinguíveis.
+   * Teto de acurácia. Mora em {@link LimitesCheckin}, em {@code api/}, porque o controller de
+   * {@code missoes} precisa dele para explicar a recusa ao usuário e não pode importar {@code
+   * geolocalizacao.dominio}. Reexportado aqui só para não quebrar quem já referencia pelo nome.
    */
-  public static final BigDecimal ACURACIA_MAXIMA_M = new BigDecimal("50");
+  public static final BigDecimal ACURACIA_MAXIMA_M = LimitesCheckin.ACURACIA_MAXIMA_M;
 
   /** Acima disto a cinemática é implausível para deslocamento urbano entre dois check-ins. */
   public static final BigDecimal VELOCIDADE_SUSPEITA_KMH = new BigDecimal("120");
