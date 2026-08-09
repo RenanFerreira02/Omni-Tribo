@@ -23,7 +23,7 @@ import {
   usePerfil,
 } from '@/features/perfil/hooks';
 import { useSessao } from '@/stores/sessao';
-import { cores, espaco, tipografia } from '@/theme';
+import { cores, espaco, textoAcessivel, tipografia } from '@/theme';
 
 const ROTULO_CONSENTIMENTO: Record<TipoConsentimento, { titulo: string; descricao: string }> = {
   LOCALIZACAO: {
@@ -327,14 +327,14 @@ const estilos = StyleSheet.create({
   conteudo: { padding: espaco.lg, gap: espaco.md },
   folha: { gap: espaco.md, paddingBottom: espaco.lg },
   titulo: { ...tipografia.titulo, color: cores.tinta },
-  handle: { ...tipografia.corpo, color: cores.tinta50 },
+  handle: { ...tipografia.corpo, color: textoAcessivel.suave },
   subtitulo: { ...tipografia.subtitulo, color: cores.tinta, marginTop: espaco.sm },
-  rotulo: { ...tipografia.rotulo, color: cores.tinta50 },
+  rotulo: { ...tipografia.rotulo, color: textoAcessivel.suave },
   valor: { ...tipografia.corpo, color: cores.tinta },
-  legenda: { ...tipografia.legenda, color: cores.tinta50 },
+  legenda: { ...tipografia.legenda, color: textoAcessivel.suave },
   linhaNivel: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   nivel: { ...tipografia.subtitulo, color: cores.verdeEscuro },
-  xp: { ...tipografia.rotulo, color: cores.ambar },
+  xp: { ...tipografia.rotulo, color: textoAcessivel.ambar },
   conquistada: { borderWidth: 1, borderColor: cores.verdePrimario },
   consentimento: { flexDirection: 'row', alignItems: 'center', gap: espaco.md },
   consentimentoTexto: { flex: 1, gap: 2 },

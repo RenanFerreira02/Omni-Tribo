@@ -2,7 +2,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { cores, espaco, raio, tipografia } from '@/theme';
+import { cores, espaco, raio, textoAcessivel, tipografia } from '@/theme';
 
 interface Props {
   rotulo: string;
@@ -112,5 +112,5 @@ const estilos = StyleSheet.create({
   },
   caixaComErro: { borderColor: cores.coral },
   valor: { ...tipografia.corpo, color: cores.tinta },
-  erro: { ...tipografia.legenda, color: cores.coral },
+  erro: { ...tipografia.legenda, color: textoAcessivel.coral },
 });

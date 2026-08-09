@@ -20,7 +20,19 @@ type Estado = 'inicial' | 'carregando' | 'concedida' | 'negada' | 'erro';
  * `mocked`, que é auto-reportado e vale exatamente o que um cliente hostil quiser que valha. É por
  * isso que ele é um sinal, não uma defesa (ver docs/seguranca/antifraude-geolocalizacao.md).
  */
-export function useLocalizacao(pedirAoMontar = true) {
+/**
+ * <b>O padrão é NÃO pedir ao montar, e a inversão foi deliberada.</b>
+ *
+ * Antes o default era `true`, e bastava uma tela chamar `useLocalizacao()` sem argumento para o
+ * diálogo do sistema disparar na montagem — sem nenhuma justificativa antes. Foi o que aconteceu
+ * com a aba de missões, que é a primeira a montar: ela gastava a única chance de explicar, e o card
+ * do mapa chegava tarde demais.
+ *
+ * Com o default invertido, o caminho perigoso passou a exigir opt-in explícito. Quem escrever
+ * `useLocalizacao()` numa tela nova recebe o comportamento seguro; pedir sem explicar virou uma
+ * decisão que aparece no diff.
+ */
+export function useLocalizacao(pedirAoMontar = false) {
   const [coordenada, setCoordenada] = useState<Coordenada | null>(null);
   // O estado inicial já nasce 'carregando' quando há leitura automática. É o que permite ao efeito
   // de montagem chamar `obter()` sem nenhum setState síncrono — a renderização em cascata que

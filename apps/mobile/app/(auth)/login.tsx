@@ -8,7 +8,7 @@ import { CampoTexto } from '@/components/CampoTexto';
 import { useLogin } from '@/features/auth/hooks';
 import { errosPorCampo, mensagemDoErro } from '@/lib/formulario';
 import { loginSchema } from '@/schemas';
-import { cores, espaco, tipografia } from '@/theme';
+import { cores, espaco, textoAcessivel, tipografia } from '@/theme';
 
 export default function Login() {
   const router = useRouter();
@@ -104,8 +104,8 @@ const estilos = StyleSheet.create({
   marca: { fontSize: 32, lineHeight: 38, fontWeight: '700', color: cores.verdeEscuro },
   subtitulo: { ...tipografia.corpo, color: cores.tinta70 },
   formulario: { gap: espaco.lg },
-  aviso: { ...tipografia.corpo, color: cores.coral },
+  aviso: { ...tipografia.corpo, color: textoAcessivel.coral },
   rodape: { flexDirection: 'row', justifyContent: 'center', gap: espaco.xs },
   rodapeTexto: { ...tipografia.corpo, color: cores.tinta70 },
-  link: { ...tipografia.corpo, color: cores.verdePrimario, fontWeight: '600' },
+  link: { ...tipografia.corpo, color: cores.verdeEscuro, fontWeight: '600' },
 });

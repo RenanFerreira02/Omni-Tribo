@@ -244,7 +244,10 @@ CI (`.github/workflows/`), três workflows:
 
 - `docs/PROGRESSO.md` — tabela de fases e **Notas de manutenção**: o log de por que cada correção
   estrutural foi feita. Primeiro lugar a olhar quando algo neste arquivo parecer arbitrário.
-- `docs/auditoria/F0.md`…`F7.md` — uma auditoria por fase, contra a especificação original, com
+- `docs/auditoria/` — **F0…F7** (backend) e **`mobile-fundacao.md` / `mobile-completo.md`** (app).
+  Os dois do mobile não seguem o padrão `FN.md` de propósito: a numeração de fases já usa F8 para
+  "Logística, notificações e patrocinador", e um `F8.md` sobre mobile criaria contradição com o
+  `PROGRESSO.md`. Uma auditoria por fase, contra a especificação original, com
   evidência EXECUTADA (SQL, `curl`, `EXPLAIN ANALYZE`). Classificam cada item como DEFEITO, LACUNA,
   DIVERGÊNCIA ACEITÁVEL, EXCEDENTE ou CONFORME. É onde está o raciocínio por trás de decisões que
   parecem estranhas — inclusive duas premissas de especificação que foram refutadas com medição.
@@ -419,7 +422,12 @@ entrega é um relatório em `docs/auditoria/FN.md`, e só ele.
 
 ## Estado atual
 
-**Backend fechado até F7, auditado fase a fase.** Build verde, 0 falhas, SpotBugs limpo. Os oito
+**Backend e app auditados.** Build verde, 0 falhas, SpotBugs limpo. As duas auditorias do mobile
+acharam **dois defeitos que uma revisão comum deixou passar** — a aba de missões gastando o prompt
+de permissão sem justificativa, e a conta anonimizada continuando a escrever por 15 minutos. O
+primeiro está corrigido; o segundo continua aberto (ver Pendências).
+
+**Backend fechado até F7, auditado fase a fase.** Os oito
 relatórios em `docs/auditoria/` são o registro do que foi verificado e do que ficou em aberto; a
 rodada corrigiu 7 defeitos, cinco deles invisíveis na leitura do código. **F8 (logística,
 notificações e patrocinador) segue pendente** — o commit intitulado "F8 - Fundação Mobile" entregou,
@@ -501,7 +509,25 @@ do challenge. Preferimos uma lacuna documentada a uma regra errada codificada. F
 carteira de patrocinador financiar o pote pela mecânica que já existe (`FinanciamentoMissao`), e aí
 `pagaTokensDoPote` passa a valer para todas as categorias.
 
-**3. Uma decisão de contrato que divergiu da Pendência #3 original, e o motivo.** As quatro
+**3. Conta anonimizada continua ESCREVENDO por até 15 minutos.** Achado da auditoria do mobile, e o
+mais grave em aberto. `StatusUsuario.ATIVO` é verificado em exatamente um lugar —
+`AutenticacaoService` (linha ~175), no login. Um access token emitido ANTES do `DELETE /usuarios/me`
+continua válido pelos 15 minutos de TTL, e foi medido: `POST /api/v1/missoes` respondeu **201**, com
+`criadorId` apontando para o usuário já anonimizado.
+
+O comentário em `ExclusaoContaService` trata essa janela como hipótese de falha da revogação — ela
+existe SEMPRE, porque revogar refresh token não invalida access token já emitido. A correção é
+verificar `status`/`anonimizado_em` no filtro de autenticação, e não só no login; o custo é uma
+leitura por requisição, que é exatamente o que o `/auth/me` barato hoje evita. Decisão pendente.
+
+**4. `nivel` diverge entre dois endpoints.** `GET /usuarios/me` DERIVA o nível por `RegraNivel`;
+`GET /usuarios/me/dados` (exportação LGPD) lê a coluna cache `usuario.nivel`. Para a alice do seed
+um responde 2 e o outro 3. Quem está certo é a fórmula — a exportação deveria derivar também.
+
+**5. Transferência exige digitar um UUID.** Não existe endpoint que liste membros da tribo, então a
+tela pede o identificador do destinatário como texto. Funciona e é inutilizável na prática.
+
+**6. Uma decisão de contrato que divergiu da Pendência #3 original, e o motivo.** As quatro
 leituras que faltavam foram implementadas — `GET /alertas`, `GET /tribos`, `GET /pontos-custodia/{id}`
 e o perfil completo —, mas o perfil **não** ampliou `GET /auth/me`: virou `GET /usuarios/me`.
 `/auth/me` é chamado no boot e se resolve só dos claims do JWT, sem tocar o banco; enriquecê-lo

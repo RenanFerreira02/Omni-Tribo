@@ -21,7 +21,7 @@ import { usePontoCustodia } from '@/features/mapa/hooks';
 import { formatarDataHora, rotuloCategoria, rotuloStatus } from '@/lib/formatar';
 import { novaChaveIdempotencia } from '@/lib/ids';
 import { useSessao } from '@/stores/sessao';
-import { cores, coresCategoria, coresStatus, espaco, tipografia } from '@/theme';
+import { cores, coresCategoria, coresStatus, espaco, textoAcessivel, tipografia } from '@/theme';
 
 export default function DetalheMissao() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -298,11 +298,11 @@ const estilos = StyleSheet.create({
   chips: { flexDirection: 'row', gap: espaco.sm },
   titulo: { ...tipografia.titulo, color: cores.tinta },
   descricao: { ...tipografia.corpo, color: cores.tinta70 },
-  rotulo: { ...tipografia.rotulo, color: cores.tinta50 },
+  rotulo: { ...tipografia.rotulo, color: textoAcessivel.suave },
   linha: { ...tipografia.corpo, color: cores.tinta },
-  legenda: { ...tipografia.legenda, color: cores.tinta50 },
+  legenda: { ...tipografia.legenda, color: textoAcessivel.suave },
   recompensa: { flexDirection: 'row', alignItems: 'center', gap: espaco.lg },
-  xp: { ...tipografia.subtitulo, color: cores.ambar },
+  xp: { ...tipografia.subtitulo, color: textoAcessivel.ambar },
   acoes: { marginTop: 'auto', gap: espaco.sm },
   explicacao: { ...tipografia.corpo, color: cores.tinta70, textAlign: 'center' },
   voltar: { marginHorizontal: espaco.lg, marginBottom: espaco.sm },

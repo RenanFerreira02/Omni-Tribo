@@ -5,7 +5,7 @@ import { Chip } from './Chip';
 import { SaldoToken } from './SaldoToken';
 import type { MissaoResponse } from '@/api/tipos';
 import { formatarDistancia, rotuloCategoria } from '@/lib/formatar';
-import { cores, coresCategoria, espaco, tipografia } from '@/theme';
+import { cores, coresCategoria, espaco, textoAcessivel, tipografia } from '@/theme';
 
 interface Props {
   missao: MissaoResponse;
@@ -84,11 +84,11 @@ function rotuloAcessivel(missao: MissaoResponse, distanciaM?: number): string {
 
 const estilos = StyleSheet.create({
   topo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  distancia: { ...tipografia.rotulo, color: cores.tinta50 },
+  distancia: { ...tipografia.rotulo, color: textoAcessivel.suave },
   titulo: { ...tipografia.subtitulo, color: cores.tinta },
-  local: { ...tipografia.legenda, color: cores.tinta50 },
+  local: { ...tipografia.legenda, color: textoAcessivel.suave },
   recompensa: { flexDirection: 'row', alignItems: 'center', gap: espaco.lg },
   xp: { flexDirection: 'row', alignItems: 'baseline', gap: espaco.xs },
-  xpValor: { ...tipografia.rotulo, color: cores.ambar },
-  xpRotulo: { ...tipografia.legenda, color: cores.ambar },
+  xpValor: { ...tipografia.rotulo, color: textoAcessivel.ambar },
+  xpRotulo: { ...tipografia.legenda, color: textoAcessivel.ambar },
 });

@@ -5,9 +5,16 @@ import { mensagemDe, paraErroApi, valeTentarDeNovo, type TipoErroApi } from '../
 /**
  * O contrato de erro, linha a linha.
  *
- * Cada caso aqui corresponde a uma constante de `compartilhado/api/TipoProblema` no backend. Se uma
- * URI mudar de texto lá, este arquivo fica vermelho — que é exatamente o alarme que se quer, porque
- * URI publicada é contrato com todo app instalado (ver ADR 0010).
+ * Cada caso aqui corresponde a uma constante de `compartilhado/api/TipoProblema` no backend.
+ *
+ * <b>Mas este arquivo NÃO fica vermelho se uma URI mudar lá</b>, e é importante não acreditar que
+ * fica. Ele constrói as URIs a partir de literais próprios; nada na suíte mobile lê
+ * `TipoProblema.java`. Uma auditoria encontrou este comentário afirmando uma defesa que não
+ * existe — a mesma classe de problema que a rodada F0→F7 achou no backend.
+ *
+ * O que ele realmente garante: que o app TRADUZ corretamente cada URI conhecida para a variante de
+ * `ErroApi`, e que uma URI desconhecida não derruba a tela. A divergência entre os dois catálogos
+ * só apareceria comparando os dois arquivos — hoje isso é conferido por auditoria, não por teste.
  */
 
 function respostaDe(corpo: unknown, status: number, headers: Record<string, string> = {}) {

@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 
 import TelaMissoes from '../(tabs)/index';
@@ -11,6 +11,61 @@ const BASE = 'http://api.teste/api/v1';
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
 }));
+
+/**
+ * Renderiza a tela e concede a permissão pelo BOTÃO, como o usuário faz.
+ *
+ * A tela não pede localização ao montar — o diálogo do sistema só dispara depois da justificativa.
+ * Antes desta correção estes testes chamavam `render` e o radar já vinha carregado, porque a tela
+ * gastava o prompt sozinha. Passavam justamente por causa do defeito.
+ */
+async function renderComLocalizacaoPermitida() {
+  const resultado = await render(<TelaMissoes />);
+  await fireEvent.press(await screen.findByTestId('botao-permitir'));
+  return resultado;
+}
+
+/**
+ * O teste que faltava, e cuja ausência deixou o defeito passar.
+ *
+ * Havia um caso garantindo que o mapa mostra a justificativa antes do prompt — e ele passava,
+ * porque renderizava a tela de mapa ISOLADA. Só que quem monta primeiro é esta aba, e era ELA que
+ * disparava o diálogo do sistema sem explicar nada. Uma auditoria provou isso com um teste
+ * descartável fora do projeto.
+ *
+ * Este caso mora aqui, na primeira tela da área logada, que é onde o risco real está.
+ */
+describe('permissão de localização', () => {
+  it('a tela de missões NÃO pede localização ao montar', async () => {
+    const expoLocation = jest.requireMock('expo-location');
+    expoLocation.requestForegroundPermissionsAsync.mockClear();
+
+    await render(<TelaMissoes />);
+
+    expect(expoLocation.requestForegroundPermissionsAsync).not.toHaveBeenCalled();
+    expect(screen.getByTestId('justificativa-localizacao')).toBeVisible();
+  });
+
+  it('o diálogo do sistema só dispara depois do toque em "Permitir"', async () => {
+    const expoLocation = jest.requireMock('expo-location');
+    expoLocation.requestForegroundPermissionsAsync.mockClear();
+
+    await render(<TelaMissoes />);
+    await fireEvent.press(screen.getByTestId('botao-permitir'));
+
+    expect(expoLocation.requestForegroundPermissionsAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('a justificativa diz para que serve e o que continua funcionando sem ela', async () => {
+    await render(<TelaMissoes />);
+
+    // Pedir permissão sem dizer o propósito nem a alternativa é o que gasta a única chance que o
+    // Android dá — negado uma vez, o diálogo não volta.
+    expect(screen.getByText(/missões mais próximas/i)).toBeVisible();
+    expect(screen.getByText(/nunca é compartilhada com outros usuários/i)).toBeVisible();
+    expect(screen.getByText(/Sem permissão/i)).toBeVisible();
+  });
+});
 
 describe('tela de missões — modo "Perto de mim"', () => {
   it('lista o que o radar devolveu, com a distância medida pelo servidor', async () => {
@@ -27,7 +82,7 @@ describe('tela de missões — modo "Perto de mim"', () => {
       ),
     );
 
-    await render(<TelaMissoes />);
+    await renderComLocalizacaoPermitida();
 
     expect(await screen.findByText('Entrega perto')).toBeVisible();
     expect(screen.getByText('Coleta mais longe')).toBeVisible();
@@ -40,7 +95,7 @@ describe('tela de missões — modo "Perto de mim"', () => {
   it('radar vazio mostra o estado vazio, não uma lista em branco', async () => {
     servidor.use(http.get(`${BASE}/missoes/proximas`, () => HttpResponse.json([])));
 
-    await render(<TelaMissoes />);
+    await renderComLocalizacaoPermitida();
 
     expect(await screen.findByTestId('lista-vazia')).toBeVisible();
     expect(screen.getByText('Nenhuma missão por aqui')).toBeVisible();
@@ -55,7 +110,7 @@ describe('tela de missões — modo "Perto de mim"', () => {
       ),
     );
 
-    await render(<TelaMissoes />);
+    await renderComLocalizacaoPermitida();
 
     expect(await screen.findByTestId('lista-erro')).toBeVisible();
     expect(screen.getByText('Falha inesperada no servidor.')).toBeVisible();
@@ -73,7 +128,7 @@ describe('economia do cuidado na UI', () => {
       ),
     );
 
-    await render(<TelaMissoes />);
+    await renderComLocalizacaoPermitida();
     await screen.findByText('Missão X');
 
     expect(screen.getByText('69')).toBeVisible();
@@ -102,7 +157,7 @@ describe('tela de missões — modo "Todas"', () => {
       ),
     );
 
-    await render(<TelaMissoes />);
+    await renderComLocalizacaoPermitida();
 
     // Sem permissão o radar é impossível — o servidor exige lat/lon. A tela cai para "Todas" e
     // avisa, em vez de mostrar uma lista permanentemente vazia.

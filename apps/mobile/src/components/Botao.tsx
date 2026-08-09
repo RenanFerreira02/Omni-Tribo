@@ -86,22 +86,22 @@ const estilos = StyleSheet.create({
 
 const VISUAIS: Record<VarianteBotao, { container: ViewStyle; texto: { color: string } }> = {
   primario: {
-    container: { backgroundColor: cores.verdePrimario },
+    container: { backgroundColor: cores.verdeEscuro },
     texto: { color: cores.branco },
   },
   secundario: {
     container: {
       backgroundColor: cores.branco,
       borderWidth: 1,
-      borderColor: cores.verdePrimario,
+      borderColor: cores.verdeEscuro,
     },
-    texto: { color: cores.verdePrimario },
+    texto: { color: cores.verdeEscuro },
   },
   texto: {
     // 44, e não 40. É o mínimo recomendado para alvo de toque, e esta variante é usada em ações
     // reais — "Desistir" no detalhe da missão —, não em decoração. Um alvo pequeno numa ação
     // irreversível é a pior combinação possível: erra-se o toque, ou acerta-se sem querer.
     container: { backgroundColor: cores.transparente, minHeight: 44 },
-    texto: { color: cores.verdePrimario },
+    texto: { color: cores.verdeEscuro },
   },
 };

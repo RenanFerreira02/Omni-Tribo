@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
-import { cores, espaco, raio, tipografia } from '@/theme';
+import { cores, espaco, raio, textoAcessivel, tipografia } from '@/theme';
 
 interface Props extends TextInputProps {
   rotulo: string;
@@ -21,7 +21,7 @@ export function CampoTexto({ rotulo, erro, ...resto }: Props) {
         // como um <label for> da web. Sem isto o campo é anunciado só como "caixa de edição".
         accessibilityLabel={rotulo}
         accessibilityHint={erro ?? undefined}
-        placeholderTextColor={cores.tinta50}
+        placeholderTextColor={textoAcessivel.suave}
         onFocus={() => setFocado(true)}
         onBlur={() => setFocado(false)}
         style={[
@@ -43,7 +43,7 @@ const estilos = StyleSheet.create({
   campo: {
     minHeight: 48,
     borderWidth: 1,
-    borderColor: cores.linha,
+    borderColor: textoAcessivel.borda,
     borderRadius: raio.md,
     paddingHorizontal: espaco.md,
     backgroundColor: cores.branco,
@@ -53,5 +53,5 @@ const estilos = StyleSheet.create({
   multilinha: { minHeight: 96, paddingTop: espaco.md, textAlignVertical: 'top' },
   focado: { borderColor: cores.verdePrimario },
   comErro: { borderColor: cores.coral },
-  erro: { ...tipografia.legenda, color: cores.coral },
+  erro: { ...tipografia.legenda, color: textoAcessivel.coral },
 });

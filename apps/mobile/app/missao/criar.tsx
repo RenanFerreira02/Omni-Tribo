@@ -22,7 +22,7 @@ import { useLocalizacao } from '@/features/missoes/useLocalizacao';
 import { useDebounce } from '@/lib/debounce';
 import { rotuloCategoria } from '@/lib/formatar';
 import { criarMissaoSchema, type CriarMissaoForm } from '@/schemas';
-import { cores, coresCategoria, espaco, tipografia } from '@/theme';
+import { cores, coresCategoria, espaco, textoAcessivel, tipografia } from '@/theme';
 
 const CATEGORIAS: CategoriaMissao[] = ['ENTREGA', 'COLETA', 'TRIBO', 'AJUDA'];
 const COMPLEXIDADES: ComplexidadeMissao[] = ['LEVE', 'MEDIA', 'PESADA'];
@@ -35,7 +35,9 @@ const ROTULO_COMPLEXIDADE: Record<ComplexidadeMissao, string> = {
 export default function CriarMissao() {
   const router = useRouter();
   const criar = useCriarMissao();
-  const { coordenada } = useLocalizacao(true);
+  // Sem pedido automático: a origem é escolhida no mapa, que é o que a especificação pede. Um
+  // prompt de permissão ao abrir "Criar missão" seria o mesmo defeito da aba de missões.
+  const { coordenada } = useLocalizacao(false);
   const [mapaAberto, setMapaAberto] = useState(false);
   const [pontosAberto, setPontosAberto] = useState(false);
 
@@ -478,11 +480,11 @@ const estilos = StyleSheet.create({
   conteudo: { padding: espaco.lg, gap: espaco.md },
   titulo: { ...tipografia.titulo, color: cores.tinta },
   rotulo: { ...tipografia.rotulo, color: cores.tinta70 },
-  ajuda: { ...tipografia.legenda, color: cores.tinta50 },
-  erro: { ...tipografia.legenda, color: cores.coral },
+  ajuda: { ...tipografia.legenda, color: textoAcessivel.suave },
+  erro: { ...tipografia.legenda, color: textoAcessivel.coral },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: espaco.sm },
   cardRecompensa: { backgroundColor: cores.verdeClaro, gap: espaco.xs },
   recompensa: { flexDirection: 'row', alignItems: 'center', gap: espaco.lg },
-  xp: { ...tipografia.subtitulo, color: cores.ambar },
+  xp: { ...tipografia.subtitulo, color: textoAcessivel.ambar },
   mapaSeletor: { height: 320 },
 });

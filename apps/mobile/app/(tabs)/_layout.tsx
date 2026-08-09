@@ -3,7 +3,7 @@ import { Text, type ColorValue } from 'react-native';
 
 import { useContagemNaoLidos } from '@/features/alertas/hooks';
 import { useSessao } from '@/stores/sessao';
-import { cores, tipografia } from '@/theme';
+import { cores, textoAcessivel, tipografia } from '@/theme';
 
 export default function LayoutTabs() {
   const accessToken = useSessao((estado) => estado.accessToken);
@@ -21,7 +21,7 @@ export default function LayoutTabs() {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: cores.verdePrimario,
-        tabBarInactiveTintColor: cores.tinta50,
+        tabBarInactiveTintColor: textoAcessivel.suave,
         tabBarStyle: { backgroundColor: cores.branco, borderTopColor: cores.linha },
         tabBarLabelStyle: tipografia.legenda,
       }}

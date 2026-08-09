@@ -11,7 +11,7 @@ import { Esqueleto } from '@/components/Esqueleto';
 import { EstadoVazio } from '@/components/EstadoVazio';
 import { useAlertasInfinitos, useContagemNaoLidos, useMarcarLido } from '@/features/alertas/hooks';
 import { formatarDataHora } from '@/lib/formatar';
-import { cores, espaco, tipografia } from '@/theme';
+import { cores, espaco, textoAcessivel, tipografia } from '@/theme';
 
 export default function TelaNotificacoes() {
   const router = useRouter();
@@ -138,6 +138,6 @@ const estilos = StyleSheet.create({
   tituloNaoLido: { ...tipografia.subtitulo, color: cores.tinta, flexShrink: 1 },
   tituloLido: { ...tipografia.corpo, color: cores.tinta70, flexShrink: 1 },
   corpoTexto: { ...tipografia.corpo, color: cores.tinta70 },
-  data: { ...tipografia.legenda, color: cores.tinta50 },
+  data: { ...tipografia.legenda, color: textoAcessivel.suave },
   ponto: { width: 10, height: 10, borderRadius: 5, backgroundColor: cores.verdePrimario },
 });

@@ -5,7 +5,18 @@
 - app/ só rotas do Expo Router. Tela é composição, sem lógica de negócio.
 - src/features/<dominio>/ hooks de TanStack Query e lógica. src/api/ é o único lugar que fala HTTP.
 - src/components/ design system, sem chamada de API. src/stores/ Zustand só para UI e sessão.
-- src/theme/tokens.ts — NENHUM hex literal fora daqui.
+- src/theme/tokens.ts — NENHUM hex literal fora daqui. A regra é aplicada por lint
+  (`no-restricted-syntax` em eslint.config.js), não por disciplina.
+- **Preenchimento usa `cores`; TEXTO usa `textoAcessivel`.** Os 12 tokens de marca foram desenhados
+  para preencher, e como texto reprovavam em WCAG AA — `tinta50` dava 3,54:1, `ambar` 3,36:1,
+  `coral` 3,20:1, contra o mínimo de 4,5:1. Onze dos vinte e dois pares texto/fundo do app
+  reprovavam. `textoAcessivel` traz as mesmas cores escurecidas até o limiar, preservando o matiz.
+  Verde como texto é `verdeEscuro`, que já atendia. Um `color: cores.ambar` novo é regressão.
+- **`useLocalizacao()` NÃO pede permissão ao montar, e o default é esse de propósito.** Quem quiser
+  o pedido automático passa `true` explicitamente — e precisa ter mostrado a justificativa antes.
+  Use `JustificativaLocalizacao`: o diálogo do sistema é de uma via só, e negado uma vez não volta.
+  O default era `true` e produziu o defeito de a aba de missões gastar o prompt sem explicar nada,
+  enquanto o card do mapa chegava tarde.
 - TypeScript strict. `any` só com comentário justificando.
 - Toda chamada de API tem estado de carregando, vazio e erro tratados na UI.
 - npx expo install, nunca npm install, para pacotes do ecossistema Expo.

@@ -15,6 +15,26 @@ export function errosPorCampo(erro: unknown): Record<string, string> {
 }
 
 /**
+ * Erros de um `safeParse` do Zod, no MESMO formato de `errosPorCampo`.
+ *
+ * Existe para que a tela trate validação local e validação do servidor com um só tipo de estado.
+ * Sem isto, formulários que não usam react-hook-form acabam validando à mão — foi o que aconteceu
+ * com a transferência de tokens, onde a checagem manual deixava passar destinatário vazio e
+ * quantidade acima do teto, e devolvia um `return` mudo para campo vazio.
+ *
+ * Fica com a PRIMEIRA mensagem de cada campo: exibir duas linhas de erro sob o mesmo input é
+ * ruído, e a primeira regra violada costuma ser a que o usuário precisa corrigir antes.
+ */
+export function errosDoZod(erro: { issues: readonly { path: PropertyKey[]; message: string }[] }) {
+  const mapa: Record<string, string> = {};
+  for (const problema of erro.issues) {
+    const campo = String(problema.path[0] ?? '');
+    if (campo && !(campo in mapa)) mapa[campo] = problema.message;
+  }
+  return mapa;
+}
+
+/**
  * Mensagem geral do formulário.
  *
  * Devolve null quando o erro já foi distribuído pelos campos: repetir "Um ou mais campos falharam

@@ -9,6 +9,7 @@ import { Aviso } from '@/components/Aviso';
 import { Botao } from '@/components/Botao';
 import { Card } from '@/components/Card';
 import { FolhaInferior } from '@/components/FolhaInferior';
+import { JustificativaLocalizacao } from '@/components/JustificativaLocalizacao';
 import { MapaLeaflet, type MarcadorMapa, type RegiaoMapa } from '@/components/MapaLeaflet';
 import { SaldoToken } from '@/components/SaldoToken';
 import { useClima, usePontosCustodiaProximos, useTribo } from '@/features/mapa/hooks';
@@ -17,7 +18,7 @@ import { useLocalizacao } from '@/features/missoes/useLocalizacao';
 import { usePerfil } from '@/features/perfil/hooks';
 import { useCallbackComDebounce } from '@/lib/debounce';
 import { formatarDistancia, rotuloCategoria } from '@/lib/formatar';
-import { cores, coresCategoria, espaco, tipografia } from '@/theme';
+import { cores, coresCategoria, espaco, textoAcessivel, tipografia } from '@/theme';
 
 /** Fallback final: centro de São Paulo, quando não há nem GPS nem tribo com missões. */
 const CENTRO_PADRAO = { lat: -23.5505, lon: -46.6333 };
@@ -109,22 +110,12 @@ export default function TelaMapa() {
   if (estadoLocal === 'inicial') {
     return (
       <SafeAreaView style={estilos.raiz} testID="tela-mapa">
-        <View style={estilos.justificativa}>
-          <Card>
-            <Text style={estilos.tituloJustificativa} accessibilityRole="header">
-              Ver missões perto de você
-            </Text>
-            <Text style={estilos.textoJustificativa}>
-              O mapa usa sua localização para centralizar no seu bairro e medir a distância até cada
-              missão. A posição exata é usada só no momento do check-in, para confirmar que você
-              chegou ao local — e nunca é compartilhada com outros usuários.
-            </Text>
-            <Text style={estilos.textoJustificativa}>
-              Sem permissão o mapa continua funcionando, centrado na sua tribo.
-            </Text>
-            <Botao titulo="Permitir localização" onPress={recarregar} testID="botao-permitir" />
-          </Card>
-        </View>
+        <JustificativaLocalizacao
+          proposito="O mapa usa sua localização para centralizar no seu bairro e medir a distância até cada missão."
+          semPermissao="Sem permissão o mapa continua funcionando, centrado na sua tribo."
+          aoPermitir={recarregar}
+          testID="justificativa-localizacao"
+        />
       </SafeAreaView>
     );
   }
@@ -255,9 +246,9 @@ const estilos = StyleSheet.create({
   temperatura: { ...tipografia.titulo, color: cores.verdeEscuro },
   climaTexto: { gap: 2 },
   climaDescricao: { ...tipografia.rotulo, color: cores.tinta },
-  climaSensacao: { ...tipografia.legenda, color: cores.tinta50 },
+  climaSensacao: { ...tipografia.legenda, color: textoAcessivel.suave },
   resumo: { gap: espaco.sm },
   linhaResumo: { ...tipografia.corpo, color: cores.tinta70 },
   recompensa: { flexDirection: 'row', alignItems: 'center', gap: espaco.lg },
-  xp: { ...tipografia.rotulo, color: cores.ambar },
+  xp: { ...tipografia.rotulo, color: textoAcessivel.ambar },
 });

@@ -113,5 +113,5 @@ const estilos = StyleSheet.create({
   },
   cabecalho: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   titulo: { ...tipografia.subtitulo, color: cores.tinta, flexShrink: 1 },
-  fechar: { ...tipografia.rotulo, color: cores.verdePrimario },
+  fechar: { ...tipografia.rotulo, color: cores.verdeEscuro },
 });

@@ -23,6 +23,32 @@ export const cores = {
   transparente: 'transparent',
 } as const;
 
+/**
+ * Variantes de TEXTO, derivadas das cores de marca.
+ *
+ * <b>Por que elas existem.</b> Os 12 tokens acima são a identidade visual e não mudam — a
+ * especificação os fixou por hex. Mas eles foram desenhados para PREENCHIMENTO, e usados como
+ * texto reprovavam em WCAG AA: `tinta50` dava 3,54:1, `ambar` 3,36:1 e `coral` 3,20:1 contra os
+ * fundos reais do app, quando o mínimo para texto normal é 4,5:1. Onze dos vinte e dois pares
+ * texto/fundo do app reprovavam.
+ *
+ * Cada variante é a mesma cor escurecida até o limiar, preservando o matiz — não uma cor nova.
+ * A regra de uso é simples: <b>preenchimento e ícone usam `cores`; texto usa `textoAcessivel`.</b>
+ *
+ * O verde não precisou de variante: `verdeEscuro` já dá 5,46:1 sobre `verdeClaro` e 6,2:1 sobre
+ * branco, e passou a ser o token de texto verde do app.
+ */
+export const textoAcessivel = {
+  /** `tinta50` escurecido. Legenda, ajuda e texto secundário. 4,52:1 sobre papel. */
+  suave: '#6A7571',
+  /** `ambar` escurecido. XP e chips de COLETA. 4,55:1 no pior fundo. */
+  ambar: '#9C6213',
+  /** `coral` escurecido. Erros e chips de AJUDA. 4,56:1 no pior fundo. */
+  coral: '#AF4927',
+  /** `linha` escurecido. Borda de campo — WCAG 1.4.11 exige 3:1 para componente não-textual. */
+  borda: '#909492',
+} as const;
+
 export type NomeCor = keyof typeof cores;
 
 /**
@@ -57,11 +83,22 @@ export const tipografia = {
  * Cor por categoria de missão. A chave é o enum `CategoriaMissao` do backend — não string solta,
  * para que uma categoria nova quebre o typecheck em vez de cair num fallback silencioso.
  */
+/**
+ * <b>TRIBO usa `verdeEscuro` como PREENCHIMENTO, e essa mudança resolve duas coisas de uma vez.</b>
+ *
+ * Antes, ENTREGA e TRIBO compartilhavam o mesmo fundo `verdeClaro` e se distinguiam só pela cor do
+ * texto. Ao escurecer o texto de ENTREGA para atingir contraste, os dois chips ficariam
+ * IDÊNTICOS — a correção de acessibilidade teria apagado a distinção de categoria.
+ *
+ * Invertendo TRIBO para fundo escuro com texto branco (6,2:1), as quatro categorias voltam a ser
+ * distinguíveis, todas passam em AA, e o mapeamento fica mais literal do que era: a especificação
+ * diz "Tribo→verdeEscuro", e agora é o verdeEscuro que se vê.
+ */
 export const coresCategoria = {
-  ENTREGA: { fundo: cores.verdeClaro, texto: cores.verdePrimario },
-  COLETA: { fundo: cores.ambarClaro, texto: cores.ambar },
-  TRIBO: { fundo: cores.verdeClaro, texto: cores.verdeEscuro },
-  AJUDA: { fundo: cores.coralClaro, texto: cores.coral },
+  ENTREGA: { fundo: cores.verdeClaro, texto: cores.verdeEscuro },
+  COLETA: { fundo: cores.ambarClaro, texto: textoAcessivel.ambar },
+  TRIBO: { fundo: cores.verdeEscuro, texto: cores.branco },
+  AJUDA: { fundo: cores.coralClaro, texto: textoAcessivel.coral },
 } as const;
 
 /**
@@ -80,11 +117,13 @@ export const coresCategoria = {
 export const coresStatus = {
   RASCUNHO: { fundo: cores.papel, texto: cores.tinta70 },
   ABERTA: { fundo: cores.verdeClaro, texto: cores.verdeEscuro },
-  ACEITA: { fundo: cores.verdeClaro, texto: cores.verdePrimario },
-  EM_ANDAMENTO: { fundo: cores.verdeClaro, texto: cores.verdePrimario },
-  AGUARDANDO_CONFIRMACAO: { fundo: cores.ambarClaro, texto: cores.ambar },
-  CONCLUIDA: { fundo: cores.verdePrimario, texto: cores.branco },
-  CANCELADA: { fundo: cores.papel, texto: cores.tinta50 },
-  EXPIRADA: { fundo: cores.papel, texto: cores.tinta50 },
-  EM_DISPUTA: { fundo: cores.coralClaro, texto: cores.coral },
+  ACEITA: { fundo: cores.verdeClaro, texto: cores.verdeEscuro },
+  EM_ANDAMENTO: { fundo: cores.verdeClaro, texto: cores.verdeEscuro },
+  AGUARDANDO_CONFIRMACAO: { fundo: cores.ambarClaro, texto: textoAcessivel.ambar },
+  // Preenchimento verdeEscuro, e não verdePrimario: branco sobre verdePrimario dá 3,39:1, abaixo
+  // do mínimo. Sobre verdeEscuro dá 6,2:1, e continua sendo o único status de fundo sólido.
+  CONCLUIDA: { fundo: cores.verdeEscuro, texto: cores.branco },
+  CANCELADA: { fundo: cores.papel, texto: textoAcessivel.suave },
+  EXPIRADA: { fundo: cores.papel, texto: textoAcessivel.suave },
+  EM_DISPUTA: { fundo: cores.coralClaro, texto: textoAcessivel.coral },
 } as const;

@@ -14,8 +14,10 @@ import { FolhaInferior } from '@/components/FolhaInferior';
 import { SaldoToken } from '@/components/SaldoToken';
 import { useCarteira, useLancamentos, useTransferirTokens } from '@/features/carteira/hooks';
 import { formatarDataHora } from '@/lib/formatar';
+import { errosDoZod } from '@/lib/formulario';
 import { novaChaveIdempotencia } from '@/lib/ids';
-import { cores, espaco, tipografia } from '@/theme';
+import { transferenciaSchema } from '@/schemas';
+import { cores, espaco, textoAcessivel, tipografia } from '@/theme';
 
 const ROTULOS_MOTIVO: Record<LancamentoResponse['motivo'], string> = {
   RECOMPENSA_MISSAO: 'Recompensa de missão',
@@ -36,6 +38,7 @@ export default function TelaCarteira() {
   const [destinatario, setDestinatario] = useState('');
   const [quantidade, setQuantidade] = useState('');
   const [mensagem, setMensagem] = useState('');
+  const [errosForm, setErrosForm] = useState<Record<string, string>>({});
 
   /**
    * A chave de idempotência nasce com a INTENÇÃO, não com o toque.
@@ -48,16 +51,33 @@ export default function TelaCarteira() {
 
   const lancamentos = (extrato.data?.pages ?? []).flatMap((pagina) => pagina.conteudo);
 
+  /**
+   * Valida pelo `transferenciaSchema`, e não à mão.
+   *
+   * A versão anterior fazia `if (!Number.isInteger(tokens) || tokens <= 0) return;` — um `return`
+   * mudo. Quantidade vazia produzia um botão que não fazia nada e não dizia nada, destinatário
+   * vazio ia para a rede, e 9999 tokens passavam por cima do teto de 500 que o schema já
+   * declarava. O schema existia desde sempre e nunca havia sido importado.
+   */
   function enviarTransferencia() {
-    const tokens = Number(quantidade);
-    if (!Number.isInteger(tokens) || tokens <= 0) return;
+    const analise = transferenciaSchema.safeParse({
+      destinatarioId: destinatario.trim(),
+      // String vazia vira `undefined`, e não `NaN`: "não informado" e "valor inválido" produzem
+      // mensagens diferentes, e `Number('')` é 0, que passaria por um teste de tipo.
+      tokens: quantidade.trim() === '' ? undefined : Number(quantidade),
+      mensagem: mensagem.trim() || undefined,
+    });
+
+    if (!analise.success) {
+      setErrosForm(errosDoZod(analise.error));
+      return;
+    }
+    setErrosForm({});
 
     transferir.mutate(
       {
-        destinatarioId: destinatario.trim(),
-        tokens,
+        ...analise.data,
         chaveIdempotencia: chave.current,
-        mensagem: mensagem.trim() || undefined,
       },
       {
         onSuccess: () => {
@@ -195,6 +215,7 @@ export default function TelaCarteira() {
           value={destinatario}
           onChangeText={setDestinatario}
           autoCapitalize="none"
+          erro={errosForm.destinatarioId}
           testID="campo-destinatario"
         />
         <CampoTexto
@@ -202,6 +223,7 @@ export default function TelaCarteira() {
           keyboardType="number-pad"
           value={quantidade}
           onChangeText={(texto) => setQuantidade(texto.replace(/\D/g, ''))}
+          erro={errosForm.tokens}
           testID="campo-tokens"
         />
         <CampoTexto
@@ -209,6 +231,7 @@ export default function TelaCarteira() {
           value={mensagem}
           onChangeText={setMensagem}
           maxLength={200}
+          erro={errosForm.mensagem}
           testID="campo-mensagem"
         />
 
@@ -260,14 +283,14 @@ const estilos = StyleSheet.create({
   titulo: { ...tipografia.titulo, color: cores.tinta },
   subtitulo: { ...tipografia.subtitulo, color: cores.tinta },
   saldo: { alignItems: 'flex-start', gap: espaco.sm },
-  rotuloSaldo: { ...tipografia.rotulo, color: cores.tinta50 },
+  rotuloSaldo: { ...tipografia.rotulo, color: textoAcessivel.suave },
   explicacao: { ...tipografia.legenda, color: cores.tinta70 },
-  erro: { ...tipografia.corpo, color: cores.coral },
+  erro: { ...tipografia.corpo, color: textoAcessivel.coral },
   esqueletos: { gap: espaco.md },
   linha: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   linhaTexto: { flex: 1, gap: espaco.xs },
   motivo: { ...tipografia.rotulo, color: cores.tinta },
-  data: { ...tipografia.legenda, color: cores.tinta50 },
+  data: { ...tipografia.legenda, color: textoAcessivel.suave },
   mensagem: { ...tipografia.legenda, color: cores.tinta70 },
   valor: { flexDirection: 'row', alignItems: 'center', gap: espaco.xs },
   sinal: { ...tipografia.subtitulo },

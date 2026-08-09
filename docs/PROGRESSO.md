@@ -11,10 +11,10 @@
 | F6   | Geolocalização e check-in             | ✅ Concluído | [F6](auditoria/F6.md) | 2026-08-07 |
 | F7   | Carteira e integridade transacional   | ✅ Concluído | [F7](auditoria/F7.md) | 2026-08-07 |
 | F8   | Logística, notificações e patrocinador| 🟨 Parcial  | —         | 2026-08-09 |
-| F9   | App mobile — autenticação             | ✅ Concluído | —         | 2026-08-08 |
-| F10  | App mobile — missões e check-in       | ✅ Concluído | —         | 2026-08-08 |
-| F11  | App mobile — carteira e perfil        | ✅ Concluído | —         | 2026-08-08 |
-| F12  | App mobile completo (7 telas) + leituras que faltavam | ✅ Concluído | — | 2026-08-09 |
+| F9   | App mobile — autenticação             | ✅ Concluído | [fundação](auditoria/mobile-fundacao.md) | 2026-08-08 |
+| F10  | App mobile — missões e check-in       | ✅ Concluído | [fundação](auditoria/mobile-fundacao.md) | 2026-08-08 |
+| F11  | App mobile — carteira e perfil        | ✅ Concluído | [fundação](auditoria/mobile-fundacao.md) | 2026-08-08 |
+| F12  | App mobile completo (7 telas) + leituras que faltavam | ✅ Concluído | [completo](auditoria/mobile-completo.md) | 2026-08-09 |
 | F12b | Testes de carga e endurecimento       | ⬜ Pendente  | —         | —          |
 | F13  | Entrega final                         | ⬜ Pendente  | —         | —          |
 
@@ -24,7 +24,7 @@
 > formas diferentes — o commit da carteira se chama "F7" e a tabela a chamava de "F5". Agora tabela,
 > commits e `docs/auditoria/FN.md` usam a mesma numeração.
 
-**Backend verde com 457 testes**, 0 falhas, SpotBugs limpo. **Mobile com 125 testes** Jest/RTL/MSW,
+**Backend verde com 457 testes**, 0 falhas, SpotBugs limpo. **Mobile com 128 testes** Jest/RTL/MSW,
 typecheck e lint sem erro, mais **19 testes de integração** contra a API em execução — destes, 12
 são o ciclo ponta a ponta com dois usuários reais (`docs/evidencias/f12-ciclo-ponta-a-ponta.md`).
 
@@ -32,9 +32,41 @@ são o ciclo ponta a ponta com dois usuários reais (`docs/evidencias/f12-ciclo-
 caminho de leitura, mas a carteira de PATROCINADOR — o que fecharia a Pendência #2 e faria ENTREGA e
 AJUDA pararem de cunhar token — continua não existindo.
 
-Nenhuma fase de mobile passou por auditoria. A coluna reflete isso.
+**As fases de mobile foram auditadas em 2026-08-09**, por dois agentes independentes que mediram
+contra o sistema em execução. Quatro defeitos; dois corrigidos no mesmo dia, dois em aberto nas
+Pendências do CLAUDE.md.
 
 ## Notas de manutenção
+
+- **2026-08-09** — **Auditoria independente do mobile, e as correções que ela obrigou.**
+  - Dois relatórios com evidência EXECUTADA: `docs/auditoria/mobile-fundacao.md` e
+    `mobile-completo.md`. Nomeados por conteúdo, e não `FN.md`, porque a numeração de fases já usa
+    F8 para "Logística, notificações e patrocinador".
+  - **O achado metodológico vale mais que os defeitos: os dois auditores testaram os TESTES.** Um
+    mutou a promessa compartilhada de refresh numa cópia em `/tmp` e viu o teste ir de verde a
+    `Expected: 1 / Received: 3` — aquele teste tem dentes. O outro provou que o teste de permissão
+    do mapa passava *só porque renderizava a tela isolada*: era assertion que nunca falharia.
+  - **DEFEITO corrigido — o prompt de permissão era gasto pela aba de missões**, que monta primeiro,
+    sem nenhuma justificativa. O card do mapa chegava depois da decisão. O default de
+    `useLocalizacao` foi invertido para NÃO pedir ao montar, a justificativa virou componente
+    compartilhado, e um segundo infrator apareceu no caminho (`criar.tsx`). Três testes novos.
+  - **DEFEITO corrigido — contraste: 11 de 22 pares reprovavam em WCAG AA**, e nunca havia sido
+    conferido. Os 12 hex especificados ficaram INTACTOS; entrou uma tabela `textoAcessivel` com as
+    mesmas cores escurecidas só onde carregam texto. Efeito colateral bom: TRIBO ganhou
+    preenchimento `verdeEscuro`, porque escurecer o texto de ENTREGA tornaria os dois chips
+    idênticos — a correção de acessibilidade teria apagado a distinção de categoria.
+  - **`transferenciaSchema` estava escrito e nunca importado.** A tela validava à mão, com um
+    `return` mudo: quantidade vazia não fazia nada e não dizia nada, e 9999 tokens passavam por
+    cima do teto de 500 que o próprio schema declarava.
+  - **Dois comentários afirmavam garantias inexistentes** — `erros.test.ts` dizia ficar vermelho se
+    uma URI mudasse no backend (não fica; ele lê literais próprios) e `registrar.tsx` dizia que
+    `GET /tribos` não existia (existe). Mesma classe do achado da rodada F0→F7.
+  - **`expo-dev-client` é desnecessário, e agora está medido:** os 12 módulos nativos do app estão
+    no `bundledNativeModules.json` do SDK 57, nas versões exatas instaladas — inclusive
+    `react-native-webview` e o seletor de data. **O app roda no Expo Go**, sem development build.
+  - **Em aberto**, nas Pendências do CLAUDE.md: conta anonimizada escrevendo por 15 min (o mais
+    grave), `nivel` divergente entre `/usuarios/me` e a exportação LGPD, e a transferência exigindo
+    UUID digitado.
 
 - **2026-08-09** — **App mobile completo e as leituras que faltavam.**
   - **As sete telas pedidas existem**: onboarding, mapa, detalhe com botão contextual, criação de

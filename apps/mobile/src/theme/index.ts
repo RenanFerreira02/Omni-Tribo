@@ -2,7 +2,7 @@ import type { CategoriaMissao, StatusMissao } from '@/api/tipos';
 
 import { coresCategoria as mapaCategoria, coresStatus as mapaStatus } from './tokens';
 
-export { cores, espaco, raio, tipografia } from './tokens';
+export { cores, espaco, raio, textoAcessivel, tipografia } from './tokens';
 export type { NomeCor } from './tokens';
 
 export interface ParCorCategoria {

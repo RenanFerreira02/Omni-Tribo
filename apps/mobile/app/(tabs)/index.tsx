@@ -9,11 +9,12 @@ import { Botao } from '@/components/Botao';
 import { Chip } from '@/components/Chip';
 import { EsqueletoMissaoCard } from '@/components/Esqueleto';
 import { EstadoVazio } from '@/components/EstadoVazio';
+import { JustificativaLocalizacao } from '@/components/JustificativaLocalizacao';
 import { MissaoCard } from '@/components/MissaoCard';
 import { useMissoesInfinitas, useMissoesProximas } from '@/features/missoes/hooks';
 import { useLocalizacao } from '@/features/missoes/useLocalizacao';
 import { rotuloCategoria } from '@/lib/formatar';
-import { cores, coresCategoria, espaco, tipografia } from '@/theme';
+import { cores, coresCategoria, espaco, textoAcessivel, tipografia } from '@/theme';
 
 const CATEGORIAS: CategoriaMissao[] = ['ENTREGA', 'COLETA', 'TRIBO', 'AJUDA'];
 
@@ -148,15 +149,28 @@ export default function TelaMissoes() {
             }
           }}
           ListEmptyComponent={
-            <EstadoVazio
-              testID="lista-vazia"
-              titulo="Nenhuma missão por aqui"
-              descricao={
-                modoEfetivo === 'perto'
-                  ? 'Não há missões abertas num raio de 2 km. Tente "Todas" ou volte mais tarde.'
-                  : 'Ainda não há missões abertas nesta categoria.'
-              }
-            />
+            // O radar só existe com posição, e a posição só é pedida DEPOIS de a pessoa ler para
+            // quê. Enquanto ela não decide, esta tela explica em vez de disparar o diálogo do
+            // sistema na montagem — que era o defeito: a aba de missões gastava a única chance de
+            // justificar, e o card do mapa chegava tarde.
+            modo === 'perto' && estadoLocal === 'inicial' ? (
+              <JustificativaLocalizacao
+                proposito="Para mostrar as missões mais próximas e a distância até cada uma, o app precisa saber onde você está."
+                semPermissao='Sem permissão, use "Todas" para ver as missões abertas do bairro — só não dá para ordenar por distância.'
+                aoPermitir={() => void recarregarLocal()}
+                testID="justificativa-localizacao"
+              />
+            ) : (
+              <EstadoVazio
+                testID="lista-vazia"
+                titulo="Nenhuma missão por aqui"
+                descricao={
+                  modoEfetivo === 'perto'
+                    ? 'Não há missões abertas num raio de 2 km. Tente "Todas" ou volte mais tarde.'
+                    : 'Ainda não há missões abertas nesta categoria.'
+                }
+              />
+            )
           }
           ListFooterComponent={
             lista.isFetchingNextPage ? (
@@ -193,7 +207,7 @@ const estilos = StyleSheet.create({
   },
   avisoLocal: {
     ...tipografia.legenda,
-    color: cores.ambar,
+    color: textoAcessivel.ambar,
     paddingHorizontal: espaco.lg,
     paddingBottom: espaco.sm,
   },

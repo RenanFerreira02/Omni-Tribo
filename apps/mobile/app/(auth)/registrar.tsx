@@ -8,7 +8,7 @@ import { CampoTexto } from '@/components/CampoTexto';
 import { useRegistro } from '@/features/auth/hooks';
 import { errosPorCampo, mensagemDoErro } from '@/lib/formulario';
 import { registroSchema } from '@/schemas';
-import { cores, espaco, tipografia } from '@/theme';
+import { cores, espaco, textoAcessivel, tipografia } from '@/theme';
 
 export default function Registrar() {
   const router = useRouter();
@@ -39,8 +39,10 @@ export default function Registrar() {
       return;
     }
     setErrosLocais({});
-    // triboId não é enviado: `GET /tribos` ainda não existe no backend, e escolher tribo sem poder
-    // listá-las seria digitar um UUID. O campo é opcional no registro.
+    // triboId não é enviado. `GET /tribos` JÁ EXISTE e responde 200 — o comentário anterior dizia
+    // o contrário e ficou obsoleto quando o endpoint foi criado. O que falta é a decisão de
+    // produto: escolher tribo no cadastro, ou depois, no perfil. Enquanto isso o campo continua
+    // opcional no backend e o registro não o envia.
     criar.mutate(analise.data, { onSuccess: () => router.replace('/(tabs)') });
   }
 
@@ -119,8 +121,8 @@ const estilos = StyleSheet.create({
   conteudo: { flexGrow: 1, justifyContent: 'center', padding: espaco.xl, gap: espaco.xl },
   titulo: { ...tipografia.titulo, color: cores.tinta },
   formulario: { gap: espaco.lg },
-  aviso: { ...tipografia.corpo, color: cores.coral },
+  aviso: { ...tipografia.corpo, color: textoAcessivel.coral },
   rodape: { flexDirection: 'row', justifyContent: 'center', gap: espaco.xs },
   rodapeTexto: { ...tipografia.corpo, color: cores.tinta70 },
-  link: { ...tipografia.corpo, color: cores.verdePrimario, fontWeight: '600' },
+  link: { ...tipografia.corpo, color: cores.verdeEscuro, fontWeight: '600' },
 });
