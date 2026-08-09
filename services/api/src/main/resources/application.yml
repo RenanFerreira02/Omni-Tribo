@@ -23,7 +23,12 @@ spring:
 
 management:
   server:
-    port: 8081
+    # Porta de gestão separada da 8080 de propósito (ver SecurityConfig.actuatorFilterChain).
+    # NÃO use 8081: é a porta default do Metro/Expo, e o dev que roda backend e app ao mesmo tempo
+    # perde o segundo a subir com "BindException: address already in use" — no caso do Spring, o
+    # contexto de management derruba a aplicação INTEIRA, sem nenhuma pista de que a culpa é do
+    # Metro. A 8081 continua listada em app.cors.origens-permitidas justamente por ser do Expo web.
+    port: 8090
   endpoints:
     web:
       exposure:

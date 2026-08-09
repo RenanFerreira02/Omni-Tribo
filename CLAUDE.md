@@ -135,7 +135,7 @@ defaults de datasource para o `spring-boot:run`.
 
 ```bash
 # Backend
-cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev  # sobe o servidor local (porta 8080; actuator na 8081)
+cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev  # sobe o servidor local (porta 8080; actuator na 8090)
 cd services/api && ./mvnw verify                          # compila + todos os testes + spotless + spotbugs + jacoco
 cd services/api && ./mvnw spotless:apply                  # corrige formatação Google Java Format (rodar antes do verify se falhar em formatação)
 cd services/api && ./mvnw -Dtest=NomeDaClasseTest test    # um único teste
@@ -165,10 +165,16 @@ make psql        # abre psql conectado ao banco local
 ```
 
 Em dev: Swagger UI em `http://localhost:8080/swagger-ui.html`, OpenAPI em `/v3/api-docs`. Actuator
-na porta **8081**, não 8080, com cadeia de segurança PRÓPRIA (`actuatorFilterChain`, `@Order(1)`):
+na porta **8090**, não 8080, com cadeia de segurança PRÓPRIA (`actuatorFilterChain`, `@Order(1)`):
 `health` e `info` respondem anônimos — health check que exige JWT não é health check —, `metrics`
 continua exigindo autenticação. Sem essa cadeia, o `anyRequest().authenticated()` da cadeia
 principal alcança a porta de gestão e `/actuator/health` responde 401.
+
+**A porta de gestão era 8081 e foi movida para 8090 — não a mova de volta.** 8081 é o default do
+Metro/Expo, então rodar `npm start` e `spring-boot:run` juntos derrubava o segundo a subir com
+`BindException: Endereço já em uso`. O sintoma engana: quem falha é o contexto de management, mas o
+Spring aborta a aplicação INTEIRA, e o stack trace não menciona Metro nem Expo em lugar nenhum —
+parece build quebrado. A 8081 segue em `app.cors.origens-permitidas` justamente por ser do Expo web.
 
 O `verify` não é só teste: SpotBugs roda com effort `Max`, threshold `Medium` e `failOnError=true`,
 então achado de análise estática **quebra o build** como um teste vermelho quebraria. JaCoCo grava o

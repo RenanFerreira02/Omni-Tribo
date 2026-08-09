@@ -1,12 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import {
-  buscarCarteira,
-  listarLancamentos,
-  sacar,
-  transferirTokens,
-  type RespostaSaque,
-} from '@/api/carteira';
+import { buscarCarteira, listarLancamentos, transferirTokens } from '@/api/carteira';
 import type { ErroApi } from '@/api/erros';
 import type {
   CarteiraResponse,
@@ -52,19 +46,18 @@ export function useTransferirTokens() {
   });
 }
 
-/**
- * Saque. Hoje SEMPRE responde 422 `saque-desabilitado` — está desligado por configuração, não
- * quebrado (ADR 0009).
+/*
+ * NÃO EXISTE `useSacar` aqui, e a ausência é a correção de um comentário falso.
  *
- * O hook existe para a tela poder exercitar o erro tipado num teste. A UI não deixa o usuário
- * chegar aqui: o botão aparece DESABILITADO, com a explicação ao lado.
+ * Havia um, justificado assim: "o hook existe para a tela poder exercitar o erro tipado num teste".
+ * Não era verdade — nenhum teste o usava (o do 422 chama `sacar()` da camada de API direto) e
+ * nenhuma tela o importava. Era código morto se defendendo com uma garantia inexistente, a mesma
+ * classe de achado que as auditorias já haviam registrado duas vezes neste repositório.
+ *
+ * O saque continua existindo onde importa: `sacar()` em `src/api/carteira.ts`, o mapeamento de
+ * `saque-desabilitado` em `src/api/erros.ts` e o teste do 422. O endpoint não sumiu do servidor;
+ * o que saiu foi a UI, substituída pelo resgate em benefício (`app/beneficios.tsx`).
  */
-export function useSacar() {
-  return useMutation<RespostaSaque, ErroApi, { valorBrl: number; chaveIdempotencia: string }>({
-    mutationFn: ({ valorBrl, chaveIdempotencia }) => sacar(valorBrl, chaveIdempotencia),
-    throwOnError: false,
-  });
-}
 
 export function useCarteira() {
   return useQuery<CarteiraResponse, ErroApi>({

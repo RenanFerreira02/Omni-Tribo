@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -30,6 +31,7 @@ const ROTULOS_MOTIVO: Record<LancamentoResponse['motivo'], string> = {
 };
 
 export default function TelaCarteira() {
+  const router = useRouter();
   const carteira = useCarteira();
   const extrato = useLancamentos();
   const transferir = useTransferirTokens();
@@ -149,26 +151,26 @@ export default function TelaCarteira() {
               />
 
               {/*
-                SAQUE: visível e DESABILITADO, com a explicação ao lado.
+                AQUI HAVIA "Sacar em reais": visível, desabilitado, com o motivo ao lado.
 
-                A alternativa era escondê-lo. Um botão ausente não ensina nada — a pessoa procura
-                "sacar", não encontra, e conclui que o app está quebrado ou que o dinheiro sumiu.
-                Desabilitado com motivo responde a pergunta antes de ela ser feita. E o usuário
-                nunca toca para receber um erro cru: o gate do servidor (422 saque-desabilitado) é
-                a verdade, e a UI apenas a reflete. Ver ADR 0009 e o teste do 422.
+                A justificativa antiga era boa — "um botão ausente não ensina nada", e desabilitado
+                com motivo responde à pergunta antes de ela ser feita — e ainda assim envelheceu. O
+                app promete resgate em benefício de parceiro em TRÊS lugares (o card acima,
+                `SaldoToken` e o onboarding) e não oferecia porta nenhuma; o que oferecia era um
+                botão que só sabia dizer não. Um aviso ensina o que a moeda NÃO é. Um catálogo mostra
+                o que ela É — que é a tese do produto e o sumidouro do TOKEN (ADR 0009 §3).
+
+                O gate do servidor continua existindo e continua coberto: `POST /carteira/saques`
+                responde 422 `saque-desabilitado`, `sacar()` segue na camada de API e o teste do 422
+                segue no lugar. O que saiu é a UI, não a integração.
               */}
               <Botao
-                titulo="Sacar em reais"
+                titulo="Resgatar benefícios"
                 variante="secundario"
-                disabled
-                onPress={() => undefined}
+                onPress={() => router.push('/beneficios')}
                 estilo={estilos.acaoLarga}
-                testID="botao-saque"
+                testID="botao-abrir-beneficios"
               />
-              <Text style={estilos.explicacao} testID="explicacao-saque">
-                O saque em reais está indisponível nesta versão: a recompensa das missões é em XP e
-                tokens, resgatáveis em benefícios de parceiros.
-              </Text>
             </View>
 
             <Text style={estilos.subtitulo}>Extrato</Text>

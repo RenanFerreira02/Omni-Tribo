@@ -104,7 +104,7 @@ public class SecurityConfig {
   }
 
   /**
-   * Cadeia exclusiva dos endpoints do Actuator, na porta de gestão (8081).
+   * Cadeia exclusiva dos endpoints do Actuator, na porta de gestão (8090).
    *
    * <p>Sem ela, o {@code anyRequest().authenticated()} da cadeia principal alcançava também a porta
    * de gestão e {@code GET /actuator/health} respondia 401 — um health check que exige JWT não
@@ -116,7 +116,7 @@ public class SecurityConfig {
    * contadores de uso, nomes de endpoint e tamanho de pool, que é reconhecimento barato para quem
    * está sondando. E {@code when-authorized} garante que o anônimo veja apenas {@code
    * {"status":"UP"}}, sem o estado do banco — o perfil dev sobrescreve para {@code always}, o que é
-   * aceitável só porque a 8081 não é publicada fora da máquina.
+   * aceitável só porque a 8090 não é publicada fora da máquina.
    *
    * <p>{@code @Order(1)} é obrigatório: a cadeia principal casa {@code anyRequest()} e venceria no
    * empate, tornando esta inalcançável.

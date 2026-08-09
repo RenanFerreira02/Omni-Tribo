@@ -136,18 +136,24 @@ describe('carteira', () => {
   });
 
   /**
-   * O botão aparece DESABILITADO com a explicação, em vez de sumir.
+   * A carteira leva ao RESGATE, e não oferece saque.
    *
-   * Escondê-lo faria a pessoa procurar "sacar", não encontrar e concluir que o app quebrou ou que o
-   * dinheiro sumiu. E o usuário nunca toca para receber um erro cru — a UI reflete o gate do
-   * servidor, não o descobre.
+   * Substitui o caso que afirmava o botão "Sacar em reais" desabilitado com o motivo ao lado. A
+   * justificativa antiga — "um botão ausente não ensina nada" — valia enquanto não havia para onde
+   * mandar a pessoa. Agora há: o app promete resgate em benefício de parceiro no card acima, em
+   * `SaldoToken` e no onboarding, e esta é a porta. Um catálogo mostra o que a moeda É; o aviso de
+   * saque só dizia o que ela não é.
    */
-  it('saque aparece desabilitado, com o motivo ao lado', async () => {
+  it('leva ao resgate em benefícios e não oferece saque em reais', async () => {
     await render(<TelaCarteira />);
 
-    const botao = await screen.findByTestId('botao-saque');
-    expect(botao.props.accessibilityState.disabled).toBe(true);
-    expect(screen.getByTestId('explicacao-saque')).toHaveTextContent(/indisponível nesta versão/i);
+    await fireEvent.press(await screen.findByTestId('botao-abrir-beneficios'));
+    expect(mockEmpurrar).toHaveBeenCalledWith('/beneficios');
+
+    // A ausência é parte do contrato: reintroduzir o botão de saque tem de reprovar aqui.
+    expect(screen.queryByTestId('botao-saque')).toBeNull();
+    expect(screen.queryByTestId('explicacao-saque')).toBeNull();
+    expect(screen.queryByText(/sacar/i)).toBeNull();
   });
 
   /**

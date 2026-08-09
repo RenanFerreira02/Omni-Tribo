@@ -51,9 +51,23 @@ benefício de parceiro do bairro.
 **`saldoBrl` é sempre `0` e não se movimenta.** A coluna existe como infraestrutura de uma conversão
 patrocinada futura; nenhuma missão remunera em BRL. Não construa UI que sugira o contrário.
 
-**`POST /carteira/saques` responde 422**, com `type` `.../saque-desabilitado` (ADR 0010). O saque
-está desligado por configuração (`app.carteira.saque-habilitado`), não quebrado. A tela precisa de
-estado e mensagem próprios — o `detail` da resposta já explica ao usuário o que ele PODE fazer.
+**A UI não oferece saque, e o endpoint continua existindo.** `POST /carteira/saques` responde 422 com
+`type` `.../saque-desabilitado` (ADR 0010) — desligado por configuração, não quebrado —, e a camada
+de API mantém `sacar()`, o mapeamento do `type` e o teste do 422. O que saiu foi o botão: a carteira
+agora leva a `app/beneficios.tsx`. O raciocínio antigo ("um botão ausente não ensina nada") valia
+enquanto não havia para onde mandar a pessoa; um catálogo mostra o que a moeda É, e isso ensina mais
+que um aviso dizendo o que ela não é.
+
+**Benefício se expressa em BEM ou em PORCENTAGEM. Nunca em reais.** O ADR 0009 §6 é a razão: se o
+token virasse conversível, ele *seria* dinheiro, com KYC e enquadramento regulatório junto. "R$ 20
+em compras" fixa uma cotação token→real exatamente onde o produto recusa ter uma — é a mesma regra
+que faz a carteira nunca imprimir `R$`. Há teste dos dois lados: o catálogo
+(`features/beneficios/__tests__/catalogo.test.ts`) e a tela (`app/__tests__/beneficios.test.tsx`).
+
+**O catálogo de benefícios é dado LOCAL**, em `src/features/beneficios/catalogo.ts`, e nada nele
+debita saldo. O resgate é o sumidouro do TOKEN (ADR 0009 §3) e o backend não o tem: não há tabela de
+parceiro, endpoint, nem motivo `RESGATE` no ledger. Simular o débito no cliente produziria um saldo
+que o servidor desmente no primeiro `refetch` — a tela diz ao usuário que a baixa ainda não acontece.
 
 ## Tratamento de erro — regra dura
 

@@ -90,7 +90,8 @@ cd services/api
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-API em `http://localhost:8080`, actuator em **8081** (porta diferente, de propósito). Swagger UI em
+API em `http://localhost:8080`, actuator em **8090** (porta diferente, de propósito — e não 8081,
+que é do Metro/Expo, ver `application.yml`). Swagger UI em
 `http://localhost:8080/swagger-ui.html`.
 
 **No VS Code, use a configuração de execução `ApiApplication (dev)`** (painel *Run and Debug*), não

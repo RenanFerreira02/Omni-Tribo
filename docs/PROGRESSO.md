@@ -38,6 +38,35 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-08-09** — **O botão "Sacar em reais" saiu da carteira; entrou a vitrine de resgate
+  (`app/beneficios.tsx`).**
+  - A decisão antiga estava registrada e auditada como CONFORME — botão visível-desabilitado com o
+    motivo ao lado, porque "um botão ausente não ensina nada". Ela envelheceu por um motivo simples:
+    **o app promete resgate em benefício de parceiro em três lugares** (o card da carteira,
+    `SaldoToken` e o onboarding) **e não oferecia porta nenhuma**. O que oferecia era um botão que só
+    sabia dizer não. Um aviso explica o que a moeda NÃO é; um catálogo mostra o que ela É — e é a
+    tese do produto, além do sumidouro do TOKEN no ADR 0009 §3.
+  - **Escopo deliberadamente só de front-end, e o motivo foi medido antes:** grep amplo sobre
+    `services/api/src`, `db/migration` e `db/seed` por resgate/cupom/benefício/parceiro devolve **só
+    comentário** — zero tabela, zero endpoint, zero motivo `RESGATE` no CHECK de `lancamento.motivo`,
+    zero `TipoProblema`. O ADR 0009 §3 decide o sumidouro e **não o atribui a nenhuma fase**; a F8
+    prevê o patrocinador como FONTE do pote, não como destino do resgate.
+  - **Nada é debitado, e a tela diz isso.** Simular o débito só no cliente produziria um saldo que o
+    servidor desmente no primeiro `refetch`, e um número que muda sozinho contamina a confiança na
+    carteira inteira. A folha de cada benefício traz um `Aviso` explicando que o resgate é combinado
+    no balcão do parceiro e que a baixa automática chega com a carteira de patrocinador.
+  - **Uma regra de economia virou teste.** Benefício se expressa em BEM ou em PORCENTAGEM, nunca em
+    reais: pelo ADR 0009 §6, um cupom de "R$ 20" fixa uma cotação token→real exatamente onde o
+    produto recusa ter uma — e token conversível *é* dinheiro, com KYC junto. A regra estava só em
+    prosa; agora reprova em dois pontos (catálogo e tela).
+  - Limpeza adjacente: `useSacar()` foi removido de `features/carteira/hooks.ts`. Era órfão e se
+    defendia com um comentário **falso** ("existe para a tela exercitar o erro tipado num teste" — o
+    teste chama `sacar()` da camada de API direto). Mesma classe de achado que as auditorias já
+    haviam registrado duas vezes. `sacar()`, o `type` `saque-desabilitado` e o teste do 422 ficam:
+    saiu a UI, não a integração.
+  - Verificado por mutação: reintroduzir o botão de saque reprova o caso novo da carteira, e
+    anunciar um benefício em "R$" reprova dois testes. Suíte: **153 testes, 13 suítes, 0 falhas**.
+
 - **2026-08-09** — **`DateTimePicker: 'onChange' is deprecated` ao criar missão.** O
   `@react-native-community/datetimepicker` 9.1.0 quebrou `onChange` em três callbacks —
   `onValueChange`, `onDismiss` e `onNeutralButtonPress` — e avisa em `__DEV__` se o antigo for
