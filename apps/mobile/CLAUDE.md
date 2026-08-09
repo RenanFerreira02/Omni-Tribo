@@ -17,10 +17,26 @@
   Use `JustificativaLocalizacao`: o diálogo do sistema é de uma via só, e negado uma vez não volta.
   O default era `true` e produziu o defeito de a aba de missões gastar o prompt sem explicar nada,
   enquanto o card do mapa chegava tarde.
+- **Segredo passa SEMPRE por `src/lib/armazenamentoSeguro.ts`, nunca por `expo-secure-store`
+  direto.** A lib não tem implementação web — o módulo resolvido no bundle do browser é
+  literalmente `export default {}` e toda chamada estoura com `... is not a function`, no boot,
+  antes da primeira tela. Ver a seção Plataforma web abaixo e o ADR 0013.
 - TypeScript strict. `any` só com comentário justificando.
 - Toda chamada de API tem estado de carregando, vazio e erro tratados na UI.
 - npx expo install, nunca npm install, para pacotes do ecossistema Expo.
 - Antes de terminar: npm run typecheck && npm run lint && npm test, e cole a saída.
+
+## Plataforma web
+
+`npm run web` funciona e é o caminho de demonstração que não depende de emulador nem de aparelho.
+Duas coisas a saber antes de reportar bug:
+
+- **Recarregar a página desloga, e isso é a decisão, não o defeito.** O browser não tem keystore, e
+  as alternativas (`localStorage`, `sessionStorage`) gravariam em claro um refresh token que vale 30
+  dias de sessão. Na web o cofre é um `Map` em memória que morre com a aba. Mesma coisa com a flag
+  de onboarding, que reaparece a cada reload. Ver **ADR 0013**.
+- **"Funciona na web" não prova que funciona no aparelho** para nada que envolva sessão persistida.
+  O caminho nativo é o alvo real; teste no Expo Go antes de fechar qualquer coisa de auth.
 
 ## Economia — o que a UI precisa saber (ADR 0009)
 

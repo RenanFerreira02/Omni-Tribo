@@ -7,7 +7,12 @@ module.exports = defineConfig([
   expoConfig,
   prettier,
   {
-    ignores: ['dist/*', 'node_modules/*', '.expo/*', 'coverage/*'],
+    // `expo-env.d.ts` é GERADO pelo Expo, está no .gitignore e traz escrito no próprio corpo
+    // "This file should not be edited". Sem ignorá-lo, o Prettier reclama da formatação de um
+    // arquivo que ninguém pode corrigir — some no CI (clone novo não o tem) e deixa o lint local
+    // vermelho para sempre, que é o pior dos dois mundos: ruído que só a máquina de quem
+    // desenvolve vê.
+    ignores: ['dist/*', 'node_modules/*', '.expo/*', 'coverage/*', 'expo-env.d.ts'],
   },
   {
     rules: {

@@ -1,0 +1,24 @@
+{
+  // Rodar ApiApplication pelo CodeLens "Run" do arquivo NÃO funciona, e falha duas vezes seguidas.
+  // Esta configuração existe para corrigir as duas de uma vez — use-a pelo painel "Run and Debug".
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "ApiApplication (dev)",
+      "request": "launch",
+      "mainClass": "com.omnitribo.ApiApplication",
+      "projectName": "api",
+      // OBRIGATÓRIO. O JwtService lê keys/private.pem e keys/public.pem por caminho de FILESYSTEM
+      // relativo ao processo (application.yml, app.jwt.*-caminho). O default do VS Code é
+      // ${workspaceFolder}, a raiz do repositório, de onde esse caminho não resolve — e o boot
+      // morre em NoSuchFileException antes de qualquer coisa útil aparecer no console.
+      "cwd": "${workspaceFolder}/services/api",
+      // OBRIGATÓRIO. application.yml declara DATASOURCE_URL/USERNAME/PASSWORD sem valor default DE
+      // PROPÓSITO: é isso que faz produção falhar rápido quando a variável de ambiente falta, em
+      // vez de apontar em silêncio para um banco errado. Quem traz o localhost é o perfil dev, e
+      // sem ele o contexto morre em "Could not resolve placeholder 'DATASOURCE_URL'".
+      "args": "--spring.profiles.active=dev"
+    }
+  ]
+}

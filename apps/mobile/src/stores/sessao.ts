@@ -1,7 +1,7 @@
-import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 
 import type { LoginResponse, MeResponse } from '@/api/tipos';
+import { apagarSeguro, gravarSeguro, lerSeguro } from '@/lib/armazenamentoSeguro';
 
 /**
  * Chave do refresh token no keystore do dispositivo.
@@ -11,6 +11,10 @@ import type { LoginResponse, MeResponse } from '@/api/tipos';
  * dispositivo, malware com as permissões certas) lê o conteúdo. SecureStore usa o Android Keystore
  * e o iOS Keychain, onde o material fica protegido por hardware quando disponível. Um refresh token
  * do Omni-Tribo vale 30 dias de sessão: vazá-lo é entregar a conta, não um inconveniente.
+ *
+ * O acesso passa por `@/lib/armazenamentoSeguro`, e não pelo `expo-secure-store` direto, porque a
+ * web não tem keystore nenhum. Lá o token fica só em memória e o reload desloga — pelo mesmo
+ * raciocínio acima, gravá-lo em claro no browser seria pior que perder a sessão. Ver ADR 0013.
  */
 const CHAVE_REFRESH = 'omnitribo.refreshToken';
 
@@ -39,7 +43,7 @@ export const useSessao = create<EstadoSessao>((set) => ({
   restaurando: true,
 
   definirSessao: async (tokens) => {
-    await SecureStore.setItemAsync(CHAVE_REFRESH, tokens.refreshToken);
+    await gravarSeguro(CHAVE_REFRESH, tokens.refreshToken);
     set({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
   },
 
@@ -48,7 +52,7 @@ export const useSessao = create<EstadoSessao>((set) => ({
   definirAccessToken: (token) => set({ accessToken: token }),
 
   encerrar: async () => {
-    await SecureStore.deleteItemAsync(CHAVE_REFRESH);
+    await apagarSeguro(CHAVE_REFRESH);
     set({ accessToken: null, refreshToken: null, usuario: null });
   },
 
@@ -56,7 +60,7 @@ export const useSessao = create<EstadoSessao>((set) => ({
 }));
 
 export async function lerRefreshPersistido(): Promise<string | null> {
-  return SecureStore.getItemAsync(CHAVE_REFRESH);
+  return lerSeguro(CHAVE_REFRESH);
 }
 
 /**

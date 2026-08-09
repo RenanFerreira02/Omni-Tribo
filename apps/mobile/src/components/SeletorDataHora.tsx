@@ -1,4 +1,6 @@
-import DateTimePicker from '@react-native-community/datetimepicker';
+import DateTimePicker, {
+  type DateTimePickerChangeEvent,
+} from '@react-native-community/datetimepicker';
 import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -23,6 +25,15 @@ interface Props {
  *
  * Um `aoMudar` por passo faria o formulário validar um estado intermediário — janela com a data
  * nova e a hora velha — e piscar erro de "fim antes do início" no meio da escolha.
+ *
+ * **Escolha e desistência entram por callbacks SEPARADOS** (`onValueChange` e `onDismiss`), e não
+ * pelo `onChange` único, que a versão 9 da biblioteca depreciou. A diferença não é cosmética: com
+ * `onChange` o cancelamento chegava como "mudou, mas talvez sem data", e distinguir os dois casos
+ * dependia de inspecionar o argumento — no Android vinha sem data, no iOS vinha com a data antiga.
+ * Agora cada desfecho tem seu próprio caminho, e `escolhido` deixa de ser opcional.
+ *
+ * `onNeutralButtonPress` fica de fora de propósito: é o botão "limpar" do Android, que só existe
+ * quando configurado — e uma janela de missão não tem estado "sem valor" para voltar.
  */
 export function SeletorDataHora({ rotulo, valor, aoMudar, minimo, erro, testID }: Props) {
   const [etapa, setEtapa] = useState<'fechado' | 'data' | 'hora'>('fechado');
@@ -33,13 +44,12 @@ export function SeletorDataHora({ rotulo, valor, aoMudar, minimo, erro, testID }
     setEtapa(Platform.OS === 'ios' ? 'hora' : 'data');
   }
 
-  function aoEscolher(_evento: unknown, escolhido?: Date) {
-    // Cancelar no Android chama o handler sem data. Fechar sem alterar nada é o comportamento certo.
-    if (!escolhido) {
-      setEtapa('fechado');
-      return;
-    }
+  /** Desistiu: fecha e não propaga nada. O valor do formulário continua o que já era. */
+  function aoDispensar() {
+    setEtapa('fechado');
+  }
 
+  function aoEscolher(_evento: DateTimePickerChangeEvent, escolhido: Date) {
     if (etapa === 'data') {
       // Guarda a data e mantém a hora que já estava: o passo seguinte só ajusta hora e minuto.
       const combinado = new Date(valor);
@@ -79,7 +89,8 @@ export function SeletorDataHora({ rotulo, valor, aoMudar, minimo, erro, testID }
           minimumDate={minimo}
           mode={etapa === 'data' ? 'date' : Platform.OS === 'ios' ? 'datetime' : 'time'}
           display="default"
-          onChange={aoEscolher}
+          onValueChange={aoEscolher}
+          onDismiss={aoDispensar}
           testID={testID ? `${testID}-picker` : undefined}
         />
       ) : null}

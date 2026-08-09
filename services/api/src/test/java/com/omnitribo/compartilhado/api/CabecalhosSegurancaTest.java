@@ -68,4 +68,52 @@ class CabecalhosSegurancaTest extends TesteIntegracaoMvcBase {
     assertThat(resultado.getResponse().getHeader("Strict-Transport-Security"))
         .contains("max-age=31536000");
   }
+
+  /**
+   * O Swagger UI precisa de uma CSP que a API não pode ter.
+   *
+   * <p>Regressão concreta que este teste tranca: com o {@code default-src 'none'} da cadeia
+   * principal alcançando {@code /swagger-ui/**}, o browser recusava o bundle e a página abria EM
+   * BRANCO — com 200 no HTML e nada de errado no log do servidor. Nenhum teste acusava.
+   *
+   * <p><b>Sob o perfil de teste o springdoc está desligado</b> ({@code application-test.yml}),
+   * então a resposta é 404. Não é limitação: o que se mede aqui é o header, escrito pelo {@code
+   * HeaderWriterFilter} antes de qualquer handler — o mesmo caminho de erro que o teste do 401
+   * acima já usa para provar que cabeçalho não vaza em resposta de falha.
+   */
+  @Test
+  void swaggerUi_recebeCspQuePermiteRenderizarASpa() throws Exception {
+    MvcResult resultado = mockMvc.perform(get("/swagger-ui/index.html").secure(true)).andReturn();
+
+    String csp = resultado.getResponse().getHeader("Content-Security-Policy");
+    assertThat(csp).isNotNull();
+    assertThat(csp).contains("script-src 'self' 'unsafe-inline'");
+    assertThat(csp).contains("style-src 'self' 'unsafe-inline'");
+    // connect-src é o que libera o fetch de /v3/api-docs. Sem ele a UI renderiza a moldura e nunca
+    // carrega endpoint nenhum — falha mais sutil que a página em branco, e igualmente inútil.
+    assertThat(csp).contains("connect-src 'self'");
+    assertThat(csp).doesNotContain("default-src 'none'");
+    // Relaxar a CSP não pode significar abrir mão do que não atrapalha a UI.
+    assertThat(csp).contains("frame-ancestors 'none'");
+  }
+
+  @Test
+  void schemaOpenApi_tambemRecebeACspDoSwagger() throws Exception {
+    // /v3/api-docs é servido por uma cadeia diferente de /api/v1/**. Sem esta assertion, alguém
+    // pode restringir o securityMatcher só a /swagger-ui/** e quebrar o carregamento da UI.
+    MvcResult resultado = mockMvc.perform(get("/v3/api-docs").secure(true)).andReturn();
+
+    assertThat(resultado.getResponse().getHeader("Content-Security-Policy"))
+        .contains("script-src 'self' 'unsafe-inline'");
+  }
+
+  @Test
+  void api_permaneceComCspEstritaDepoisDaExcecaoDoSwagger() throws Exception {
+    // O contrapeso do teste acima. O jeito errado de consertar a página em branco é relaxar a CSP
+    // global; se alguém fizer isso, é aqui que o build fica vermelho.
+    mockMvc
+        .perform(get("/api/v1/ping").secure(true))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Security-Policy", CSP_ESPERADA));
+  }
 }

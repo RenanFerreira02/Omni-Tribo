@@ -36,6 +36,13 @@ services/api/keys/
 # ── IDEs ──────────────────────────────────────────────────────────────────────
 .idea/
 *.iml
-.vscode/
+# `.vscode/*` e não `.vscode/`: o git não reinclui arquivo dentro de diretório excluído, então a
+# exceção abaixo só funciona se o excluído for o CONTEÚDO, não a pasta.
+.vscode/*
+# Exceção: a configuração de execução da API é conhecimento do PROJETO, não preferência de quem
+# edita. Sem o profile dev e sem o cwd em services/api o boot falha, e o erro (placeholder não
+# resolvido, PEM não encontrado) não sugere em nada que a causa é a run configuration. Deixar isso
+# fora do repositório faz cada clone redescobrir o mesmo problema.
+!.vscode/launch.json
 *.swp
 *.swo

@@ -38,6 +38,86 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-08-09** — **`DateTimePicker: 'onChange' is deprecated` ao criar missão.** O
+  `@react-native-community/datetimepicker` 9.1.0 quebrou `onChange` em três callbacks —
+  `onValueChange`, `onDismiss` e `onNeutralButtonPress` — e avisa em `__DEV__` se o antigo for
+  passado. A migração melhorou o código, não só calou o aviso: com `onChange`, cancelar chegava como
+  "mudou, talvez sem data", e distinguir seleção de desistência dependia de inspecionar o argumento
+  (no Android vinha sem data; no iOS, com a data antiga). Agora cada desfecho tem caminho próprio e
+  `escolhido` deixou de ser opcional. `onNeutralButtonPress` ficou de fora de propósito: é o botão
+  "limpar" do Android, e janela de missão não tem estado "sem valor".
+
+  **O que o episódio revelou é maior que o aviso: o encadeamento data → hora não tinha teste nenhum.**
+  É a regra que justifica o componente existir — `aoMudar` dispara UMA vez, com o instante completo,
+  porque um disparo por passo faria o formulário validar uma janela com data nova e hora velha e
+  piscar "fim antes do início" no meio da escolha. Entraram 4 testes (`SeletorDataHora.test.tsx`),
+  todos reprovando contra o código anterior. O primeiro fixture que escrevi usava ISO com `Z` e
+  falhava fora de −03, porque o picker entrega `Date` LOCAL; foi corrigido para
+  `new Date(ano, mês, dia)` e roda verde em −03, UTC e +14.
+
+- **2026-08-09** — **CI do mobile falhando "de vez em quando": duas causas, nenhuma delas um teste
+  errado sobre o código.**
+  - **Assertion que esperava o container em vez do conteúdo.** `telas.test.tsx` fazia
+    `await findByTestId('lista-alertas')` e, na linha seguinte, `getAllByText(/Recompensa
+    creditada/)`. O testID está na `FlatList`, que monta na PRIMEIRA renderização — de propósito,
+    para cabeçalho e filtros ficarem visíveis durante o carregamento. Ou seja, o `findBy` resolvia
+    de imediato e não esperava nada; o `getAllBy` corria contra uma lista vazia sempre que a
+    resposta demorava um tick a mais. Medido: 1 falha em 2 rodadas sob carga, 0 em 10 sem carga —
+    daí "de vez em quando", e daí falhar mais no runner, que é mais lento.
+  - **Um `gcTime` de 5 minutos segurando o processo.** `render.tsx` zerava o `gcTime` das queries e
+    não o das mutations, cujo default é 300 s. Toda mutation exercitada num teste deixava um
+    `setTimeout` pendurado, e timer vivo segura o event loop: a suíte de telas rodava em **1,8 s** e
+    o processo só terminava **5 min e 2 s** depois. Não aparece com vários workers, porque o jest
+    mata o worker à força — aparece exatamente onde não há worker para matar, isto é, no runner de 2
+    núcleos, que executa in-band. O sintoma é um job que trava sem nenhum teste vermelho.
+  - Depois das duas correções: **28 rodadas seguidas verdes** (20 normais + 8 in-band, todas sob
+    `TZ=UTC` como o CI), e o aviso "worker process failed to exit gracefully" desapareceu.
+
+- **2026-08-09** — **Seed de demonstração fora de Pinheiros (`V903__seed_cidade_lider.sql`).** O
+  V900 concentra tudo a ~25 km da zona leste, então o radar abria vazio para quem apresenta de lá —
+  comportamento correto de um radar geoespacial, e inútil numa banca. O seed novo povoa o entorno do
+  CEP 08280-460. Três decisões que valem registro:
+  - **Usuários novos, não realocação dos existentes.** Mudar a tribo de alice/bob/carol pareceria
+    inofensivo e quebraria assertions de extrato e de alertas em outro módulo.
+  - **Recompensas conferidas contra `POST /missoes/previa-recompensa`**, não calculadas de cabeça: as
+    8 batem. Valor de seed divergente da fórmula transformaria a prévia em contradição na tela.
+  - **O `MigracaoTest` pegou o seed errado antes do commit.** A primeira versão punha ocupação
+    decorativa nos pontos de custódia; o teste exige que `ocupacao` iguale o que está fisicamente
+    lá (pendentes + convertidas cuja missão não concluiu). A correção foi semear as encomendas que
+    faltavam — o que também melhorou a demonstração, porque encomenda pendente é justamente a que
+    ainda vai virar missão.
+  - Efeito colateral necessário: `TriboControllerTest` afirmava nomes de tribo por ÍNDICE
+    (`$[0]`, `$[1]`, `$[2]`). Passou a verificar a ordenação como propriedade — mesma bomba-relógio
+    que `MissoesProximasTest` já documentava ao recusar assertion de tamanho em tabela compartilhada.
+
+- **2026-08-09** — **Três sintomas de "não consigo rodar", três causas independentes.** Nenhuma era
+  regressão de código: as três eram configuração de execução local, e as três produziam um erro que
+  aponta para o lugar errado.
+  - **Swagger abria em branco, com 200 no HTML e nada no log do servidor.** A causa era a CSP:
+    `default-src 'none'` é a política certa para quem só devolve JSON, e a cadeia principal do
+    `SecurityConfig` não tem `securityMatcher`, então ela alcançava também `/swagger-ui/**`. O
+    browser recusava o `swagger-ui-bundle.js`, o CSS e o `fetch` de `/v3/api-docs`. Autorização e
+    rate limit já liberavam esses paths — a suspeita óbvia era a errada. Correção: cadeia própria
+    `@Order(0)` com CSP compatível com SPA, válida só para os três paths do springdoc, mais três
+    testes em `CabecalhosSegurancaTest` — inclusive o contrapeso que falha se alguém "consertar"
+    relaxando a CSP global.
+  - **`ApiApplication.java` não subia pela IDE, e falhava duas vezes seguidas.** O botão *Run* do
+    VS Code sobe no perfil default, onde `${DATASOURCE_URL}` não tem valor — os defaults de
+    localhost só existem em `application-dev.yml`. Resolvido isso, esbarra na segunda: o
+    `JwtService` lê os PEM por caminho de filesystem relativo, e o diretório de trabalho padrão é a
+    raiz do repositório. `application.yml` ficou **estrito de propósito** — falhar rápido sem a
+    variável é a proteção correta em produção —, e a conveniência virou `.vscode/launch.json`
+    versionado, com exceção explícita no `.gitignore` (`.vscode/*` + `!.vscode/launch.json`; o git
+    não reinclui arquivo dentro de diretório excluído).
+  - **O app quebrava no boot da web, com a mensagem apontando para a linha errada.**
+    `expo-secure-store` não tem implementação web — o módulo resolvido é `export default {}`. O
+    `getItemAsync` estourava primeiro, o `catch` chamava `encerrar()`, o `deleteItemAsync` estourava
+    **dentro do catch** e a segunda exceção substituiu a primeira no relato. Correção em duas
+    camadas: `src/lib/armazenamentoSeguro.ts` como ponto único (nativo → keystore, web → `Map`
+    efêmero, nada em claro no browser — **ADR 0013**), e o `catch` de `restaurarSessao` com `try`
+    próprio, porque caminho de recuperação que produz exceção nova apaga o diagnóstico do problema
+    que deveria resolver.
+
 - **2026-08-09** — **Auditoria independente do mobile, e as correções que ela obrigou.**
   - Dois relatórios com evidência EXECUTADA: `docs/auditoria/mobile-fundacao.md` e
     `mobile-completo.md`. Nomeados por conteúdo, e não `FN.md`, porque a numeração de fases já usa

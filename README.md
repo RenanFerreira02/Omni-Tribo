@@ -93,6 +93,12 @@ cd services/api
 API em `http://localhost:8080`, actuator em **8081** (porta diferente, de propósito). Swagger UI em
 `http://localhost:8080/swagger-ui.html`.
 
+**No VS Code, use a configuração de execução `ApiApplication (dev)`** (painel *Run and Debug*), não
+o botão *Run* que aparece em cima do `main` de `ApiApplication.java`. Aquele botão sobe o processo
+no perfil default e com o diretório de trabalho na raiz do repositório, e as duas coisas quebram o
+boot: `application.yml` declara `DATASOURCE_URL` sem default de propósito, e as chaves RSA são lidas
+por caminho relativo a `services/api/`. O `launch.json` versionado já traz as duas correções.
+
 Confira com:
 
 ```bash

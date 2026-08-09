@@ -23,7 +23,18 @@ export async function restaurarSessao(): Promise<void> {
     await estado.definirSessao(tokens);
     estado.definirUsuario(await me());
   } catch {
-    await estado.encerrar();
+    // A limpeza tem `try` PRÓPRIO, e não é zelo excessivo: sem ele, uma falha aqui dentro escapa do
+    // `catch` que já está tratando outra falha e **mascara o erro original**. Foi assim que um
+    // `getItemAsync` inexistente na web chegou ao usuário disfarçado de `deleteItemAsync is not a
+    // function`, apontando para a linha errada. Um caminho de recuperação que produz exceção nova
+    // destrói o diagnóstico do problema que ele deveria estar resolvendo.
+    try {
+      await estado.encerrar();
+    } catch {
+      // Nada a fazer, e nada a perder: o desfecho pretendido já é sessão limpa e tela de login. Se
+      // apagar o refresh do keystore falhou, o estado em memória zera do mesmo jeito e o servidor
+      // recusa o token órfão na próxima tentativa.
+    }
   } finally {
     estado.concluirRestauracao();
   }

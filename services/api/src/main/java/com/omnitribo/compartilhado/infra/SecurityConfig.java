@@ -37,6 +37,27 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @EnableMethodSecurity
 public class SecurityConfig {
 
+  /**
+   * CSP do Swagger UI — deliberadamente mais permissiva que a da API, e SÓ para os paths dele.
+   *
+   * <p>A CSP da API é {@code default-src 'none'}, que é a política certa para quem só devolve JSON
+   * e é fatal para qualquer página. O Swagger UI é uma SPA servida pelo webjar: sem {@code
+   * script-src}, {@code style-src}, {@code img-src} e {@code connect-src} o browser recusa o {@code
+   * swagger-ui-bundle.js}, o CSS e o {@code fetch} de {@code /v3/api-docs} — o HTML chega com 200 e
+   * a página fica EM BRANCO, sem nenhum erro do lado do servidor. O sintoma só aparece no console
+   * do DevTools, como "Refused to load the script".
+   *
+   * <p>{@code 'unsafe-inline'} entra porque o próprio springdoc injeta a configuração da UI num
+   * bloco inline; é o mínimo que ela exige para renderizar. O alcance disso é o menor possível: a
+   * política vale apenas para os três paths do {@code securityMatcher} abaixo, que em produção nem
+   * existem — {@code application-prod.yml} desliga o springdoc, e a cadeia passa a responder 404
+   * com um header relaxado sobre nada.
+   */
+  private static final String CSP_SWAGGER =
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+          + "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "
+          + "frame-ancestors 'none'; form-action 'none'; base-uri 'self'";
+
   private final JwtService jwtService;
   private final RateLimitFilter rateLimitFilter;
 
@@ -48,6 +69,38 @@ public class SecurityConfig {
   public SecurityConfig(JwtService jwtService, RateLimitFilter rateLimitFilter) {
     this.jwtService = jwtService;
     this.rateLimitFilter = rateLimitFilter;
+  }
+
+  /**
+   * Cadeia exclusiva da documentação interativa (Swagger UI + schema OpenAPI).
+   *
+   * <p>Existe por UM motivo: a CSP. Autorização e rate limit já liberavam esses paths — eles estão
+   * no {@code permitAll} da cadeia principal e o {@code RateLimitFilter} os isenta por prefixo. O
+   * que derrubava a página era o {@code default-src 'none'} da cadeia principal, que casa {@code
+   * anyRequest()} e portanto alcançava também o Swagger. Ver {@link #CSP_SWAGGER}.
+   *
+   * <p>{@code @Order(0)} pelo mesmo motivo que o Actuator é {@code @Order(1)}: a cadeia principal
+   * casa {@code anyRequest()} e venceria o empate, tornando esta inalcançável.
+   *
+   * <p>{@code RateLimitFilter} e {@code JwtAuthFilter} ficam de fora de propósito. São custo por
+   * requisição e superfície de código sem função nenhuma sobre asset estático anônimo — e o rate
+   * limit já tratava esses paths como isentos, então nada muda de comportamento.
+   */
+  @Bean
+  @Order(0)
+  public SecurityFilterChain swaggerFilterChain(HttpSecurity http) throws Exception {
+    http.securityMatcher("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**")
+        .csrf(AbstractHttpConfigurer::disable)
+        .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+        .headers(
+            h ->
+                h.frameOptions(f -> f.deny())
+                    .contentTypeOptions(c -> {})
+                    .referrerPolicy(
+                        r -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                    .contentSecurityPolicy(csp -> csp.policyDirectives(CSP_SWAGGER)));
+    return http.build();
   }
 
   /**
@@ -104,6 +157,10 @@ public class SecurityConfig {
 
         // Autorização por endpoint.
         // Apenas os endpoints sem sessão prévia são públicos. /me e /logout exigem token válido.
+        //
+        // Swagger UI e /v3/api-docs NÃO aparecem aqui: são tratados inteiros pelo
+        // swaggerFilterChain, que roda antes por causa da CSP. Duplicá-los nesta lista daria a
+        // impressão de que esta cadeia os atende, e alguém removeria a outra achando redundante.
         .authorizeHttpRequests(
             auth ->
                 auth.requestMatchers(
@@ -111,11 +168,6 @@ public class SecurityConfig {
                         "/api/v1/auth/registrar",
                         "/api/v1/auth/refresh",
                         "/api/v1/ping", // health check
-                        "/v3/api-docs/**", // OpenAPI schema
-                        "/swagger-ui/**", // Swagger UI
-                        // O atalho /swagger-ui.html não casa com /swagger-ui/** e voltava 401
-                        // antes de chegar ao redirect para /swagger-ui/index.html.
-                        "/swagger-ui.html",
                         "/api/v1/webhooks/**" // HMAC próprio implementado na F10
                         )
                     .permitAll()

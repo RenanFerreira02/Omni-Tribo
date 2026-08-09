@@ -68,6 +68,27 @@ A faixa 900+ o mantém sempre depois de toda migration de schema — ver ADR 000
 | `diana` | diana@omnitribo.dev      | USUARIO | Tribo Jardim América |
 | `erik`  | erik@omnitribo.dev       | USUARIO | Tribo Jardim América |
 
+### Cidade Líder — dados de demonstração (`V903__seed_cidade_lider.sql`)
+
+Os usuários acima moram todos em Pinheiros / Vila Madalena. Quem abre o app na zona leste vê o radar
+vazio, porque o radar é geoespacial de verdade — ele não inventa missão perto de quem procura. Este
+seed povoa a região do **CEP 08280-460** (Rua Antônio Maria Bessa, Cidade Líder, São Paulo), em torno
+de **-23.55737, -46.46987**, para a demonstração ser feita com o GPS ligado.
+
+| handle    | e-mail                 | papel   | tribo              |
+|-----------|------------------------|---------|--------------------|
+| `renan`   | renan@omnitribo.dev    | USUARIO | Tribo Cidade Líder |
+| `marlene` | marlene@omnitribo.dev  | USUARIO | Tribo Cidade Líder |
+| `jonas`   | jonas@omnitribo.dev    | USUARIO | Tribo Cidade Líder |
+
+O que entra junto: 3 pontos de custódia (LOCKER a 170 m, portaria a 342 m, loja a 4,1 km), 8 missões
+nas quatro categorias entre 170 m e 4,5 km, 8 encomendas em `entrega_falida` — pendentes, convertidas
+em missão aberta e convertidas em missão já concluída —, carteiras com ledger fechado e 3 alertas.
+
+Duas coisas foram conferidas contra o sistema em execução, e não escritas de cabeça: **as recompensas
+saíram de `POST /missoes/previa-recompensa`** (as 8 batem), e **os potes não cunham token** — os 156
+em potes correspondem a 156 debitados de carteira como `FINANCIAMENTO_TRIBO`.
+
 **Nota:** a V1 foi renomeada de `V1__extensions.sql` para `V1__extensoes.sql` nesta fase.
 Se o banco local já tinha V1 aplicada, execute `make reset` antes de subir o backend.
 

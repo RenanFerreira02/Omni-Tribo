@@ -327,8 +327,13 @@ describe('notificações', () => {
   it('lista os avisos e destaca os não lidos', async () => {
     await render(<TelaNotificacoes />);
 
-    expect(await screen.findByTestId('lista-alertas')).toBeTruthy();
-    expect(screen.getAllByText(/Recompensa creditada/).length).toBeGreaterThan(0);
+    // **Espere pelo CONTEÚDO, nunca pelo container.** `lista-alertas` é a FlatList, que monta já na
+    // primeira renderização — de propósito, para o cabeçalho e os filtros ficarem visíveis enquanto
+    // os avisos carregam. Um `findByTestId` nela resolve de imediato e não espera coisa nenhuma, e o
+    // `getAllByText` que vinha logo depois corria contra uma lista ainda vazia. Passava quase
+    // sempre nesta máquina e falhava no CI, que é mais lento: era esta a intermitência do build.
+    expect((await screen.findAllByText(/Recompensa creditada/)).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('lista-alertas')).toBeTruthy();
     // Ponto, e não só negrito: peso de fonte é sinal fraco em tela pequena.
     expect(screen.getAllByTestId('marca-nao-lido').length).toBe(2);
   });

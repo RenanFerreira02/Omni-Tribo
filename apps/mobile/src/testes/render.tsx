@@ -22,7 +22,15 @@ function novoQueryClient() {
       // Retry desligado: com ele, um teste de erro esperaria três tentativas e o backoff antes de
       // a tela mostrar a falha — e falharia por timeout em vez de por comportamento.
       queries: { retry: false, gcTime: 0 },
-      mutations: { retry: false },
+      // `gcTime: 0` nas MUTATIONS também, e isto não é simetria estética — é o que faz o processo
+      // terminar. O default é 5 minutos: toda mutation executada num teste (marcar aviso como lido,
+      // transferir, criar missão) deixa uma entrada no cache com um `setTimeout` de 300 s pendurado,
+      // e um timer vivo segura o event loop. Medido: a suíte de telas roda em 1,8 s e o processo só
+      // saía 5 min e 2 s depois. Some quando há vários workers, porque o jest mata o worker à força
+      // ("worker process has failed to exit gracefully") — e reaparece exatamente onde não há
+      // worker para matar: runner de 2 núcleos, que executa in-band. Ou seja, o sintoma é um build
+      // que trava sem nenhum teste vermelho.
+      mutations: { retry: false, gcTime: 0 },
     },
   });
 }

@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import { gravarSeguro, lerSeguro } from '@/lib/armazenamentoSeguro';
 
 const CHAVE = 'omnitribo.onboarding.visto';
 
@@ -11,12 +11,16 @@ const CHAVE = 'omnitribo.onboarding.visto';
  * flag booleana, num projeto que deliberadamente o mantém fora das dependências. O custo é uma
  * escrita no keystore que não precisaria ser cifrada; o benefício é uma dependência a menos.
  *
+ * O acesso passa por `@/lib/armazenamentoSeguro` porque na web o `expo-secure-store` não existe.
+ * Consequência aqui: no browser o onboarding reaparece a cada reload — irritante e inofensivo,
+ * bem diferente do que a mesma limitação significa para o refresh token.
+ *
  * Falha de leitura vira `false` — "não viu". O pior caso é alguém rever três slides; o inverso
  * seria um usuário novo cair direto no login sem nunca saber o que o app faz.
  */
 export async function jaViuOnboarding(): Promise<boolean> {
   try {
-    return (await SecureStore.getItemAsync(CHAVE)) === '1';
+    return (await lerSeguro(CHAVE)) === '1';
   } catch {
     return false;
   }
@@ -24,7 +28,7 @@ export async function jaViuOnboarding(): Promise<boolean> {
 
 export async function marcarOnboardingVisto(): Promise<void> {
   try {
-    await SecureStore.setItemAsync(CHAVE, '1');
+    await gravarSeguro(CHAVE, '1');
   } catch {
     // Não conseguir gravar não pode impedir a pessoa de entrar no app. Ela verá o onboarding de
     // novo na próxima abertura, o que é irritante — e ainda assim melhor que travar a entrada.

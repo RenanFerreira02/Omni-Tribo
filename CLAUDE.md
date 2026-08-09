@@ -322,8 +322,9 @@ Banco
     `db/migration` passaria em clone novo e falharia em máquina antiga com erro de checksum ou
     "detected applied migration not resolved locally" — divergência que não aparece no CI.
   - `db/seed` — só dev e test (via `application-dev.yml` / `application-test.yml`), faixa **900+**.
-    Hoje são três: `V900__seed_dev.sql`, `V901__seed_entregas_falidas.sql` e
-    `V902__seed_alertas_consentimentos.sql`. **Próximo seed é V903.**
+    Hoje são quatro: `V900__seed_dev.sql`, `V901__seed_entregas_falidas.sql`,
+    `V902__seed_alertas_consentimentos.sql` e `V903__seed_cidade_lider.sql` (dados de demonstração
+    na zona leste — ver docs/INFRA.md). **Próximo seed é V904.**
   - A faixa 900+ garante por construção que o seed roda depois de todo schema. Seed novo continua na
     faixa e NUNCA usa um número que o schema possa alcançar. Ver ADR 0006, Notas de manutenção.
   - Como o seed é o último, ele grava dados em forma final: não conte com migration posterior para
@@ -359,7 +360,10 @@ Segurança
 - SQL sempre com parâmetro bindado, inclusive nas queries PostGIS. Zero concatenação.
 - Erro é RFC 9457 ProblemDetail. Nunca stack trace, SQL, nome de classe ou mensagem de driver.
 - Nunca logue senha, token, refresh, coordenada exata ou payload de requisição autenticada.
-- Mobile: credencial em expo-secure-store. NUNCA AsyncStorage.
+- Mobile: credencial em expo-secure-store. NUNCA AsyncStorage. O acesso passa por
+  `src/lib/armazenamentoSeguro.ts`, nunca pela lib direto — ela não tem implementação web e estoura
+  no boot do browser. Na web nada é persistido: `localStorage` gravaria em claro o mesmo refresh de
+  30 dias que a regra acima existe para proteger. Ver ADR 0013.
 - Validação geoespacial e de saldo é SEMPRE no servidor. Valor calculado no cliente é ignorado.
 - **Chave de idempotência do cliente nunca é armazenada crua quando a UNIQUE é global.** O check-in
   guarda `sha256(usuario|missao|chave_do_cliente)`: com a chave crua, o cliente que manda `"1"`
