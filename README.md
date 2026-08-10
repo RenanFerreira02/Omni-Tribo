@@ -83,6 +83,53 @@ make ps      # confirme que aparece "healthy"
 O Flyway aplica o schema e, nos perfis `dev`/`test`, também o seed — com tribos, usuários, missões e
 pontos de custódia prontos para uso.
 
+| Comando | O que faz |
+|---|---|
+| `make up` | sobe o container (e cria o `.env` se faltar) |
+| `make down` | para o container — **o volume é preservado, isto não apaga dado nenhum** |
+| `make reset` | **destrói o volume** e recria o banco vazio |
+| `make ps` · `make logs` · `make psql` | status · tail nos logs · abre um psql no banco |
+
+### Voltar o banco ao estado original
+
+Depois de aceitar missões, transferir tokens ou fazer check-in testando, o caminho para recomeçar do
+zero é o `reset` — e ele tem **três passos**, não um:
+
+```bash
+# 1. pare o backend (Ctrl+C). Derrubar o banco com o pool aberto só gera erro de conexão.
+
+# 2. na RAIZ do projeto — destrói o volume e recria o container
+make reset
+
+# 3. suba o backend: é aqui que os dados voltam
+cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
+```
+
+**O passo 3 é o que costuma ser esquecido.** `make reset` apenas recria o container com as extensões
+do `docker/init/`; quem aplica o schema (`V1`–`V18`) e depois o seed (`V900`–`V903`) é o Flyway, no
+boot da aplicação. Sem subir o backend, o banco fica vazio. O seed só entra porque
+`application-dev.yml` inclui `classpath:db/seed` nas locations — o perfil de produção não inclui,
+então dado de demonstração não tem como vazar para lá.
+
+Cuidado com o vizinho: **`make down` não reseta nada**, preserva o volume de propósito. Quem apaga é
+o `-v` do `reset`.
+
+No app, faça **logout e login de novo** logo depois. Os IDs do seed são fixos e as chaves em
+`services/api/keys/` não são tocadas, então seu access token continua válido — mas a tabela
+`refresh_token` foi junto com o volume, e em até 15 minutos a rotação falha e o app desloga sozinho
+no meio do uso.
+
+> **Desfazer só as missões aceitas, com `UPDATE`, não é uma alternativa.** Aceitar grava linha em
+> `missao_evento`, e aceite e conclusão movimentam `lancamento` — as duas tabelas são append-only,
+> corrigidas por estorno e nunca por `UPDATE`. Editar o estado à mão produz um histórico que não
+> explica o saldo atual, que é exatamente o que a reconciliação existe para detectar. O reset
+> completo custa poucos segundos porque o seed reconstrói tudo.
+
+**Migration nova também exige `make reset`** num banco de dev já existente. Como a `V900` do seed já
+está aplicada, qualquer `V19` nova tem versão *menor* que o topo do histórico, o Flyway a classifica
+como *out-of-order* — desligado no dev de propósito — e o boot morre com `Validate failed: Detected
+resolved migration not applied to database`, sem mencionar seed nem ordenação em lugar nenhum.
+
 ## 4. Backend
 
 ```bash
@@ -184,6 +231,9 @@ Ou use o comando `/verificar` do Claude Code, que roda tudo e reporta verde/verm
 |---|---|
 | Contexto Spring não sobe, erro no `JwtService` | Faltou `bash tools/gerar-chaves-dev.sh` |
 | `Validate failed: Detected resolved migration not applied` | Migration nova num banco antigo — rode `make reset` |
+| Dados sujos de teste; quero o seed de volta | `make reset` **e suba o backend** — ver [Voltar o banco ao estado original](#voltar-o-banco-ao-estado-original) |
+| Banco vazio depois do `make reset` | Faltou o passo 3: o Flyway só aplica schema e seed no boot da aplicação |
+| App desloga sozinho pouco depois de um reset | Esperado — a `refresh_token` foi com o volume. Faça logout/login |
 | `duplicate key value violates unique constraint` após renomear migration | Rode `./mvnw clean` — o Maven manteve o arquivo antigo em `target/classes` |
 | App no celular não conecta | Firewall na 8080, ou celular em outra rede |
 | `Muitas tentativas. Aguarde 60 segundos` | Bloqueio de login, 5/min. Espere |
