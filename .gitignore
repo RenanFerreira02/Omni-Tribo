@@ -46,3 +46,10 @@ services/api/keys/
 !.vscode/launch.json
 *.swp
 *.swo
+
+# ── Claude Code ───────────────────────────────────────────────────────────────
+# Worktrees criados por sessões do Claude Code. Sem esta linha, um `git add` na raiz captura o
+# diretório do worktree como GITLINK (modo 160000) — um ponteiro de submódulo para um commit que só
+# existe na máquina de quem criou. Foi o que aconteceu em da1ed70: o GitHub recebeu um ponteiro
+# pendurado, sem `.gitmodules`, apontando para um objeto que o servidor não tem.
+.claude/worktrees/
