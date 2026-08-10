@@ -191,8 +191,9 @@ relatório de cobertura em `services/api/target/site/jacoco/`, publicado como ar
 · `GET /{id}` · `PATCH /{id}`, mais as ações `POST /{id}/{acao}`: `publicar`, `aceitar`, `iniciar`,
 `desistir`, `cancelar`, `contestar`, `checkin`, `confirmar` e `resolver` (este último só ADMIN).
 **Nenhuma ação responde 501 desde o merge de F5+F6** — o handler de `UnsupportedOperationException`
-em `GlobalExceptionHandler` virou código morto, e há um comentário obsoleto em `MissaoService` (por
-volta da linha 335) afirmando que `confirmar`/`resolver` ainda são stubs. Não são.
+em `GlobalExceptionHandler` virou código morto (`GlobalExceptionHandler.java:199`, nada lança a
+exceção), e há um comentário obsoleto em `MissaoController` (~linha 298) dizendo que o check-in
+"continua pendente (F6)" e "responde 501". Não responde.
 
 `/api/v1/carteira` — `GET` (saldo) · `GET /lancamentos` (extrato paginado) · `POST /transferencias`
 · `POST /saques`. Os dois POST exigem header `Idempotency-Key`.
@@ -261,7 +262,9 @@ CI (`.github/workflows/`), três workflows:
   0004 três moedas (**tabela de moedas substituída pelo 0009**) · 0005 JWT+Argon2 · 0006 máquina de
   estados · 0007 consultas geoespaciais centralizadas · 0008 ledger append-only e idempotência ·
   **0009 economia do cuidado: TOKEN como recompensa, BRL fora do ciclo** · **0010 granularidade do
-  catálogo de tipos de problema: uma URI por REAÇÃO DE UI**.
+  catálogo de tipos de problema: uma URI por REAÇÃO DE UI** · 0011 dependências externas e
+  anonimização · **0012 mapa por WebView e Leaflet** · 0013 persistência de segredo por plataforma:
+  nada é gravado na web.
 - `docs/qualidade/integridade-transacional.md` — evidência de concorrência da carteira (100 threads,
   deadlock, rollback) e a seção "O que esta fase NÃO garante". É o documento a defender oralmente.
 - `docs/seguranca/autenticacao.md` — modelo de ameaça e desenho do fluxo de auth.
@@ -301,12 +304,6 @@ trabalha naquele diretório — por isso o detalhe de cada camada vive lá, e n�
 
 O que é regra transversal — banco, segurança, teste, git — fica nas **Regras não negociáveis**
 abaixo, porque vale nos dois lados.
-
-**Backend** (`services/api/`): as convenções vivem em `services/api/CLAUDE.md`, que entra em
-contexto ao mexer lá — não duplicadas aqui.
-
-**Mobile** (`apps/mobile/`): F9–F11 implementadas. As convenções vivem em `apps/mobile/CLAUDE.md`,
-que entra em contexto ao mexer lá — não duplicadas aqui.
 
 ## Regras não negociáveis
 
@@ -439,8 +436,8 @@ primeiro está corrigido; o segundo continua aberto (ver Pendências).
 
 **Backend fechado até F7, auditado fase a fase.** Os oito
 relatórios em `docs/auditoria/` são o registro do que foi verificado e do que ficou em aberto; a
-rodada corrigiu 7 defeitos, cinco deles invisíveis na leitura do código. **F8 (logística,
-notificações e patrocinador) segue pendente** — o commit intitulado "F8 - Fundação Mobile" entregou,
+rodada corrigiu 7 defeitos, cinco deles invisíveis na leitura do código. **De F8 falta só o
+patrocinador** — logística e notificações já estão implementadas; o commit "F8 - Fundação Mobile" entregou,
 na verdade, F9–F11; `docs/PROGRESSO.md` tem a numeração correta, o histórico do git é que engana.
 
 **Mobile: F9, F10 e F11 implementadas** em `apps/mobile/` (Expo SDK 57). Design system em
@@ -477,10 +474,11 @@ e é o documento a defender oralmente.
 
 `CONCLUIDA` continua sendo o ÚNICO estado que credita — a regra que o protótipo descartado violava.
 
-Módulos `logistica` e `notificacoes` são F8: o primeiro tem entidades e repositórios sem serviço nem
-controller (`PontoCustodiaRepository` é órfão hoje), o segundo está vazio. Quando `notificacoes` for
-povoado, `DespachanteAlerta` migra de `compartilhado/dominio` para lá — e passa a valer para ele a
-regra do ArchUnit, que hoje não o alcança porque `compartilhado` é isento.
+Módulos `logistica` e `notificacoes` já saíram do esqueleto: `PontoCustodiaService` +
+`PontoCustodiaController` (o `PontoCustodiaRepository` não é mais órfão) e `AlertaService` +
+`AlertaController`. `DespachanteAlertaService` já vive em `notificacoes/dominio`, então a regra do
+ArchUnit alcança ele — `compartilhado` o injeta pela interface `DespachoAlerta` por isso. O que
+resta de F8 é a **carteira de patrocinador** (Pendência #2).
 
 Contagem de testes e evidência de build NÃO ficam neste arquivo — envelhecem a cada PR. Fonte:
 docs/PROGRESSO.md e docs/qualidade/.
@@ -495,9 +493,11 @@ Seção para armadilhas diagnosticadas e ainda não corrigidas. Ao resolver uma,
 **1. O `REVOKE UPDATE, DELETE` das tabelas append-only não vale em runtime.** As migrations criam o
 papel `omnitribo_app` com `SELECT, INSERT` apenas em `lancamento`, `auditoria`, `checkin` e
 `missao_evento`, e o comentário SQL descreve isso como "defesa em profundidade... mesmo que o código
-da aplicação tente executá-los". **Mas a aplicação não conecta com esse papel** — `application.yml`,
-`application-dev.yml` e `application-test.yml` usam `omnitribo`, dono das tabelas, para quem GRANT e
-REVOKE não se aplicam. Verificado: como `omnitribo_app` o `UPDATE lancamento` responde
+da aplicação tente executá-los". **Mas a aplicação não conecta com esse papel** —
+`application-dev.yml` e `application-test.yml` trazem `omnitribo` como default de
+`${DATASOURCE_USERNAME}`, e `application.yml` (de onde prod herda — `application-prod.yml` não
+declara datasource) resolve a mesma variável sem default. Em todos os casos é o dono das tabelas,
+para quem GRANT e REVOKE não se aplicam. Verificado: como `omnitribo_app` o `UPDATE lancamento` responde
 `permission denied`; como `omnitribo` ele altera todas as linhas.
 
 O papel está correto e `MigracaoTest` agora trava a matriz de privilégios, então a metade que existe
@@ -536,6 +536,9 @@ um responde 2 e o outro 3. Quem está certo é a fórmula — a exportação dev
 
 **5. Transferência exige digitar um UUID.** Não existe endpoint que liste membros da tribo, então a
 tela pede o identificador do destinatário como texto. Funciona e é inutilizável na prática.
+**Não é esquecimento**: `TriboController.java:22` documenta a omissão como decisão de privacidade —
+listar membros daria a qualquer autenticado um mapa social do bairro. A saída não é expor a lista;
+é algo como busca por handle exato ou convite. Não decida isso sozinho.
 
 **6. Uma decisão de contrato que divergiu da Pendência #3 original, e o motivo.** As quatro
 leituras que faltavam foram implementadas — `GET /alertas`, `GET /tribos`, `GET /pontos-custodia/{id}`
