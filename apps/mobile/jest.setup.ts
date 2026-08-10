@@ -1,5 +1,25 @@
 // RNTL 14 já registra os matchers próprios ao ser importado — não existe mais `extend-expect`.
+import { notifyManager } from '@tanstack/react-query';
+
 import { servidor } from './src/testes/servidor';
+
+/**
+ * Flush SÍNCRONO das notificações do TanStack Query, só em teste.
+ *
+ * Por padrão o `notifyManager` agrupa as notificações de observers e as descarrega num
+ * `setTimeout(cb, 0)`. Em produção isso é o que evita uma cascata de re-render por requisição; em
+ * teste é a origem de todo "An update to <Tela> inside a test was not wrapped in act(...)": quando o
+ * timer dispara, o `act()` que o RNTL abriu em volta do `render`/`fireEvent` já fechou, e o React
+ * acusa uma atualização de estado fora de escopo.
+ *
+ * O aviso não é cosmético. Ele significa que existe re-render acontecendo DEPOIS do ponto em que o
+ * teste afirmou o resultado — ou seja, a asserção passou sobre um estado intermediário e o estado
+ * final nunca foi verificado. Num runner mais lento a mesma corrida pode cair do outro lado.
+ *
+ * Tornar o scheduler síncrono põe a notificação dentro do `act()` da interação que a causou. Não
+ * altera o código de produção: `setScheduler` é API do query-core e só este arquivo a chama.
+ */
+notifyManager.setScheduler((flush) => flush());
 
 /**
  * baseURL fixa e previsível.

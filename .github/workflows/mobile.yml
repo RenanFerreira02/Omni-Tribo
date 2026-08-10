@@ -9,6 +9,10 @@ on:
     paths:
       - 'apps/mobile/**'
       - '.github/workflows/mobile.yml'
+  # Permite re-rodar pela UI/CLI sem commit. O filtro `paths` acima é bom (não gasta runner em
+  # mudança de backend), mas tem o efeito colateral de tornar impossível re-testar uma correção de
+  # ambiente sem sujar o histórico com um commit que toque `apps/mobile/**`.
+  workflow_dispatch:
 
 jobs:
   build:
@@ -17,10 +21,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node 22
+      # A versão vem do `.nvmrc`, não de um literal aqui: com o número em dois lugares, a máquina do
+      # desenvolvedor e o runner derivam sem ninguém perceber, e a diferença só aparece como teste
+      # vermelho que não reproduz localmente.
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version-file: apps/mobile/.nvmrc
           cache: 'npm'
           cache-dependency-path: apps/mobile/package-lock.json
 
@@ -36,8 +43,13 @@ jobs:
       - name: Lint
         run: cd apps/mobile && npm run lint
 
+      # `--reporters=github-actions` faz cada teste que falha virar uma ANNOTATION, com arquivo e
+      # linha. Duas consequências: a falha aparece inline no diff do PR em vez de enterrada no log,
+      # e — o que motivou incluir isto — a annotation é exposta pela API pública do GitHub, enquanto
+      # o conteúdo do log exige autenticação. Diagnosticar CI vermelho deixa de depender de quem tem
+      # login no repositório.
       - name: Testes
-        run: cd apps/mobile && npm test -- --ci --coverage
+        run: cd apps/mobile && npm test -- --ci --coverage --reporters=default --reporters=github-actions
 
       - name: Upload relatório de cobertura
         uses: actions/upload-artifact@v4
