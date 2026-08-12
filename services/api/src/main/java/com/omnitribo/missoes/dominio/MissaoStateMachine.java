@@ -36,7 +36,9 @@ public final class MissaoStateMachine {
     StatusMissao destino = origem.destinoDe(evento).orElseThrow(); // já validado acima
 
     aplicarEfeitos(missao, evento, ator, agora);
-    missao.setStatus(destino);
+    // O carimbo de estadoDesde anda junto com o status, e é o que torna "há quanto tempo esta
+    // missão está parada aqui" respondível sem ler a trilha.
+    missao.setStatus(destino, agora);
 
     return new MissaoEvento(
         UUID.randomUUID(),
@@ -50,8 +52,9 @@ public final class MissaoStateMachine {
   }
 
   /**
-   * Só valida, não muta. Usada pelo check-in (F6) e pelos endpoints stub de F7, para que o contrato
-   * de erro seja o definitivo: 403 e 409 corretos antes de qualquer efeito.
+   * Só valida, não muta. Existe para o check-in, que precisa recusar com 403 e 409 corretos ANTES
+   * de qualquer efeito — inclusive antes de sondar a idempotência, que é a única operação do
+   * projeto a inserir um passo no meio da ordem canônica de erros.
    */
   public static void validar(Missao missao, EventoMissao evento, AtorMissao ator) {
     // Autorização (403) ANTES da transição (409). Na ordem inversa, um estranho descobriria o

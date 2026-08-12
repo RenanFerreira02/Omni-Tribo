@@ -59,9 +59,31 @@ public class FinanciamentoService {
 
     String chave = ChaveIdempotencia.financiamento(financiadorId, missaoId, chaveDoCliente);
 
-    // Autorização e regras ANTES de escrever. A ordem entre elas importa: o financiador precisa
-    // estar na mesma tribo do criador da missão, e checar isso depois do débito exigiria desfazer.
-    validarEscopo(triboId, missao, financiadorId);
+    // AUTORIZAÇÃO PRIMEIRO, antes até da sondagem. Sondar antes devolveria o pote e a recompensa da
+    // missão a quem não é da tribo — é a mesma razão pela qual o check-in autoriza antes de sondar.
+    validarAutorizacao(triboId, missao, financiadorId);
+
+    // LOCK (carteira) → SONDA → VALIDA → ESCREVE, que é a ordem canônica do projeto.
+    //
+    // A sondagem vinha DEPOIS das validações, e por isso o retry de um financiamento que completou
+    // o pote recebia 422 ("pote ficaria acima da recompensa") em vez do replay: na segunda chamada
+    // o pote já estava cheio pela primeira. O valor nunca duplicou — o débito segue barrado pela
+    // sondagem sob lock —, mas o cliente via um erro para uma operação bem-sucedida, e não tinha
+    // como distinguir isso de uma falha real. Mesmo defeito se a missão tivesse sido cancelada
+    // entre a chamada original e o retry.
+    Optional<ResultadoFinanciamento> replay = financiamentoMissao.sondar(financiadorId, chave);
+    if (replay.isPresent()) {
+      return new FinanciamentoResponse(
+          missao.getId(),
+          missao.getPoteTokens(),
+          missao.getTokensRecompensa(),
+          replay.get().saldoTokensRestante(),
+          true);
+    }
+
+    // Regras de ESTADO só depois da sondagem: elas descrevem se a operação cabe AGORA, e um replay
+    // não é uma operação nova.
+    validarEstado(missao);
     validarTeto(missao, tokens);
 
     ResultadoFinanciamento debito =
@@ -84,13 +106,37 @@ public class FinanciamentoService {
   }
 
   /**
-   * Só membro da tribo financia, e só missão comunitária recebe financiamento.
+   * Quem pode financiar esta missão. Roda ANTES da sondagem de idempotência.
+   *
+   * <p>Era metade de um {@code validarEscopo} único, e a separação não é cosmética: é ela que põe a
+   * autorização antes da sondagem e as regras de estado depois, replicando a ordem {@code 403 →
+   * sondagem → 409/422 → gravação} já sancionada para o check-in. Sondar antes de autorizar
+   * devolveria pote e recompensa da missão a quem não é da tribo.
    *
    * <p>O {@code triboId} do path não é decorativo: ele é o escopo declarado pelo cliente, e
    * conferir que ele bate com a tribo real do financiador impede que alguém financie por uma tribo
    * à qual não pertence só trocando a URL.
    */
-  private void validarEscopo(UUID triboId, Missao missao, UUID financiadorId) {
+  private void validarAutorizacao(UUID triboId, Missao missao, UUID financiadorId) {
+    Optional<UUID> triboFinanciador = consultaAfiliacao.triboDe(financiadorId);
+    if (triboFinanciador.isEmpty() || !triboFinanciador.get().equals(triboId)) {
+      throw new RegraNegocioVioladaException("Você não pertence a esta tribo.");
+    }
+
+    if (!consultaAfiliacao.mesmaTribo(financiadorId, missao.getCriadorId())) {
+      throw new RegraNegocioVioladaException(
+          "Missão pertence a outra tribo e não pode ser financiada por você.");
+    }
+  }
+
+  /**
+   * Se a missão aceita financiamento no estado em que está. Roda DEPOIS da sondagem.
+   *
+   * <p>Depois porque estas regras descrevem se a operação cabe AGORA, e um replay não é uma
+   * operação nova: recusar o retry de um financiamento que já aconteceu, porque a missão foi
+   * cancelada enquanto isso, entrega um erro para algo que deu certo.
+   */
+  private static void validarEstado(Missao missao) {
     if (missao.getCategoria() != CategoriaMissao.TRIBO
         && missao.getCategoria() != CategoriaMissao.COLETA) {
       throw new RegraNegocioVioladaException(
@@ -110,16 +156,6 @@ public class FinanciamentoService {
     //
     // O que fecha o risco de token preso não é proibir aqui, é a transição RASCUNHO --CANCELAR-->
     // CANCELADA, que dá ao criador uma saída que estorna o pote (ver StatusMissao).
-
-    Optional<UUID> triboFinanciador = consultaAfiliacao.triboDe(financiadorId);
-    if (triboFinanciador.isEmpty() || !triboFinanciador.get().equals(triboId)) {
-      throw new RegraNegocioVioladaException("Você não pertence a esta tribo.");
-    }
-
-    if (!consultaAfiliacao.mesmaTribo(financiadorId, missao.getCriadorId())) {
-      throw new RegraNegocioVioladaException(
-          "Missão pertence a outra tribo e não pode ser financiada por você.");
-    }
   }
 
   /**

@@ -24,7 +24,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  */
 class ExpiracaoMissoesServiceTest extends TesteIntegracaoBase {
 
-  @Autowired ExpiracaoMissoesService expiracaoMissoesService;
+  @Autowired com.omnitribo.missoes.infra.ExpiracaoMissoesJob expiracaoMissoesJob;
   @Autowired JdbcTemplate jdbcTemplate;
   @Autowired CacheMissoesProximas cacheMissoesProximas;
 
@@ -33,7 +33,7 @@ class ExpiracaoMissoesServiceTest extends TesteIntegracaoBase {
     UUID vencida = inserirMissao("ABERTA", Instant.now().minus(3, ChronoUnit.HOURS));
 
     try {
-      int expiradas = expiracaoMissoesService.expirarLote(200);
+      int expiradas = expiracaoMissoesJob.varrer(200, 5000).expiradas();
       assertThat(expiradas).isGreaterThanOrEqualTo(1);
 
       String status =
@@ -73,7 +73,7 @@ class ExpiracaoMissoesServiceTest extends TesteIntegracaoBase {
           new ChaveProximidade("6vjyrk0", 2000, null, 50), chave -> List.of());
       assertThat(cacheMissoesProximas.tamanho()).isEqualTo(1);
 
-      expiracaoMissoesService.expirarLote(200);
+      expiracaoMissoesJob.varrer(200, 5000).expiradas();
 
       // invalidarAposCommit roda no afterCommit da transação de expirarLote, que já terminou aqui.
       assertThat(cacheMissoesProximas.tamanho()).isZero();
@@ -87,7 +87,7 @@ class ExpiracaoMissoesServiceTest extends TesteIntegracaoBase {
     UUID futura = inserirMissao("ABERTA", Instant.now().plus(3, ChronoUnit.DAYS));
 
     try {
-      expiracaoMissoesService.expirarLote(200);
+      expiracaoMissoesJob.varrer(200, 5000).expiradas();
 
       String status =
           jdbcTemplate.queryForObject(
@@ -104,7 +104,7 @@ class ExpiracaoMissoesServiceTest extends TesteIntegracaoBase {
     UUID aceita = inserirMissao("ACEITA", Instant.now().minus(5, ChronoUnit.HOURS));
 
     try {
-      expiracaoMissoesService.expirarLote(200);
+      expiracaoMissoesJob.varrer(200, 5000).expiradas();
 
       String status =
           jdbcTemplate.queryForObject(
@@ -125,9 +125,9 @@ class ExpiracaoMissoesServiceTest extends TesteIntegracaoBase {
     UUID b = inserirMissao("ABERTA", Instant.now().minus(1, ChronoUnit.HOURS));
 
     try {
-      assertThat(expiracaoMissoesService.expirarLote(1)).isEqualTo(1);
+      assertThat(expiracaoMissoesJob.varrer(1, 1).expiradas()).isEqualTo(1);
     } finally {
-      expiracaoMissoesService.expirarLote(200);
+      expiracaoMissoesJob.varrer(200, 5000).expiradas();
       limpar(a);
       limpar(b);
     }

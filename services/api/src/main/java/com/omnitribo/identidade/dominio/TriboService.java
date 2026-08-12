@@ -1,7 +1,7 @@
 package com.omnitribo.identidade.dominio;
 
+import com.omnitribo.compartilhado.api.ConsultasGeoespaciais;
 import com.omnitribo.compartilhado.dominio.RecursoNaoEncontradoException;
-import com.omnitribo.compartilhado.infra.ConsultasGeoespaciais;
 import com.omnitribo.identidade.api.TriboResponse;
 import com.omnitribo.identidade.infra.TriboRepository;
 import java.math.BigDecimal;

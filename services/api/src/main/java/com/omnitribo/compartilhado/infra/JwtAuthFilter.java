@@ -1,6 +1,7 @@
 package com.omnitribo.compartilhado.infra;
 
 import com.omnitribo.identidade.api.AutenticadoPrincipal;
+import com.omnitribo.identidade.api.ConsultaSessao;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -8,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -21,9 +23,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class JwtAuthFilter extends OncePerRequestFilter {
 
   private final JwtService jwtService;
+  private final ConsultaSessao consultaSessao;
 
-  public JwtAuthFilter(JwtService jwtService) {
+  public JwtAuthFilter(JwtService jwtService, ConsultaSessao consultaSessao) {
     this.jwtService = jwtService;
+    this.consultaSessao = consultaSessao;
   }
 
   @Override
@@ -43,17 +47,31 @@ public class JwtAuthFilter extends OncePerRequestFilter {
       Claims claims = jwtService.validar(token);
 
       UUID usuarioId = UUID.fromString(claims.getSubject());
-      String email = claims.get("email", String.class);
-      String papel = claims.get("papel", String.class);
 
-      // AutenticadoPrincipal.deClaims() encapsula o valueOf de PapelUsuario (identidade/dominio).
-      // Este filtro (compartilhado/infra) importa apenas identidade/api — respeita ArchUnit.
-      AutenticadoPrincipal principal = AutenticadoPrincipal.deClaims(usuarioId, email, papel);
+      // SEGUNDA metade da autenticação: a assinatura prova que o token foi emitido por nós; esta
+      // consulta prova que a conta ainda pode agir AGORA. Sem ela, uma conta anonimizada seguia
+      // escrevendo pelos 15 min de TTL do token (medido: POST /missoes respondia 201 com criadorId
+      // do usuário já apagado), e um ADMIN rebaixado no banco continuava ADMIN pelo mesmo prazo.
+      //
+      // O principal vem do BANCO, não dos claims — é o que faz `papel` e `email` serem
+      // reconferidos. Montá-lo de `claims` aqui devolveria a autoridade do momento da EMISSÃO e
+      // deixaria metade do defeito de pé. Custo: uma leitura por PK por usuário por minuto, servida
+      // do cache de ConsultaSessaoService.
+      Optional<AutenticadoPrincipal> sessao = consultaSessao.sessaoAtiva(usuarioId);
+      if (sessao.isEmpty()) {
+        // Conta inexistente, inativa ou anonimizada: mesmo desfecho de token inválido. Distinguir
+        // os casos contaria a quem porta um token roubado o que houve com a conta.
+        SecurityContextHolder.clearContext();
+        chain.doFilter(request, response);
+        return;
+      }
+      AutenticadoPrincipal principal = sessao.get();
 
-      // ROLE_ é convenção do Spring Security para autorização por papel.
+      // ROLE_ é convenção do Spring Security. A authority sai do principal (e portanto do banco),
+      // nunca do claim `papel`.
       var auth =
           new UsernamePasswordAuthenticationToken(
-              principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + papel)));
+              principal, null, List.of(new SimpleGrantedAuthority(principal.autoridade())));
       auth.setDetails(request);
 
       SecurityContextHolder.getContext().setAuthentication(auth);

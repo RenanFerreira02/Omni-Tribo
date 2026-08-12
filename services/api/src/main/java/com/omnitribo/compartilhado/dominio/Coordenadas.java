@@ -39,4 +39,30 @@ public final class Coordenadas {
   public static BigDecimal longitude(Point ponto) {
     return ponto == null ? null : BigDecimal.valueOf(ponto.getX());
   }
+
+  /**
+   * Casas decimais para coordenada exibida a quem PARTICIPA — ~11 cm.
+   *
+   * <p>Mais que isso é ruído de ponto flutuante, não precisão: {@code double} carrega ~15 dígitos
+   * significativos e devolvê-los sugere uma exatidão que o GPS de celular não tem.
+   */
+  public static final int CASAS_PRECISAS = 6;
+
+  /**
+   * Arredonda para exibição. Estava duplicado em {@code TriboService} e {@code
+   * PontoCustodiaService}, cada um com a própria constante de casas e só um dos dois explicando o
+   * motivo.
+   *
+   * <p><b>Arredondar não é anonimizar.</b> Seis casas ainda apontam a porta da casa; o que protege
+   * quem publicou uma missão é reduzir as CASAS <b>e</b> omitir logradouro e CEP para quem não
+   * participa — ver {@code MissaoResponse.de(Missao, UUID)}.
+   */
+  public static BigDecimal arredondar(BigDecimal valor, int casas) {
+    return valor == null ? null : valor.setScale(casas, java.math.RoundingMode.HALF_UP);
+  }
+
+  /** Sobrecarga para quem tem o valor como {@code double} — o retorno do PostGIS. */
+  public static BigDecimal arredondar(double valor, int casas) {
+    return BigDecimal.valueOf(valor).setScale(casas, java.math.RoundingMode.HALF_UP);
+  }
 }

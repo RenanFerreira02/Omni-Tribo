@@ -29,11 +29,14 @@ public class ClienteOpenMeteo implements FonteClima {
   private static final Logger log = LoggerFactory.getLogger(ClienteOpenMeteo.class);
 
   private final RestClient http;
+  private final LimiteDeChamadasExternas limite;
 
   public ClienteOpenMeteo(
       RestClient.Builder builder,
-      @Value("${app.integracoes.clima.base-url:https://api.open-meteo.com}") String baseUrl) {
+      @Value("${app.integracoes.clima.base-url:https://api.open-meteo.com}") String baseUrl,
+      @Value("${app.integracoes.clima.chamadas-simultaneas:8}") int simultaneas) {
     this.http = builder.baseUrl(baseUrl).build();
+    this.limite = new LimiteDeChamadasExternas("Open-Meteo", simultaneas);
   }
 
   @Override
@@ -41,17 +44,22 @@ public class ClienteOpenMeteo implements FonteClima {
     Resposta corpo;
     try {
       corpo =
-          http.get()
-              .uri(
-                  uri ->
-                      uri.path("/v1/forecast")
-                          .queryParam("latitude", lat)
-                          .queryParam("longitude", lon)
-                          .queryParam("current", "temperature_2m,apparent_temperature,weather_code")
-                          .queryParam("timezone", "UTC")
-                          .build())
-              .retrieve()
-              .body(Resposta.class);
+          limite.executar(
+              () ->
+                  http.get()
+                      .uri(
+                          uri ->
+                              uri.path("/v1/forecast")
+                                  .queryParam("latitude", lat)
+                                  .queryParam("longitude", lon)
+                                  .queryParam(
+                                      "current", "temperature_2m,apparent_temperature,weather_code")
+                                  .queryParam("timezone", "UTC")
+                                  .build())
+                      .retrieve()
+                      .body(Resposta.class));
+    } catch (ServicoExternoIndisponivelException e) {
+      throw e; // Já é o 503 certo, vindo do bulkhead — não reembrulhar nem logar de novo.
     } catch (RuntimeException e) {
       // Log com a causa; resposta sem ela. O cliente não precisa saber qual host falhou, e contar
       // isso descreveria a nossa topologia para qualquer um.
@@ -88,6 +96,9 @@ public class ClienteOpenMeteo implements FonteClima {
     try {
       return LocalDateTime.parse(tempoLocal).toInstant(ZoneOffset.UTC);
     } catch (RuntimeException e) {
+      // Degradar em silêncio esconderia uma mudança de formato do provedor: o carimbo sumiria de
+      // TODA resposta e ninguém descobriria. O card sobrevive sem ele; o log é o que avisa.
+      log.warn("Formato de tempo inesperado do Open-Meteo: {}", tempoLocal);
       return null;
     }
   }

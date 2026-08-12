@@ -9,7 +9,6 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
-import java.math.BigDecimal;
 
 /**
  * Regras de criação de missão que dependem de mais de um campo.
@@ -45,21 +44,10 @@ public class CriacaoMissaoVerificador
       valido = false;
     }
 
-    // Invariante econômica: NENHUMA categoria remunera em BRL. Quem cria a missão não paga —
-    // a recompensa é XP e TOKEN, resgatável em benefícios de parceiros (ADR 0009).
-    //
-    // A regra deixou de depender da categoria: antes só TRIBO e COLETA eram barradas, e era
-    // justamente por ENTREGA e AJUDA aceitarem valor_brl que a conclusão creditava dinheiro sem
-    // débito em lugar nenhum. O banco tem a mesma regra em ck_missao_economia (V15); esta
-    // checagem existe para o cliente receber 400 com o campo apontado, e não um 500 vindo de
-    // violação de constraint no INSERT.
-    if (req.valorBrl() != null && req.valorBrl().compareTo(BigDecimal.ZERO) > 0) {
-      violacao(
-          contexto,
-          "valorBrl",
-          "Missão não remunera em BRL nesta versão — a recompensa é em XP e tokens");
-      valido = false;
-    }
+    // A recusa de `valorBrl > 0` saiu daqui e virou @DecimalMax("0.00") no próprio campo: é regra
+    // de
+    // UM campo só, e não precisava de validador de classe. Continua sendo 400 com o campo apontado,
+    // e não um 500 vindo da ck_missao_economia (V15) no INSERT.
 
     // ─── Insumos da fórmula de recompensa (ADR 0009) ────────────────────────────────────────
     //

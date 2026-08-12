@@ -7,7 +7,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.omnitribo.JwtTestConfig;
 import com.omnitribo.TesteIntegracaoMvcBase;
+import com.omnitribo.UsuarioDeTeste;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
@@ -39,10 +42,29 @@ class SaqueDesabilitadoTest extends TesteIntegracaoMvcBase {
   @Autowired MockMvc mockMvc;
   @Autowired JdbcTemplate jdbcTemplate;
 
+  /**
+   * Usuário REAL, e não um {@code UUID.randomUUID()} solto.
+   *
+   * <p>Estes testes mintavam token para um id sem linha em {@code usuario}, e isso funcionava
+   * porque a autenticação nunca perguntava ao banco se a conta existia — o atalho era o próprio
+   * defeito da Pendência #3. Com {@code ConsultaSessao} no filtro, aquele token responde 401 e o
+   * teste nunca alcançaria o 422 que ele existe para medir.
+   */
+  private UUID usuario;
+
+  @BeforeEach
+  void criarUsuario() {
+    usuario = UsuarioDeTeste.criarAtivo(jdbcTemplate, "saque");
+  }
+
+  @AfterEach
+  void removerUsuario() {
+    UsuarioDeTeste.remover(jdbcTemplate, usuario);
+  }
+
   @Test
   void saqueComFlagDesligada_responde422ComTipoProprioDeSaqueDesabilitado() throws Exception {
-    String token =
-        JwtTestConfig.gerarTokenValido(UUID.randomUUID(), "saque@omnitribo.dev", "USUARIO");
+    String token = JwtTestConfig.gerarTokenValido(usuario, "saque@omnitribo.dev", "USUARIO");
 
     MvcResult resultado =
         mockMvc
@@ -70,8 +92,7 @@ class SaqueDesabilitadoTest extends TesteIntegracaoMvcBase {
   void saqueComFlagDesligada_naoTocaOLedger() throws Exception {
     // A guarda roda antes de qualquer leitura ou lock: recusa não pode deixar rastro no razão
     // append-only, nem consumir a chave de idempotência do cliente.
-    String token =
-        JwtTestConfig.gerarTokenValido(UUID.randomUUID(), "saque2@omnitribo.dev", "USUARIO");
+    String token = JwtTestConfig.gerarTokenValido(usuario, "saque2@omnitribo.dev", "USUARIO");
     String chave = "saque-sem-rastro-" + UUID.randomUUID();
 
     mockMvc

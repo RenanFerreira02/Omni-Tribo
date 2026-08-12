@@ -9,12 +9,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.omnitribo.JwtTestConfig;
 import com.omnitribo.TesteIntegracaoMvcBase;
+import com.omnitribo.UsuarioDeTeste;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -35,9 +39,28 @@ class ContratoErroTest extends TesteIntegracaoMvcBase {
   private static final String BASE = "https://omnitribo.dev/problemas/";
 
   @Autowired MockMvc mockMvc;
+  @Autowired JdbcTemplate jdbcTemplate;
 
-  private static String token() {
-    return JwtTestConfig.gerarTokenValido(UUID.randomUUID(), "erro@omnitribo.dev", "USUARIO");
+  /**
+   * Usuário REAL. Antes o token era emitido para um {@code UUID.randomUUID()} sem linha em {@code
+   * usuario}, e passava porque a autenticação só conferia a assinatura — o mesmo atalho que deixava
+   * conta anonimizada escrever por 15 minutos (Pendência #3). Com {@code ConsultaSessao} no filtro,
+   * aquele token vira 401 e nenhum dos contratos de 400/404 abaixo seria alcançado.
+   */
+  private UUID usuario;
+
+  @BeforeEach
+  void criarUsuario() {
+    usuario = UsuarioDeTeste.criarAtivo(jdbcTemplate, "erro");
+  }
+
+  @AfterEach
+  void removerUsuario() {
+    UsuarioDeTeste.remover(jdbcTemplate, usuario);
+  }
+
+  private String token() {
+    return JwtTestConfig.gerarTokenValido(usuario, "erro@omnitribo.dev", "USUARIO");
   }
 
   @Test

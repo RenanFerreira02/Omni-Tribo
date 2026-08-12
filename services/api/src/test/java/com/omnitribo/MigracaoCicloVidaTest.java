@@ -83,13 +83,26 @@ class MigracaoCicloVidaTest extends TesteIntegracaoBase {
   @Test
   void em_disputa_e_aceito_pelo_check_novo() {
     UUID missaoId = inserirMissao("EM_DISPUTA", "AJUDA", "0.00");
-    jdbcTemplate.update("DELETE FROM missao WHERE id = ?", missaoId);
+    try {
+      // Ler de volta, e não só "não lançou": um INSERT que a constraint recusasse já teria
+      // estourado
+      // acima, mas sem assertion nenhuma este teste passaria mesmo que o valor gravado fosse outro
+      // —
+      // e a intenção dele (o CHECK da V11 aceita EM_DISPUTA) existiria só no nome do método.
+      String status =
+          jdbcTemplate.queryForObject(
+              "SELECT status FROM missao WHERE id = ?", String.class, missaoId);
+      assertThat(status).isEqualTo("EM_DISPUTA");
+    } finally {
+      jdbcTemplate.update("DELETE FROM missao WHERE id = ?", missaoId);
+    }
   }
 
   @Test
   void invariante_economica_continua_valendo_apos_v11() {
-    // ck_missao_economia é de V3 e não foi tocada pela V11 — mas é a barreira de banco
-    // da regra das três moedas, então fica coberta aqui também.
+    // ck_missao_economia nasceu na V3 e a V11 não a tocou — mas a V15 a SUBSTITUIU, e a versão que
+    // roda hoje exige valor_brl = 0 em TODA categoria, não só em TRIBO e COLETA (ADR 0009). É a
+    // barreira de banco da regra econômica, então fica coberta aqui também.
     assertThatThrownBy(() -> inserirMissao("ABERTA", "TRIBO", "10.00"))
         .isInstanceOf(DataIntegrityViolationException.class);
   }

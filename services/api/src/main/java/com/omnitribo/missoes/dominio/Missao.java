@@ -126,6 +126,19 @@ public class Missao {
   @Column(name = "concluida_em")
   private Instant concluidaEm;
 
+  /**
+   * Desde quando a missão está no status ATUAL. Atualizado por {@code MissaoStateMachine} a cada
+   * transição, sem exceção.
+   *
+   * <p>Existe porque nenhum marco anterior responde "há quanto tempo esta missão está parada AQUI".
+   * {@code janelaFim} é o prazo de OFERTA — vira passado assim que alguém aceita e não diz nada
+   * sobre execução; {@code aceitaEm} é zerado no DESISTIR; {@code criadaEm} é imóvel. Sem este
+   * campo, a varredura de {@code EM_ANDAMENTO} e {@code AGUARDANDO_CONFIRMACAO} teria de inferir o
+   * instante lendo a trilha {@code missao_evento}, o que faria o job depender de um JOIN por linha.
+   */
+  @Column(name = "estado_desde", nullable = false)
+  private Instant estadoDesde;
+
   // Tokens já financiados por membros da tribo, em custódia até a conclusão pagar o
   // executor. NÃO é recompensa: `tokensRecompensa` é quanto a missão promete pagar,
   // `poteTokens` é quanto de fato existe para pagar. Concluir uma missão TRIBO/COLETA
@@ -198,6 +211,8 @@ public class Missao {
     this.janelaInicio = janelaInicio;
     this.janelaFim = janelaFim;
     this.criadaEm = criadaEm;
+    // A missão nasce RASCUNHO neste instante. A partir daqui quem mexe é a máquina de estados.
+    this.estadoDesde = criadaEm;
   }
 
   /**
@@ -273,8 +288,22 @@ public class Missao {
     return status;
   }
 
-  public void setStatus(StatusMissao status) {
+  /**
+   * Muda o status E carimba desde quando ele vale — as duas coisas juntas, sempre.
+   *
+   * <p>Um {@code setStatus} que não tocasse {@code estadoDesde} deixaria o carimbo envelhecer em
+   * silêncio: a missão mudaria de estado com um marco temporal do estado ANTERIOR, e a varredura
+   * expiraria uma missão recém-transicionada achando que ela está parada há horas. Como o único
+   * chamador é {@code MissaoStateMachine}, que já recebe o instante da transição, exigi-lo na
+   * assinatura torna o esquecimento impossível.
+   */
+  public void setStatus(StatusMissao status, Instant quando) {
     this.status = status;
+    this.estadoDesde = quando;
+  }
+
+  public Instant getEstadoDesde() {
+    return estadoDesde;
   }
 
   public int getXpRecompensa() {

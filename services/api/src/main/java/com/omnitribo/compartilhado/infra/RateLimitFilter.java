@@ -2,6 +2,7 @@ package com.omnitribo.compartilhado.infra;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.omnitribo.compartilhado.api.EnderecoDoCliente;
 import com.omnitribo.compartilhado.api.TipoProblema;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
@@ -12,6 +13,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -36,6 +39,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  */
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
+
+  private static final Logger log = LoggerFactory.getLogger(RateLimitFilter.class);
 
   private final JwtService jwtService;
 
@@ -72,15 +77,23 @@ public class RateLimitFilter extends OncePerRequestFilter {
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
       throws ServletException, IOException {
 
-    // Isenção por rota EXATA, não por prefixo /api/v1/auth/. /login e /refresh têm controle próprio
-    // e mais fino no BloqueioLoginService (5/min por sha256(ip+email), com bloqueio progressivo).
-    // /registrar não tinha nenhum: como cada chamada executa um hash Argon2id (16 MB de memória e
-    // ~100 ms de CPU, por ADR 0005), a rota era um amplificador de DoS não autenticado — o atacante
-    // gasta uma requisição, o servidor gasta 100 ms. Agora cai no bucket geral de escrita, por IP,
-    // já que ainda não há token nessa altura.
+    // Isenção por rota EXATA, não por prefixo /api/v1/auth/. Só /login sai daqui, porque só ele tem
+    // controle próprio e mais fino no BloqueioLoginService (5/min por sha256(ip+email), com
+    // bloqueio
+    // progressivo).
+    //
+    // /refresh ERA isento pela mesma justificativa, e a justificativa era falsa: `refresh()` nunca
+    // chama bloqueioLoginService — os três call sites do serviço estão todos dentro de `login()`.
+    // O resultado é que /refresh era o ÚNICO endpoint público da API sem teto algum: sem
+    // autenticação, cada chamada custa um SHA-256 e um lookup indexado, e nada limitava a taxa.
+    // Adivinhar o token é inviável (256 bits), mas exaurir conexão e CPU não era.
+    //
+    // /registrar também não tinha nenhum: como cada chamada executa um hash Argon2id (19 MB de
+    // memória e ~100 ms de CPU, por ADR 0005), a rota era um amplificador de DoS não autenticado —
+    // o atacante gasta uma requisição, o servidor gasta 100 ms. Agora cai no bucket geral de
+    // escrita, por IP, já que ainda não há token nessa altura.
     String path = request.getRequestURI();
     if (path.equals("/api/v1/auth/login")
-        || path.equals("/api/v1/auth/refresh")
         || path.startsWith("/v3/api-docs")
         || path.startsWith("/swagger-ui")
         || path.equals("/api/v1/ping")) {
@@ -113,11 +126,18 @@ public class RateLimitFilter extends OncePerRequestFilter {
       try {
         var claims = jwtService.validar(header.substring(7));
         return "user:" + claims.getSubject();
-      } catch (Exception ignored) {
-        // Token inválido: cai no rate limit por IP
+      } catch (JwtService.JwtValidacaoException e) {
+        // Token expirado ou malformado é o caso NORMAL — todo cliente passa por ele a cada 15 min.
+        // Em debug, e não em warn, senão o log vira ruído e ninguém lê mais nenhum dos dois.
+        log.debug("Token inválido no rate limit; caindo em bucket por IP: {}", e.getMessage());
+      } catch (RuntimeException e) {
+        // Qualquer OUTRA falha aqui é defeito de configuração, não requisição ruim — chave RSA
+        // ilegível é o caso concreto. Antes isto era engolido junto com o caso normal, e o sintoma
+        // era TODO MUNDO compartilhar silenciosamente o bucket do IP, sem uma linha de log.
+        log.error("Falha inesperada ao resolver identidade no rate limit", e);
       }
     }
-    return "ip:" + extrairIp(request);
+    return "ip:" + EnderecoDoCliente.de(request);
   }
 
   private Bucket criarBucket(int capacidade) {
@@ -135,14 +155,6 @@ public class RateLimitFilter extends OncePerRequestFilter {
         || "PUT".equalsIgnoreCase(method)
         || "PATCH".equalsIgnoreCase(method)
         || "DELETE".equalsIgnoreCase(method);
-  }
-
-  private String extrairIp(HttpServletRequest request) {
-    String xff = request.getHeader("X-Forwarded-For");
-    if (xff != null && !xff.isBlank()) {
-      return xff.split(",")[0].trim();
-    }
-    return request.getRemoteAddr();
   }
 
   private void responder429(

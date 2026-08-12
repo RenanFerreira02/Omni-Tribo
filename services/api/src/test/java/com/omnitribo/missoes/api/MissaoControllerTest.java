@@ -587,6 +587,114 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
         .andExpect(jsonPath("$.detail").value("Missão não encontrada."));
   }
 
+  // ─── Recorte de endereço por participação ──────────────────────────────────────────────────
+
+  /**
+   * Estranho não recebe logradouro, CEP, nem coordenada precisa — o criador recebe.
+   *
+   * <p>{@code GET /missoes} devolvia coordenada com ~15 dígitos significativos mais logradouro e
+   * CEP de toda missão não-rascunho, paginada, para qualquer autenticado. Era um catálogo de
+   * endereços do bairro pela mesma porta que {@code TriboController} se recusa a abrir ao não
+   * listar membros.
+   */
+  @Test
+  void detalheDeMissaoAlheiaNaoRevelaEnderecoNemCoordenadaPrecisa() throws Exception {
+    UUID missaoId = criarEPublicar();
+
+    // CAROL não é criadora nem executora: vê o bairro, não a porta.
+    mockMvc
+        .perform(get(BASE + "/{id}", missaoId).header("Authorization", bearer(CAROL_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.logradouro").doesNotExist())
+        .andExpect(jsonPath("$.cep").doesNotExist())
+        // Bairro/cidade/UF ficam: é o que orienta a decisão de aceitar, sem identificar a casa.
+        .andExpect(jsonPath("$.bairro").value("Pinheiros"))
+        .andExpect(jsonPath("$.cidade").value("São Paulo"))
+        // 3 casas ≈ 110 m. Com 6 casas (~11 cm) o arredondamento sozinho não protegeria nada.
+        .andExpect(jsonPath("$.origemLat").value(-23.563))
+        .andExpect(jsonPath("$.origemLon").value(-46.7));
+
+    // ALICE criou: precisa do endereço completo para acompanhar a própria missão.
+    mockMvc
+        .perform(get(BASE + "/{id}", missaoId).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.logradouro").value("Rua dos Pinheiros"))
+        .andExpect(jsonPath("$.cep").value("05422030"));
+  }
+
+  /** Aceitar a missão promove o executor a participante: a partir daí ele vê o endereço. */
+  @Test
+  void executorPassaAVerOEnderecoDepoisDeAceitar() throws Exception {
+    UUID missaoId = criarEPublicar();
+
+    mockMvc
+        .perform(get(BASE + "/{id}", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(jsonPath("$.logradouro").doesNotExist());
+
+    mockMvc
+        .perform(post(BASE + "/{id}/aceitar", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isOk());
+
+    mockMvc
+        .perform(get(BASE + "/{id}", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.logradouro").value("Rua dos Pinheiros"))
+        .andExpect(jsonPath("$.cep").value("05422030"));
+  }
+
+  /**
+   * A listagem paginada é o vetor de COLETA EM MASSA, e recorta pelo mesmo critério.
+   *
+   * <p>Percorre o JSON afirmando sobre CADA item, em vez de um matcher agregado: o que interessa é
+   * que nenhuma missão de terceiro carregue endereço, e uma asserção agregada esconderia a que
+   * vazasse no meio de noventa e nove que não vazam.
+   */
+  @Test
+  void listagemNaoVazaEnderecoDeMissaoAlheia() throws Exception {
+    criarEPublicar();
+
+    String corpo =
+        mockMvc
+            .perform(get(BASE).param("tamanho", "100").header("Authorization", bearer(CAROL_ID)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    JsonNode conteudo = JSON.readTree(corpo).get("conteudo");
+    assertThat(conteudo)
+        .as("a listagem precisa devolver alguma missão para o teste valer")
+        .isNotEmpty();
+
+    int alheias = 0;
+    for (JsonNode missao : conteudo) {
+      // Participante é criador OU executor. Pular só o criador deixaria passar as missões do seed
+      // em que ela é a executora — e foi exatamente o que este teste acusou na primeira execução.
+      boolean participa =
+          CAROL_ID.toString().equals(texto(missao, "criadorId"))
+              || CAROL_ID.toString().equals(texto(missao, "executorId"));
+      if (participa) {
+        continue;
+      }
+      alheias++;
+      assertThat(texto(missao, "logradouro"))
+          .as("logradouro de missão alheia (%s) não pode sair na listagem", texto(missao, "id"))
+          .isNull();
+      assertThat(texto(missao, "cep"))
+          .as("cep de missão alheia (%s) não pode sair na listagem", texto(missao, "id"))
+          .isNull();
+    }
+
+    assertThat(alheias)
+        .as("sem missão de terceiro na página, o teste não teria provado nada")
+        .isPositive();
+  }
+
+  private static String texto(JsonNode no, String campo) {
+    JsonNode valor = no.get(campo);
+    return valor == null || valor.isNull() ? null : valor.asText();
+  }
+
   // ─── Helpers ───────────────────────────────────────────────────────────────────────────────
 
   private String bearer(UUID usuarioId) {

@@ -1,8 +1,8 @@
 package com.omnitribo.logistica.dominio;
 
+import com.omnitribo.compartilhado.api.ConsultasGeoespaciais;
 import com.omnitribo.compartilhado.dominio.Coordenadas;
 import com.omnitribo.compartilhado.dominio.RecursoNaoEncontradoException;
-import com.omnitribo.compartilhado.infra.ConsultasGeoespaciais;
 import com.omnitribo.logistica.api.PontoCustodiaResponse;
 import com.omnitribo.logistica.infra.PontoCustodiaRepository;
 import java.math.BigDecimal;
@@ -18,8 +18,13 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Leitura de pontos de custódia.
  *
- * <p>Só leitura: capacidade e ocupação são movimentadas pelo fluxo de entrega, não por endpoint.
- * Expor escrita aqui deixaria qualquer usuário autenticado marcar uma loja como lotada.
+ * <p>Só leitura, e é importante saber o que isso significa hoje: <b>nada movimenta {@code ocupacao}
+ * ainda.</b> O fluxo de entrega que a incrementaria é da F8 e não existe — a coluna vem do seed e
+ * fica parada. A entidade também não tem mais {@code incrementarOcupacao}: mantê-la sugeria um
+ * caminho de escrita que nunca foi ligado.
+ *
+ * <p>Quando esse fluxo chegar, ele NÃO deve virar endpoint: expor escrita aqui deixaria qualquer
+ * usuário autenticado marcar uma loja de terceiro como lotada.
  */
 @Service
 public class PontoCustodiaService {

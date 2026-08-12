@@ -80,9 +80,6 @@ public final class TipoProblema {
   /** 429 de rate limit ou de bloqueio progressivo. Acompanha {@code Retry-After}. */
   public static final URI LIMITE_REQUISICOES = URI.create(BASE + "limite-requisicoes");
 
-  /** 501: contrato publicado, implementação em fase futura. */
-  public static final URI NAO_IMPLEMENTADO = URI.create(BASE + "nao-implementado");
-
   /** 500. Sem detalhe acionável de propósito — o traceId é o que liga a resposta ao log. */
   public static final URI ERRO_INTERNO = URI.create(BASE + "erro-interno");
 
@@ -112,7 +109,6 @@ public final class TipoProblema {
       case CONFLICT -> TRANSICAO_INVALIDA;
       case UNPROCESSABLE_ENTITY -> REGRA_NEGOCIO_VIOLADA;
       case TOO_MANY_REQUESTS -> LIMITE_REQUISICOES;
-      case NOT_IMPLEMENTED -> NAO_IMPLEMENTADO;
       default -> ERRO_INTERNO;
     };
   }

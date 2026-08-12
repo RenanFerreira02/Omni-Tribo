@@ -37,24 +37,26 @@ public class FinanciamentoCarteiraService implements FinanciamentoMissao, Estorn
 
   @Override
   @Transactional(propagation = Propagation.MANDATORY)
+  public Optional<ResultadoFinanciamento> sondar(UUID financiadorId, String chaveIdempotencia) {
+    Carteira carteira = travarCarteiraDe(financiadorId);
+    return livroRazaoService
+        .consultar(chaveIdempotencia)
+        .map(l -> new ResultadoFinanciamento(l.getId(), carteira.getSaldoTokens(), true));
+  }
+
+  @Override
+  @Transactional(propagation = Propagation.MANDATORY)
   public ResultadoFinanciamento debitar(
       UUID financiadorId, UUID missaoId, long tokens, String chaveIdempotencia, Instant agora) {
 
-    UUID carteiraId =
-        carteiraRepository
-            .buscarIdPorUsuario(financiadorId)
-            .orElseThrow(() -> new RecursoNaoEncontradoException(CARTEIRA_AUSENTE));
-
-    // LOCK → SONDAR → VALIDAR → ESCREVER. Ver o javadoc de LivroRazaoService.
-    Carteira carteira =
-        carteiraRepository
-            .buscarParaAtualizar(carteiraId)
-            .orElseThrow(() -> new RecursoNaoEncontradoException(CARTEIRA_AUSENTE));
-
-    Optional<Lancamento> existente = livroRazaoService.consultar(chaveIdempotencia);
-    if (existente.isPresent()) {
-      return new ResultadoFinanciamento(existente.get().getId(), carteira.getSaldoTokens(), true);
-    }
+    // NÃO reemite o SELECT ... FOR UPDATE, e aqui isso é CORRETO — leia antes de "consertar".
+    //
+    // `sondar` já travou esta carteira na MESMA transação, então o Hibernate devolve a instância do
+    // persistence context sem ir ao banco. É a única ocorrência no projeto em que a armadilha da
+    // primeira leitura é benigna: o lock existe, foi adquirido por quem sondou, e é ele que fecha a
+    // corrida entre sondar e inserir. Trocar isto por uma leitura "mais segura" não acrescenta
+    // proteção nenhuma e só gasta uma ida ao banco.
+    Carteira carteira = travarCarteiraDe(financiadorId);
 
     // Recusa ANTES de qualquer escrita: 422 tem de sair sem efeito colateral nenhum.
     if (carteira.getSaldoTokens() < tokens) {
@@ -80,6 +82,23 @@ public class FinanciamentoCarteiraService implements FinanciamentoMissao, Estorn
                 agora));
 
     return new ResultadoFinanciamento(lancamento.getId(), carteira.getSaldoTokens(), false);
+  }
+
+  /**
+   * Resolve {@code usuarioId → carteiraId} por projeção escalar e então trava a linha.
+   *
+   * <p>{@code buscarIdPorUsuario}, nunca {@code findByUsuarioId}: materializar a {@code Carteira}
+   * aqui a poria no persistence context e o {@code buscarParaAtualizar} seguinte devolveria a
+   * instância em cache sem emitir o {@code FOR UPDATE} — o lock sumiria em silêncio.
+   */
+  private Carteira travarCarteiraDe(UUID financiadorId) {
+    UUID carteiraId =
+        carteiraRepository
+            .buscarIdPorUsuario(financiadorId)
+            .orElseThrow(() -> new RecursoNaoEncontradoException(CARTEIRA_AUSENTE));
+    return carteiraRepository
+        .buscarParaAtualizar(carteiraId)
+        .orElseThrow(() -> new RecursoNaoEncontradoException(CARTEIRA_AUSENTE));
   }
 
   @Override

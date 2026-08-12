@@ -26,10 +26,10 @@ public class AlertaService {
 
   @Transactional(readOnly = true)
   public PaginaResponse<AlertaResponse> listar(UUID usuarioId, AlertaFiltroRequest filtro) {
-    Pageable pagina = PageRequest.of(filtro.paginaOuPrimeira(), filtro.tamanhoOuPadrao());
+    Pageable pagina = PageRequest.of(filtro.pagina(), filtro.tamanho());
 
     Page<Alerta> resultado =
-        filtro.apenasNaoLidosOuFalso()
+        filtro.apenasNaoLidos()
             ? alertaRepository.findByUsuarioIdAndLidoFalseOrderByCriadoEmDesc(usuarioId, pagina)
             : alertaRepository.findByUsuarioIdOrderByCriadoEmDesc(usuarioId, pagina);
 

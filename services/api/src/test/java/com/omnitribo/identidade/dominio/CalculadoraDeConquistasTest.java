@@ -2,7 +2,6 @@ package com.omnitribo.identidade.dominio;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.omnitribo.identidade.dominio.CalculadoraDeConquistas.Calibracao;
 import com.omnitribo.identidade.dominio.CalculadoraDeConquistas.Conquista;
 import java.util.List;
 import java.util.Map;
@@ -13,7 +12,7 @@ import org.junit.jupiter.api.Test;
 class CalculadoraDeConquistasTest {
 
   /** Espelho de application.yml. Ver {@link #douradoV1()}. */
-  private static final Calibracao V1 = new Calibracao(1, 500, 2000, 10, 7, 1);
+  private static final ParametrosConquistas V1 = new ParametrosConquistas(1, 500, 2000, 10, 7);
 
   @Test
   void usuario_novo_recebe_o_catalogo_inteiro_sem_nenhuma_conquistada() {
@@ -78,19 +77,20 @@ class CalculadoraDeConquistasTest {
   }
 
   /**
-   * TESTE DOURADO — falha DE PROPÓSITO quando alguém muda {@code app.identidade.conquistas.*} sem
-   * subir a {@code versao}.
+   * TESTE DOURADO — falha DE PROPÓSITO quando alguém muda {@code app.identidade.conquistas.*}.
    *
-   * <p>É o mesmo mecanismo de {@code CalculadoraDeRecompensaTest.douradoV1}, e existe pela mesma
-   * razão: sem ele, baixar um limiar concede medalhas retroativamente e subir um limiar TIRA
-   * conquistas que o usuário já exibia — sem nenhum registro de que a régua mudou. Se você chegou
-   * aqui por causa de uma falha: atualize os números E a versão, nos dois lugares.
+   * <p>Existe porque conquista é derivada e nada é gravado: baixar um limiar concede medalhas
+   * retroativamente e subir um limiar <b>REVOGA</b> conquistas que o usuário já exibia, sem nenhum
+   * registro de que a régua mudou. Diferente de {@code CalculadoraDeRecompensaTest.douradoV1}, aqui
+   * não há {@code versao} a subir — não existe coluna onde congelá-la, então a única proteção é
+   * esta falha obrigando a decisão consciente. Se você chegou aqui: confirme que quer mexer no
+   * histórico de todo mundo, e então atualize os números nos dois lugares.
    */
   @Test
   void douradoV1() {
     assertThat(V1)
-        .isEqualTo(new Calibracao(1L, 500L, 2000L, 10, 7, 1))
-        .describedAs("calibração v1 congelada — mudou o YAML? suba a versao junto");
+        .isEqualTo(new ParametrosConquistas(1L, 500L, 2000L, 10, 7))
+        .describedAs("calibração congelada — mudá-la concede ou revoga medalhas retroativamente");
 
     Map<String, Conquista> perfilTipico = indexar(CalculadoraDeConquistas.avaliar(1200, 4, 3, V1));
 

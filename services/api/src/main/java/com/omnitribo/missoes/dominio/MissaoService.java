@@ -3,6 +3,8 @@ package com.omnitribo.missoes.dominio;
 import com.omnitribo.carteira.api.ComandoCreditoConclusao;
 import com.omnitribo.carteira.api.CreditoRecompensa;
 import com.omnitribo.carteira.api.ResultadoCredito;
+import com.omnitribo.compartilhado.api.ConsultasGeoespaciais;
+import com.omnitribo.compartilhado.api.ConsultasGeoespaciais.AlvoProximo;
 import com.omnitribo.compartilhado.api.PaginaResponse;
 import com.omnitribo.compartilhado.api.PublicadorEventos;
 import com.omnitribo.compartilhado.dominio.Auditavel;
@@ -11,8 +13,6 @@ import com.omnitribo.compartilhado.dominio.Coordenadas;
 import com.omnitribo.compartilhado.dominio.Geohash;
 import com.omnitribo.compartilhado.dominio.RecursoNaoEncontradoException;
 import com.omnitribo.compartilhado.dominio.RegraNegocioVioladaException;
-import com.omnitribo.compartilhado.infra.ConsultasGeoespaciais;
-import com.omnitribo.compartilhado.infra.ConsultasGeoespaciais.AlvoProximo;
 import com.omnitribo.geolocalizacao.api.ComandoCheckin;
 import com.omnitribo.geolocalizacao.api.RegistroCheckin;
 import com.omnitribo.geolocalizacao.api.ResultadoCheckin;
@@ -137,7 +137,9 @@ public class MissaoService {
             req.descricao(),
             StatusMissao.RASCUNHO,
             recompensa,
-            req.valorBrl(),
+            // ZERO fixo, não mais vindo do request: nenhuma categoria remunera em BRL desde o ADR
+            // 0009, e a ck_missao_economia (V15) recusaria qualquer outra coisa no INSERT.
+            BigDecimal.ZERO,
             Coordenadas.ponto(req.origemLat(), req.origemLon()),
             Coordenadas.ponto(req.destinoLat(), req.destinoLon()),
             req.pontoCustodiaId(),
@@ -210,14 +212,20 @@ public class MissaoService {
                 executorId,
                 ator.usuarioId(),
                 pagina)
-            .map(MissaoResponse::de);
+            // Recorte por PARTICIPAÇÃO. Sem ele, esta listagem entregava coordenada exata mais
+            // logradouro e CEP de toda missão do sistema a qualquer autenticado, paginada — um mapa
+            // de endereços do bairro, pela mesma porta que TriboController se recusa a abrir.
+            .map(m -> MissaoResponse.de(m, ator.usuarioId()));
 
     return PaginaResponse.de(page);
   }
 
   @Transactional(readOnly = true)
   public MissaoResponse buscarPorId(UUID missaoId, AtorMissao ator) {
-    return MissaoResponse.de(carregarVisivel(missaoId, ator));
+    // Detalhe também recorta: quem só está olhando uma missão aberta de terceiro vê bairro e
+    // coordenada aproximada; ao ACEITAR, passa a ver endereço completo — que é quando de fato
+    // precisa chegar ao lugar.
+    return MissaoResponse.de(carregarVisivel(missaoId, ator), ator.usuarioId());
   }
 
   /**
@@ -267,7 +275,18 @@ public class MissaoService {
         .map(
             alvo ->
                 new MissaoProximaResponse(
-                    MissaoResponse.de(porId.get(alvo.id())),
+                    // SEMPRE recortada, para todo mundo — e é isso que preserva o cache.
+                    //
+                    // Recortar por solicitante aqui seria um erro grave: o resultado é cacheado por
+                    // ChaveProximidade (célula de geohash + raio + categoria), sem o usuário, então
+                    // uma resposta montada para um participante seria servida a um estranho. Ou a
+                    // chave passaria a incluir o solicitante, e o cache viraria uma entrada por
+                    // usuário — deixando de ser cache.
+                    //
+                    // Não custa nada: o radar só devolve ABERTA, e missão ABERTA não tem executor.
+                    // O criador que vê a própria missão aqui não precisa do endereço exato — ele o
+                    // escreveu. Quem aceitar passa a ver tudo em GET /missoes/{id}.
+                    MissaoResponse.deAproximada(porId.get(alvo.id())),
                     BigDecimal.valueOf(alvo.distanciaM()).setScale(1, RoundingMode.HALF_UP)))
         .toList();
   }
@@ -535,6 +554,41 @@ public class MissaoService {
     return concluirComCredito(missaoId, EventoMissao.CONFIRMAR, ator, null);
   }
 
+  /**
+   * ADMIN destrava uma missão parada: CANCELADA, com estorno do pote aos financiadores.
+   *
+   * <p>Porta manual para o que a varredura por prazo não cobre — missão legítima em disputa
+   * silenciosa, ou parada por um motivo que a regra de prazo não previu. Sem ela, o único desfecho
+   * possível para um caso excepcional seria esperar o prazo e aceitar o que ele decidir.
+   *
+   * <p>Zero código novo de caminho de valor: {@code aplicar} já estorna em CANCELADA. A
+   * justificativa é obrigatória e vai para o payload da trilha — destravar é ato discricionário e
+   * precisa de motivo registrado.
+   */
+  @Auditavel(acao = "MISSAO_DESTRAVADA", entidade = "missao")
+  @Transactional
+  public MissaoResponse destravar(UUID missaoId, AtorMissao ator, String justificativa) {
+    return aplicar(missaoId, EventoMissao.DESTRAVAR, ator, payloadJustificativa(justificativa));
+  }
+
+  /**
+   * Conclui pagando o executor porque o CRIADOR não confirmou no prazo — chamado só pela varredura.
+   *
+   * <p>Reusa {@code concluirComCredito} inteiro, com ator SISTEMA: pote debitado, carteira
+   * creditada, XP concedido, trilha e outbox. Nenhum caminho de valor novo nasce daqui, que é o que
+   * torna esta transição segura de acrescentar — a alternativa seria um segundo caminho de crédito,
+   * e dois caminhos de crédito é como se perde a conservação sem perceber.
+   */
+  @Transactional
+  public MissaoResponse concluirPorOmissaoDoCriador(UUID missaoId, Instant agora) {
+    return concluirComCredito(
+        missaoId,
+        EventoMissao.EXPIRAR_CONFIRMACAO,
+        AtorMissao.sistema(),
+        payloadJustificativa(
+            "Criador não confirmou dentro do prazo; check-in do executor é a evidência."));
+  }
+
   /** Admin resolve a disputa. CONCLUIR credita como a confirmação; CANCELAR não credita nada. */
   @Auditavel(acao = "DISPUTA_RESOLVIDA", entidade = "missao")
   @Transactional
@@ -673,10 +727,18 @@ public class MissaoService {
   }
 
   /**
-   * TRIBO e COLETA pagam tokens do pote financiado; ENTREGA e AJUDA pagam BRL e não têm pote.
+   * TRIBO e COLETA pagam o executor a partir de {@code missao.pote_tokens}, financiado por membros
+   * da tribo. ENTREGA e AJUDA CUNHAM os tokens da recompensa — não têm pote.
    *
-   * <p>Mesma partição de categorias do ADR 0004 e do {@code ck_missao_economia} da V3, que já
-   * proíbe {@code valor_brl > 0} nessas duas.
+   * <p><b>NENHUMA categoria paga em BRL.</b> O ADR 0009 tirou o BRL do ciclo de missões e a {@code
+   * ck_missao_economia} da <b>V15</b> exige {@code valor_brl = 0} em TODAS as categorias, não só em
+   * duas (a partição por categoria era da V3, e não vale mais).
+   *
+   * <p>A consequência de cunhar é a Pendência #2 do CLAUDE.md, e ela é deliberada: exigir pote para
+   * ENTREGA hoje faria membros da tribo custearem a logística do varejista, o inverso do modelo. O
+   * financiador correto é o PATROCINADOR, e fecha na F8 — quando este método passa a valer para
+   * todas as categorias. Até lá, a conservação {@code SUM(carteiras) + SUM(potes)} vale para TRIBO
+   * e COLETA, não para o sistema inteiro.
    */
   private static boolean pagaTokensDoPote(Missao missao) {
     return missao.getCategoria() == CategoriaMissao.TRIBO

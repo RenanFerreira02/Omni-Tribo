@@ -41,10 +41,24 @@ public record CriarMissaoRequest(
     @NotBlank(message = "Descrição é obrigatória")
         @Size(max = 2000, message = "Descrição deve ter no máximo 2000 caracteres")
         String descricao,
-    @NotNull(message = "Valor em BRL é obrigatório")
+    /**
+     * OPCIONAL, e só aceita zero ou nulo. Enviar valor positivo é <b>400</b>, não é ignorado.
+     *
+     * <p>Era {@code @NotNull} com {@code @DecimalMin("0.00") @DecimalMax("500.00")} — obrigava todo
+     * cliente a enviar {@code "valorBrl": 0} num campo que não podia ser outra coisa, e as
+     * constraints de faixa eram <b>validação inalcançável</b>: desde o ADR 0009 e a {@code
+     * ck_missao_economia} da V15, nenhum valor entre 0,01 e 500 jamais chegaria a ser avaliado por
+     * elas.
+     *
+     * <p><b>Por que não remover o campo de vez</b>, que era a saída óbvia: com {@code
+     * fail-on-unknown-properties: false}, um cliente que enviasse {@code "valorBrl": 50} teria a
+     * missão criada em silêncio, acreditando que ela vale R$ 50. É exatamente o que a regra (3)
+     * deste mesmo formulário recusa fazer com {@code complexidade} — "ignorar em silêncio faria o
+     * app acreditar que declarou algo que não teve efeito". Opcional + recusa explícita tira a
+     * obrigação sem trocar um 400 honesto por um mal-entendido.
+     */
+    @DecimalMax(value = "0.00", message = "Missão não remunera em BRL — a recompensa é XP e tokens")
         @DecimalMin(value = "0.00", message = "Valor em BRL não pode ser negativo")
-        @DecimalMax(value = "500.00", message = "Valor em BRL não pode passar de R$ 500,00")
-        @Digits(integer = 12, fraction = 2, message = "Valor em BRL deve ter no máximo 2 decimais")
         BigDecimal valorBrl,
     @Schema(
             description =

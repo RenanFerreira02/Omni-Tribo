@@ -101,15 +101,23 @@ class PerfilControllerTest extends TesteIntegracaoMvcBase {
   }
 
   /**
-   * Token válido de um usuário que não existe mais responde 404, e não 401 nem 500. Acontece de
-   * verdade: o access token vive 15 minutos, e a conta pode ser excluída dentro dessa janela.
+   * Token bem assinado cujo {@code sub} não existe responde <b>401</b>, e a mudança de 404 para 401
+   * é a correção, não uma regressão.
+   *
+   * <p>Este teste esperava 404 porque a validação parava na assinatura: o filtro autenticava
+   * qualquer token íntegro e o controller é que descobria, no banco, que não havia usuário. Agora o
+   * {@code JwtAuthFilter} consulta {@code ConsultaSessao} e a requisição nem chega ao controller.
+   *
+   * <p>401 é a resposta certa: assinatura válida prova que o token foi emitido por nós, não que
+   * existe uma sessão. O 404 anterior ainda confirmava a quem portasse o token que ele fora aceito.
+   * O mesmo caminho é o que barra conta anonimizada — ver {@code LgpdControllerTest}.
    */
   @Test
-  void token_valido_de_usuario_inexistente_responde_404() throws Exception {
+  void token_valido_de_usuario_inexistente_responde_401() throws Exception {
     mockMvc
         .perform(autenticado(get(ME), UUID.randomUUID()))
-        .andExpect(status().isNotFound())
-        .andExpect(jsonPath("$.type").value("https://omnitribo.dev/problemas/nao-encontrado"));
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.type").value("https://omnitribo.dev/problemas/nao-autenticado"));
   }
 
   private MockHttpServletRequestBuilder autenticado(

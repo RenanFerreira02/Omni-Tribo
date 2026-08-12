@@ -50,15 +50,18 @@ public class OpenApiConfig {
                         "Payload inválido. A propriedade 'errors' lista campo e mensagem de cada"
                             + " violação."))
                 .addResponses("NaoAutenticado", problema("Token ausente, expirado ou inválido."))
+                // Estas respostas são COMPARTILHADAS por todos os controllers, não só por missões:
+                // a descrição tem de ser genérica, ou o Swagger de carteira e de alertas fala de
+                // "missão" sem que exista nenhuma envolvida.
                 .addResponses(
-                    "AcessoNegado", problema("Autenticado, mas sem autoridade sobre esta missão."))
+                    "AcessoNegado", problema("Autenticado, mas sem autoridade sobre este recurso."))
                 .addResponses(
                     "NaoEncontrado",
                     problema(
-                        "Missão inexistente — ou rascunho de outro usuário, deliberadamente"
-                            + " indistinguível de inexistente."))
+                        "Recurso inexistente — ou invisível para este usuário, deliberadamente"
+                            + " indistinguível de inexistente (é o caso do rascunho alheio)."))
                 .addResponses(
-                    "Conflito", problema("Operação incompatível com o estado atual da missão."))
+                    "Conflito", problema("Operação incompatível com o estado atual do recurso."))
                 .addResponses(
                     "RegraNegocioViolada",
                     problema(
@@ -66,10 +69,7 @@ public class OpenApiConfig {
                             + " (ex.: check-in fora do raio). A tentativa fica registrada."))
                 .addResponses(
                     "LimiteExcedido",
-                    problema("Limite de requisições excedido. Veja o header Retry-After."))
-                .addResponses(
-                    "NaoImplementado",
-                    problema("Contrato publicado, implementação prevista para fase futura.")));
+                    problema("Limite de requisições excedido. Veja o header Retry-After.")));
   }
 
   private static ApiResponse problema(String descricao) {

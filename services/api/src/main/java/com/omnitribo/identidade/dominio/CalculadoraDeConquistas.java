@@ -16,24 +16,18 @@ import java.util.List;
  * de missoes — que já depende de identidade. O ciclo custaria mais do que a medalha vale. XP é
  * proxy fiel, porque só conclusão de missão concede XP.
  *
- * <p><b>Mudou limiar no YAML? Suba a {@code versao} junto</b>, pela mesma razão de {@code
- * CalculadoraDeRecompensa}: sem isso, um usuário perde uma conquista que já tinha e ninguém
- * consegue explicar por quê. O teste dourado falha de propósito para forçar a decisão.
+ * <p><b>Mudar limiar no YAML tira conquistas já exibidas, e não há como versionar isso.</b> Como
+ * nada é gravado, baixar um limiar concede retroativamente e subi-lo REVOGA — o usuário perde uma
+ * medalha que já viu, sem registro de que a regra mudou. Diferente de {@code
+ * CalculadoraDeRecompensa}, aqui não existe coluna onde congelar a calibração vigente, então uma
+ * {@code versao} seria decoração. É o preço de derivar em vez de guardar; tratar esses números como
+ * estáveis é parte do desenho, não descuido.
  *
  * <p>Devolve o catálogo INTEIRO, com o que falta para cada uma, e não só as já obtidas. É o que
  * permite à tela mostrar o próximo objetivo — uma lista só de conquistas ganhas não diz ao usuário
  * o que fazer em seguida.
  */
 public final class CalculadoraDeConquistas {
-
-  /** Limiares, todos configuráveis. A FÓRMULA é código; os NÚMEROS são configuração. */
-  public record Calibracao(
-      long xpIniciante,
-      long xpVizinhoPresente,
-      long xpPilarDaTribo,
-      int nivelVeterano,
-      int streakConstante,
-      int versao) {}
 
   /**
    * @param progresso quanto o usuário tem hoje da métrica desta conquista
@@ -49,7 +43,7 @@ public final class CalculadoraDeConquistas {
 
   private CalculadoraDeConquistas() {}
 
-  public static List<Conquista> avaliar(long xp, int nivel, int streak, Calibracao c) {
+  public static List<Conquista> avaliar(long xp, int nivel, int streak, ParametrosConquistas c) {
     return List.of(
         de(
             "INICIANTE",

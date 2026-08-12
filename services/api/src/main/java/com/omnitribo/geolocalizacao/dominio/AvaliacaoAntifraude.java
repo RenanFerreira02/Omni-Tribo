@@ -20,12 +20,10 @@ import java.time.Instant;
  */
 public final class AvaliacaoAntifraude {
 
-  /**
-   * Teto de acurácia. Mora em {@link LimitesCheckin}, em {@code api/}, porque o controller de
-   * {@code missoes} precisa dele para explicar a recusa ao usuário e não pode importar {@code
-   * geolocalizacao.dominio}. Reexportado aqui só para não quebrar quem já referencia pelo nome.
-   */
-  public static final BigDecimal ACURACIA_MAXIMA_M = LimitesCheckin.ACURACIA_MAXIMA_M;
+  // O teto de acurácia mora em LimitesCheckin, em api/, porque o controller de `missoes` precisa
+  // dele para explicar a recusa ao usuário e não pode importar `geolocalizacao.dominio`. Referido
+  // direto de lá: um alias aqui daria dois nomes ao mesmo número, e o dia em que um fosse alterado
+  // sem o outro a mensagem de erro passaria a citar um limite diferente do aplicado.
 
   /** Acima disto a cinemática é implausível para deslocamento urbano entre dois check-ins. */
   public static final BigDecimal VELOCIDADE_SUSPEITA_KMH = new BigDecimal("120");
@@ -81,7 +79,8 @@ public final class AvaliacaoAntifraude {
    *
    * <p>A cinemática é a única que não rejeita. Velocidade implausível MARCA e deixa passar, porque
    * o falso positivo é real e frequente (rodovia, trem, voo) e porque a defesa efetiva contra o
-   * caso verdadeiro é a confirmação humana do criador, na F7.
+   * caso verdadeiro é a confirmação humana do criador — que existe e é a transição {@code
+   * CONFIRMAR} de {@code AGUARDANDO_CONFIRMACAO}.
    *
    * @param distanciaM distância medida pelo PostGIS, em metros — nunca informada pelo cliente
    * @param pontoAnterior coordenada do check-in imediatamente anterior deste usuário, ou null
@@ -106,11 +105,12 @@ public final class AvaliacaoAntifraude {
           Veredito.REJEITADO, MotivoRejeicaoCheckin.LOCALIZACAO_SIMULADA, MOTIVO_MOCK, velocidade);
     }
 
-    if (acuraciaM.compareTo(ACURACIA_MAXIMA_M) > 0) {
+    if (acuraciaM.compareTo(LimitesCheckin.ACURACIA_MAXIMA_M) > 0) {
       return new Avaliacao(
           Veredito.REJEITADO,
           MotivoRejeicaoCheckin.ACURACIA_INSUFICIENTE,
-          MOTIVO_ACURACIA.formatted(emMetros(acuraciaM), ACURACIA_MAXIMA_M.toPlainString()),
+          MOTIVO_ACURACIA.formatted(
+              emMetros(acuraciaM), LimitesCheckin.ACURACIA_MAXIMA_M.toPlainString()),
           velocidade);
     }
 

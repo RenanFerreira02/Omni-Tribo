@@ -22,11 +22,20 @@ public class SenhaConfig {
   }
 
   private Argon2PasswordEncoder argon2Encoder() {
-    // Parâmetros Argon2id — OWASP Password Storage Cheat Sheet, configuração C (conservadora):
-    //   memória 16 MB (16384 KiB), 2 iterações, paralelismo 1, salt 16 B, hash 32 B.
-    // Custo típico em dev: ~80-120 ms — inibe brute-force offline mesmo com GPU.
-    // Para produção com hardware dedicado: aumentar memória para 64 MB e iterações para 3.
+    // Parâmetros Argon2id — MÍNIMO do OWASP Password Storage Cheat Sheet para Argon2id:
+    //   m = 19456 KiB (19 MB), t = 2, p = 1, salt 16 B, hash 32 B.
+    //
+    // Era 16384 KiB, logo ABAIXO do mínimo recomendado. Subir não invalida nada: o Argon2 carrega
+    // os próprios parâmetros dentro do hash, então senha antiga continua conferindo com m=16384 e
+    // só a próxima gravação usa o valor novo.
+    //
+    // O custo é maior do que parece e vale saber por quê: o login gasta um Argon2 SEMPRE, inclusive
+    // quando o e-mail não existe (o hashDummy de AutenticacaoService, que fecha o oráculo de
+    // tempo).
+    // Então ~20% a mais de latência aqui vale para todo login e todo registro — e é exatamente por
+    // isso que o bloqueio progressivo e o rate limit precisam estar íntegros: sem eles, este custo
+    // trabalha contra o defensor.
     // Referência: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
-    return new Argon2PasswordEncoder(16, 32, 1, 16384, 2);
+    return new Argon2PasswordEncoder(16, 32, 1, 19456, 2);
   }
 }

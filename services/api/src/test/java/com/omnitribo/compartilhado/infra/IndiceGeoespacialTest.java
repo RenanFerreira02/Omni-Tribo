@@ -105,15 +105,16 @@ class IndiceGeoespacialTest extends TesteIntegracaoBase {
   }
 
   /**
-   * Roda o SQL de produção verbatim — a constante de {@link ConsultasGeoespaciais}, não uma cópia.
-   * Se a query mudar e parar de usar o índice, este teste quebra; uma cópia local silenciaria isso.
+   * Roda o SQL de produção verbatim — a constante de {@link ConsultasGeoespaciaisPostgis}, não uma
+   * cópia. Se a query mudar e parar de usar o índice, este teste quebra; uma cópia local
+   * silenciaria isso.
    *
    * <p>Os parâmetros nomeados viram placeholders posicionais porque EXPLAIN aqui vai por
    * JdbcTemplate. Continuam bindados — nenhum valor entra por concatenação.
    */
   private String explicarConsultaDeProducao() {
     String sqlPosicional =
-        ConsultasGeoespaciais.SQL_MISSOES_NO_RAIO
+        ConsultasGeoespaciaisPostgis.SQL_MISSOES_NO_RAIO
             .replace(":lon", "?")
             .replace(":lat", "?")
             .replace(":raio", "?")

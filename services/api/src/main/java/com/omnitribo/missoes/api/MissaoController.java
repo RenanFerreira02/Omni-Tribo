@@ -295,9 +295,10 @@ public class MissaoController {
     return missaoService.contestar(id, ator(principal, autenticacao), motivo(corpo));
   }
 
-  // ─── Contrato publicado, implementação em fase futura ──────────────────────────────────────
-  // Só o check-in continua pendente (F6). Ele valida autorização (403) e transição (409) antes de
-  // responder 501: o contrato de erro já é o definitivo, então o app mobile integra agora.
+  // ─── Check-in geolocalizado ────────────────────────────────────────────────────────────────
+  // A ordem aqui é 403 → sondagem de idempotência → 409 → gravação, e não a 403 → 409 → 422 do
+  // resto da API: um replay legítimo chega com a missão já em AGUARDANDO_CONFIRMACAO e levaria 409
+  // se a sondagem viesse depois. Ver services/api/CLAUDE.md.
 
   @PostMapping("/{id}/checkin")
   @Operation(
@@ -400,6 +401,32 @@ public class MissaoController {
       @AuthenticationPrincipal AutenticadoPrincipal principal,
       Authentication autenticacao) {
     return missaoService.resolverDisputa(id, ator(principal, autenticacao), request);
+  }
+
+  @PostMapping("/{id}/destravar")
+  @PreAuthorize("hasRole('ADMIN')")
+  @Operation(
+      summary = "Destravar missão parada",
+      description =
+          "EM_ANDAMENTO ou AGUARDANDO_CONFIRMACAO → CANCELADA, estornando o pote aos "
+              + "financiadores. Exclusivo de ADMIN. Existe porque a varredura automática resolve o "
+              + "caso comum por prazo, não o excepcional — missão em disputa silenciosa, ou parada "
+              + "por um motivo que a regra de prazo não previu. A justificativa é obrigatória e "
+              + "fica na trilha: destravar é ato discricionário e precisa de motivo registrado.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Missão destravada e pote estornado"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito")
+  })
+  public MissaoResponse destravar(
+      @PathVariable UUID id,
+      @Valid @RequestBody DestravarMissaoRequest request,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    return missaoService.destravar(id, ator(principal, autenticacao), request.justificativa());
   }
 
   // ─── Helpers privados ──────────────────────────────────────────────────────────────────────

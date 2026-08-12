@@ -15,8 +15,6 @@ import org.springframework.data.repository.query.Param;
 
 public interface OutboxRepository extends JpaRepository<Outbox, UUID> {
 
-  List<Outbox> findByPublicadoEmIsNullOrderByCriadoEmAsc();
-
   /**
    * Lote de eventos pendentes e já elegíveis, travado com SKIP LOCKED.
    *

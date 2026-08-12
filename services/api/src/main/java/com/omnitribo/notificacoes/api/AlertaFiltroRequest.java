@@ -18,15 +18,27 @@ public record AlertaFiltroRequest(
     @Schema(description = "Quando true, devolve só o que ainda não foi lido")
         Boolean apenasNaoLidos) {
 
-  public int paginaOuPrimeira() {
-    return pagina == null ? 0 : pagina;
-  }
-
-  public int tamanhoOuPadrao() {
-    return tamanho == null ? 20 : tamanho;
-  }
-
-  public boolean apenasNaoLidosOuFalso() {
-    return Boolean.TRUE.equals(apenasNaoLidos);
+  /**
+   * Defaults no construtor compacto, como em {@code MissaoFiltroRequest} e {@code
+   * LancamentoFiltroRequest}.
+   *
+   * <p>Antes os defaults viviam em acessores auxiliares e os componentes do record continuavam
+   * podendo devolver null — quem chamasse {@code pagina()}, que é o nome óbvio, levava NPE. Aqui os
+   * três nunca são nulos depois da construção, e não há dois jeitos de ler o mesmo campo.
+   *
+   * <p>{@code if} e não ternário: {@code x == null ? CONSTANTE_INT : x} desempacota o Integer e o
+   * reempacota em seguida, e o SpotBugs reprova o build com {@code
+   * BX_UNBOXING_IMMEDIATELY_REBOXED}.
+   */
+  public AlertaFiltroRequest {
+    if (pagina == null) {
+      pagina = 0;
+    }
+    if (tamanho == null) {
+      tamanho = 20;
+    }
+    if (apenasNaoLidos == null) {
+      apenasNaoLidos = false;
+    }
   }
 }

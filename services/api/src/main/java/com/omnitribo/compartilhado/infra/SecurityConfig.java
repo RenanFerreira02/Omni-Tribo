@@ -1,6 +1,7 @@
 package com.omnitribo.compartilhado.infra;
 
 import com.omnitribo.compartilhado.api.TipoProblema;
+import com.omnitribo.identidade.api.ConsultaSessao;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -60,15 +61,18 @@ public class SecurityConfig {
 
   private final JwtService jwtService;
   private final RateLimitFilter rateLimitFilter;
+  private final ConsultaSessao consultaSessao;
 
   @Value("${app.cors.origens-permitidas}")
   private String origensPermitidas;
 
   // EI_EXPOSE_REP2: RateLimitFilter é singleton Spring — não será mutado pelo chamador.
   @SuppressFBWarnings("EI_EXPOSE_REP2")
-  public SecurityConfig(JwtService jwtService, RateLimitFilter rateLimitFilter) {
+  public SecurityConfig(
+      JwtService jwtService, RateLimitFilter rateLimitFilter, ConsultaSessao consultaSessao) {
     this.jwtService = jwtService;
     this.rateLimitFilter = rateLimitFilter;
+    this.consultaSessao = consultaSessao;
   }
 
   /**
@@ -163,12 +167,18 @@ public class SecurityConfig {
         // impressão de que esta cadeia os atende, e alguém removeria a outra achando redundante.
         .authorizeHttpRequests(
             auth ->
+                // `/api/v1/webhooks/**` SAIU desta lista. Era o único `/**` da cadeia, e o
+                // comentário ao lado afirmava que o HMAC "foi implementado na F10" — não foi:
+                // não existe controller de webhook nem HMAC em lugar nenhum do código. Enquanto
+                // não existe controller o comportamento é 404 dos dois jeitos; a diferença é que,
+                // com o matcher aqui, o primeiro controller de webhook nasceria ANÔNIMO, e o
+                // comentário garantiria que o revisor não desconfiasse. Quando o webhook chegar,
+                // ele nasce autenticado e a isenção é reintroduzida JUNTO com o HMAC, não antes.
                 auth.requestMatchers(
                         "/api/v1/auth/login",
                         "/api/v1/auth/registrar",
                         "/api/v1/auth/refresh",
-                        "/api/v1/ping", // health check
-                        "/api/v1/webhooks/**" // HMAC próprio implementado na F10
+                        "/api/v1/ping" // health check
                         )
                     .permitAll()
                     .anyRequest()
@@ -178,7 +188,7 @@ public class SecurityConfig {
         // que o Spring Boot os registre também como filtros de servlet (dupla execução).
         // Ordem: RateLimit → Jwt (rate limiting bloqueia antes de qualquer parse de token).
         .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
-        .addFilterAfter(new JwtAuthFilter(jwtService), RateLimitFilter.class)
+        .addFilterAfter(new JwtAuthFilter(jwtService, consultaSessao), RateLimitFilter.class)
 
         // Handlers customizados: retornam ProblemDetail (RFC 9457) em vez do HTML padrão.
         .exceptionHandling(
@@ -211,11 +221,25 @@ public class SecurityConfig {
     return http.build();
   }
 
-  /** CORS: lista explícita. Wildcard ('*') anularia a proteção same-origin em browsers. */
+  /**
+   * CORS: lista explícita. Wildcard ({@code *}) anularia a proteção same-origin em browsers.
+   *
+   * <p>O {@code trim()} não é cosmético. {@code CORS_ORIGENS="https://a.com, https://b.com"} —
+   * escrito com o espaço que qualquer pessoa põe depois da vírgula — produzia a origem literal
+   * {@code " https://b.com"}, que jamais casa com o header {@code Origin}. E a falha só aparece no
+   * console do browser: o servidor responde 200 e não loga nada.
+   *
+   * <p>Origem vazia é descartada em vez de virar entrada inútil na lista, para que uma vírgula
+   * sobrando no fim da variável não produza uma origem {@code ""}.
+   */
   @Bean
   CorsConfigurationSource corsConfigSource() {
     CorsConfiguration config = new CorsConfiguration();
-    List<String> origens = Arrays.asList(origensPermitidas.split(","));
+    List<String> origens =
+        Arrays.stream(origensPermitidas.split(","))
+            .map(String::trim)
+            .filter(o -> !o.isEmpty())
+            .toList();
     config.setAllowedOrigins(origens);
     config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     config.setAllowedHeaders(

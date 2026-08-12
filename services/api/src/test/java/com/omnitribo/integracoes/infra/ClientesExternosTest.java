@@ -48,7 +48,7 @@ class ClientesExternosTest {
                 MediaType.APPLICATION_JSON));
 
     ClimaResponse clima =
-        new ClienteOpenMeteo(builder, "http://provedor.teste")
+        new ClienteOpenMeteo(builder, "http://provedor.teste", 8)
             .consultar(new BigDecimal("-23.56"), new BigDecimal("-46.69"));
 
     assertThat(clima.temperaturaC()).isEqualByComparingTo("21.3");
@@ -75,7 +75,7 @@ class ClientesExternosTest {
                 MediaType.APPLICATION_JSON));
 
     ClimaResponse clima =
-        new ClienteOpenMeteo(builder, "http://provedor.teste")
+        new ClienteOpenMeteo(builder, "http://provedor.teste", 8)
             .consultar(new BigDecimal("-23.56"), new BigDecimal("-46.69"));
 
     // A temperatura é o dado; a legenda é decoração. Um código novo do provedor não pode custar a
@@ -94,7 +94,7 @@ class ClientesExternosTest {
 
     assertThatThrownBy(
             () ->
-                new ClienteOpenMeteo(builder, "http://provedor.teste")
+                new ClienteOpenMeteo(builder, "http://provedor.teste", 8)
                     .consultar(new BigDecimal("-23.56"), new BigDecimal("-46.69")))
         .isInstanceOf(ServicoExternoIndisponivelException.class)
         // A mensagem não pode conter host, status nem corpo do provedor: isso descreveria a nossa
@@ -112,7 +112,7 @@ class ClientesExternosTest {
 
     assertThatThrownBy(
             () ->
-                new ClienteOpenMeteo(builder, "http://provedor.teste")
+                new ClienteOpenMeteo(builder, "http://provedor.teste", 8)
                     .consultar(new BigDecimal("-23.56"), new BigDecimal("-46.69")))
         .isInstanceOf(ServicoExternoIndisponivelException.class);
   }
@@ -134,7 +134,7 @@ class ClientesExternosTest {
                 MediaType.APPLICATION_JSON));
 
     Optional<EnderecoResponse> endereco =
-        new ClienteViaCep(builder, "http://provedor.teste").buscar("01001000");
+        new ClienteViaCep(builder, "http://provedor.teste", 8).buscar("01001000");
 
     assertThat(endereco).isPresent();
     // Sem hífen: a validação de CriarMissaoRequest é \d{8}, e devolver "01001-000" faria o
@@ -156,7 +156,7 @@ class ClientesExternosTest {
         .expect(requestTo(Matchers.containsString("/ws/99999999/json/")))
         .andRespond(withSuccess("{\"erro\":\"true\"}", MediaType.APPLICATION_JSON));
 
-    assertThat(new ClienteViaCep(builder, "http://provedor.teste").buscar("99999999")).isEmpty();
+    assertThat(new ClienteViaCep(builder, "http://provedor.teste", 8).buscar("99999999")).isEmpty();
   }
 
   /** E o mesmo campo já veio como booleano do provedor — por isso ele é tipado como Object. */
@@ -168,7 +168,7 @@ class ClientesExternosTest {
         .expect(requestTo(Matchers.containsString("/ws/99999999/json/")))
         .andRespond(withSuccess("{\"erro\":true}", MediaType.APPLICATION_JSON));
 
-    assertThat(new ClienteViaCep(builder, "http://provedor.teste").buscar("99999999")).isEmpty();
+    assertThat(new ClienteViaCep(builder, "http://provedor.teste", 8).buscar("99999999")).isEmpty();
   }
 
   @Test
@@ -179,7 +179,8 @@ class ClientesExternosTest {
 
     // A distinção importa na tela: "CEP não encontrado" manda o usuário reescrever um número
     // correto várias vezes, quando o problema é a internet.
-    assertThatThrownBy(() -> new ClienteViaCep(builder, "http://provedor.teste").buscar("01001000"))
+    assertThatThrownBy(
+            () -> new ClienteViaCep(builder, "http://provedor.teste", 8).buscar("01001000"))
         .isInstanceOf(ServicoExternoIndisponivelException.class);
   }
 }

@@ -1,5 +1,6 @@
 package com.omnitribo.compartilhado.infra;
 
+import com.omnitribo.compartilhado.api.EmissorDeToken;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
@@ -24,7 +25,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 @EnableConfigurationProperties(JwtProperties.class)
-public class JwtService {
+public class JwtService implements EmissorDeToken {
 
   private final JwtProperties props;
   private PrivateKey privateKey;
@@ -47,11 +48,17 @@ public class JwtService {
   }
 
   /** Emite um access token RS256 para o usuário, com TTL configurado em app.jwt.ttl-access. */
+  @Override
   public String emitirAccessToken(UUID usuarioId, String email, String papel) {
     Instant agora = Instant.now();
     return Jwts.builder()
         .subject(usuarioId.toString())
-        // jti aleatório por token: permite blocklist individual no futuro sem estado global.
+        // jti aleatório por token. ATENÇÃO: nada o verifica hoje, e não existe blocklist — este
+        // claim é uma opção mantida aberta, não uma defesa. A revogação que existe é por CONTA, não
+        // por token: o JwtAuthFilter consulta ConsultaSessao a cada requisição, e é isso que barra
+        // conta anonimizada e ADMIN rebaixado. Revogar um token específico (logout de um aparelho
+        // invalidando o access token daquele aparelho) exigiria estado persistente ou distribuído e
+        // ficou fora do MVP — ver ADR 0016.
         .id(UUID.randomUUID().toString())
         .claim("email", email)
         .claim("papel", papel)

@@ -42,7 +42,7 @@ class RegistroRateLimitTest extends TesteIntegracaoMvcBase {
       mockMvc
           .perform(
               post("/api/v1/auth/registrar")
-                  .header("X-Forwarded-For", ip)
+                  .with(vindoDe(ip))
                   .contentType(MediaType.APPLICATION_JSON)
                   .content(corpoRegistro()))
           .andExpect(status().isCreated());
@@ -51,7 +51,7 @@ class RegistroRateLimitTest extends TesteIntegracaoMvcBase {
     mockMvc
         .perform(
             post("/api/v1/auth/registrar")
-                .header("X-Forwarded-For", ip)
+                .with(vindoDe(ip))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(corpoRegistro()))
         .andExpect(status().isTooManyRequests())

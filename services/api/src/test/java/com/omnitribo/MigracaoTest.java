@@ -237,9 +237,8 @@ class MigracaoTest extends TesteIntegracaoBase {
    * de uma migration não quebraria build nenhum, e a garantia de imutabilidade do ledger e da
    * trilha de auditoria — que é argumento de defesa oral — sumiria em silêncio.
    *
-   * <p><b>Este teste prova que o papel está correto, NÃO que a aplicação o use.</b> Hoje o
-   * datasource conecta como {@code omnitribo}, dono das tabelas, para quem o REVOKE não vale — a
-   * proteção existe no banco e está desligada em runtime. Ver Pendências conhecidas no CLAUDE.md.
+   * <p>Prova que o PAPEL está correto no catálogo. Que a aplicação de fato o use é o teste seguinte
+   * — os dois juntos é que fecham a garantia, e por muito tempo só existiu este.
    */
   @Test
   void tabelas_append_only_negam_update_e_delete_ao_papel_de_aplicacao() {
@@ -262,5 +261,113 @@ class MigracaoTest extends TesteIntegracaoBase {
           .as("%s é append-only: UPDATE/DELETE devem estar revogados de omnitribo_app", tabela)
           .doesNotContain("UPDATE", "DELETE");
     }
+  }
+
+  /**
+   * A imutabilidade do ledger valendo em RUNTIME — a metade que faltava da Pendência #1.
+   *
+   * <p>O teste acima lê o catálogo; este usa o datasource DA APLICAÇÃO e tenta a operação de
+   * verdade. A diferença entre os dois é toda a diferença entre uma proteção que existe e uma que
+   * está ligada: enquanto a aplicação conectava como o DONO das tabelas, o {@code REVOKE UPDATE,
+   * DELETE} das migrations não valia para ela — GRANT e REVOKE não se aplicam ao dono — e a
+   * imutabilidade do ledger dependia só da disciplina do código.
+   *
+   * <p>{@code WHERE false} porque o PostgreSQL confere privilégio ANTES de avaliar o predicado:
+   * nenhuma linha corre risco, e o erro é o mesmo que uma tentativa real produziria.
+   *
+   * <p>Usa {@code jdbcTemplateDaAplicacao}, não o {@code jdbcTemplate} injetado — este último é o
+   * de OPERADOR ({@code @Primary} em {@code OperadorBancoTestConfig}), que conecta como dono
+   * justamente para poder limpar tabela append-only entre casos. Escrever o teste com ele passaria
+   * sem provar nada.
+   */
+  @Test
+  void aplicacao_nao_consegue_apagar_nem_alterar_o_ledger_em_runtime() {
+    JdbcTemplate daAplicacao = jdbcTemplateDaAplicacao();
+
+    for (String tabela : List.of("lancamento", "auditoria", "checkin", "missao_evento")) {
+      assertThat(sqlStateAoTentar(daAplicacao, "DELETE FROM " + tabela + " WHERE false"))
+          .as("%s: a aplicação não pode APAGAR linha de tabela append-only", tabela)
+          .isEqualTo(PRIVILEGIO_INSUFICIENTE);
+
+      assertThat(
+              sqlStateAoTentar(
+                  daAplicacao, "UPDATE " + tabela + " SET criado_em = now() WHERE false"))
+          .as("%s: a aplicação não pode ALTERAR linha de tabela append-only", tabela)
+          .isEqualTo(PRIVILEGIO_INSUFICIENTE);
+    }
+  }
+
+  /** {@code insufficient_privilege} do PostgreSQL. */
+  private static final String PRIVILEGIO_INSUFICIENTE = "42501";
+
+  /**
+   * SQLState da recusa, ou null se o comando passou.
+   *
+   * <p>Compara SQLState e não texto: a mensagem do PostgreSQL é traduzida conforme o locale do
+   * servidor ("permission denied" / "permissão negada"), e um teste que dependesse dela quebraria
+   * numa imagem com locale diferente. O Spring ainda embrulha tudo numa {@code
+   * BadSqlGrammarException} cujo texto é só o SQL, então a informação real está na {@code
+   * SQLException} da cadeia de causas.
+   */
+  private static String sqlStateAoTentar(JdbcTemplate jdbc, String sql) {
+    try {
+      jdbc.update(sql);
+      return null;
+    } catch (RuntimeException e) {
+      for (Throwable causa = e; causa != null; causa = causa.getCause()) {
+        if (causa instanceof java.sql.SQLException sqlException) {
+          return sqlException.getSQLState();
+        }
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Toda tabela precisa de pelo menos SELECT para {@code omnitribo_app} — e este teste é
+   * OBRIGATÓRIO, não zelo.
+   *
+   * <p>{@code ddl-auto: validate} NÃO cobre isso. O Hibernate valida por {@code
+   * DatabaseMetaData.getTables()}, que no driver PostgreSQL lê {@code pg_catalog} — world-readable.
+   * Uma tabela nova sem {@code GRANT} passa no validate, o contexto sobe normalmente, e o erro só
+   * aparece no primeiro {@code SELECT} em runtime, como 500 para o usuário. Aqui vira build
+   * vermelho.
+   */
+  @Test
+  void toda_tabela_do_schema_tem_ao_menos_SELECT_para_a_aplicacao() {
+    List<String> semAcesso =
+        jdbcTemplate.queryForList(
+            """
+            SELECT t.table_name
+              FROM information_schema.tables t
+             WHERE t.table_schema = 'public'
+               AND t.table_type = 'BASE TABLE'
+               -- flyway_schema_history é do Flyway, que conecta com o usuário dono; spatial_ref_sys
+               -- é catálogo do PostGIS, criado pela extensão. Nenhuma das duas é schema NOSSO, e a
+               -- aplicação não lê nenhuma delas.
+               AND t.table_name NOT IN ('flyway_schema_history', 'spatial_ref_sys')
+               AND NOT EXISTS (
+                     SELECT 1 FROM information_schema.role_table_grants g
+                      WHERE g.grantee = 'omnitribo_app'
+                        AND g.table_name = t.table_name
+                        AND g.privilege_type = 'SELECT')
+             ORDER BY t.table_name
+            """,
+            String.class);
+
+    assertThat(semAcesso)
+        .as(
+            "tabelas sem GRANT SELECT para omnitribo_app — passariam no ddl-auto e falhariam em 500")
+        .isEmpty();
+  }
+
+  /** Datasource da APLICAÇÃO, com o papel restrito. Ver o javadoc do teste que o usa. */
+  private static JdbcTemplate jdbcTemplateDaAplicacao() {
+    return new JdbcTemplate(
+        org.springframework.boot.jdbc.DataSourceBuilder.create()
+            .url(POSTGRES.getJdbcUrl())
+            .username(APP_USUARIO)
+            .password(APP_SENHA)
+            .build());
   }
 }

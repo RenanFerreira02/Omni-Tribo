@@ -25,18 +25,27 @@ public class ClienteViaCep implements FonteEndereco {
   private static final Logger log = LoggerFactory.getLogger(ClienteViaCep.class);
 
   private final RestClient http;
+  private final LimiteDeChamadasExternas limite;
 
   public ClienteViaCep(
       RestClient.Builder builder,
-      @Value("${app.integracoes.endereco.base-url:https://viacep.com.br}") String baseUrl) {
+      @Value("${app.integracoes.endereco.base-url:https://viacep.com.br}") String baseUrl,
+      @Value("${app.integracoes.endereco.chamadas-simultaneas:8}") int simultaneas) {
     this.http = builder.baseUrl(baseUrl).build();
+    this.limite = new LimiteDeChamadasExternas("ViaCEP", simultaneas);
   }
 
   @Override
   public Optional<EnderecoResponse> buscar(String cep) {
     Resposta corpo;
     try {
-      corpo = http.get().uri("/ws/{cep}/json/", cep).retrieve().body(Resposta.class);
+      // O template de URI (`{cep}`) é o que fecha SSRF e path traversal: o valor entra como
+      // parâmetro codificado, nunca concatenado. A validação \d{8} no controller vem antes.
+      corpo =
+          limite.executar(
+              () -> http.get().uri("/ws/{cep}/json/", cep).retrieve().body(Resposta.class));
+    } catch (ServicoExternoIndisponivelException e) {
+      throw e; // Já é o 503 certo, vindo do bulkhead — não reembrulhar nem logar de novo.
     } catch (RuntimeException e) {
       log.warn("Falha ao consultar o provedor de CEP: {}", e.toString());
       throw new ServicoExternoIndisponivelException(

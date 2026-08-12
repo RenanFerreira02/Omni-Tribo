@@ -3,6 +3,7 @@ package com.omnitribo.identidade.api;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -110,6 +111,33 @@ class LgpdControllerTest extends TesteIntegracaoMvcBase {
   @Test
   void exportacao_sem_token_responde_401() throws Exception {
     mockMvc.perform(get(BASE + "/dados")).andExpect(status().isUnauthorized());
+  }
+
+  /**
+   * O nível do arquivo LGPD tem de bater com o do perfil — e não batia.
+   *
+   * <p>{@code GET /usuarios/me} DERIVA o nível por {@code RegraNivel}; a exportação lia a coluna
+   * cache {@code usuario.nivel}. Para a alice do seed, um respondia 2 e o outro 3: duas respostas
+   * para a mesma pergunta, e a que ia no arquivo de direito do titular era a errada, porque a
+   * coluna é cache recalculado a cada concessão e a fórmula é a fonte de verdade.
+   */
+  @Test
+  void nivel_da_exportacao_bate_com_o_do_perfil() throws Exception {
+    Integer doPerfil =
+        JSON.readTree(
+                mockMvc
+                    .perform(autenticado(get(BASE), ALICE_ID))
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString())
+            .get("nivel")
+            .asInt();
+
+    mockMvc
+        .perform(autenticado(get(BASE + "/dados"), ALICE_ID))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.identidade[0].nivel").value(doPerfil));
   }
 
   // ─── Consentimentos ────────────────────────────────────────────────────────────────────────
@@ -227,8 +255,21 @@ class LgpdControllerTest extends TesteIntegracaoMvcBase {
    * O access token vive 15 minutos e sobrevive à exclusão. Sem este filtro, a tela de perfil
    * mostraria "Usuário removido" com o XP intacto — o fantasma da conta que acabou de ser apagada.
    */
+  /**
+   * Depois da anonimização, o MESMO access token para de funcionar — 401, no filtro.
+   *
+   * <p>Este é o teste da Pendência #3, e ele mudou de 404 para 401 porque a correção mudou a
+   * CAMADA. Antes, o token continuava autenticando pelos 15 minutos de TTL e só o {@code
+   * PerfilService} recusava, com 404; qualquer endpoint que não tivesse esse filtro próprio seguia
+   * escrevendo — foi medido, {@code POST /api/v1/missoes} respondia 201 com {@code criadorId} do
+   * usuário já apagado. Agora o {@code JwtAuthFilter} consulta o estado da conta e a requisição não
+   * chega a controller nenhum, seja qual for.
+   *
+   * <p>O {@code .filter(u -> !u.anonimizado())} de {@code PerfilService} continua lá, e passa a ser
+   * defesa em profundidade: inalcançável por HTTP, mas correta se alguém chamar o serviço direto.
+   */
   @Test
-  void perfil_de_conta_anonimizada_responde_404() throws Exception {
+  void conta_anonimizada_perde_a_sessao_no_mesmo_token() throws Exception {
     UUID vitima = criarUsuarioDescartavel();
 
     mockMvc
@@ -238,7 +279,51 @@ class LgpdControllerTest extends TesteIntegracaoMvcBase {
                 .content("{\"senha\":\"" + SENHA + "\"}"))
         .andExpect(status().isNoContent());
 
-    mockMvc.perform(autenticado(get(BASE), vitima)).andExpect(status().isNotFound());
+    mockMvc
+        .perform(autenticado(get(BASE), vitima))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.type").value("https://omnitribo.dev/problemas/nao-autenticado"));
+  }
+
+  /**
+   * E a sessão morre para QUALQUER endpoint, não só para o perfil — que era o buraco real.
+   *
+   * <p>Reproduz a medição da auditoria do mobile: com o token emitido ANTES do DELETE, {@code POST
+   * /api/v1/missoes} respondia <b>201</b>. Agora responde 401 e nenhuma missão é criada.
+   */
+  @Test
+  void conta_anonimizada_nao_escreve_com_token_antigo() throws Exception {
+    UUID vitima = criarUsuarioDescartavel();
+    Long missoesAntes =
+        jdbcTemplate.queryForObject(
+            "SELECT count(*) FROM missao WHERE criador_id = ?", Long.class, vitima);
+
+    mockMvc
+        .perform(
+            autenticado(delete(BASE), vitima)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"senha\":\"" + SENHA + "\"}"))
+        .andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(
+            autenticado(post("/api/v1/missoes"), vitima)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {"titulo":"Missão de uma conta apagada",
+                     "descricao":"Não deveria ser criada por quem pediu para ser esquecido.",
+                     "categoria":"AJUDA","complexidade":"BAIXA",
+                     "origemLat":-23.56,"origemLon":-46.69,"raioCheckinM":100,
+                     "janelaFim":"2030-01-01T00:00:00Z"}
+                    """))
+        .andExpect(status().isUnauthorized());
+
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM missao WHERE criador_id = ?", Long.class, vitima))
+        .as("conta anonimizada não pode criar missão com token emitido antes do DELETE")
+        .isEqualTo(missoesAntes);
   }
 
   @Test
@@ -271,21 +356,45 @@ class LgpdControllerTest extends TesteIntegracaoMvcBase {
         .andExpect(status().isBadRequest());
   }
 
-  /** Retry de rede sobre operação irreversível não pode devolver erro. */
+  /**
+   * Retry de exclusão não corrompe o que já foi anonimizado.
+   *
+   * <p>A propriedade testada continua a mesma; o que mudou é COMO ela é observável. Antes as duas
+   * chamadas devolviam 204, e o no-op idempotente do serviço era visível por HTTP — mas só porque o
+   * token de uma conta já anonimizada continuava autenticando, que é exatamente o defeito da
+   * Pendência #3. Com a sessão barrada no filtro, a segunda chamada é 401.
+   *
+   * <p>Então o teste passa a afirmar o que de fato importa: a segunda passagem <b>não regerou</b>
+   * e-mail nem handle. Se o {@code if (usuario.anonimizado()) return;} sumisse do serviço e a
+   * sessão voltasse a passar, o e-mail mudaria e este assert quebraria.
+   */
   @Test
-  void excluir_duas_vezes_e_idempotente() throws Exception {
+  void segunda_exclusao_nao_reanonimiza() throws Exception {
     UUID vitima = criarUsuarioDescartavel();
 
-    for (int i = 0; i < 2; i++) {
-      mockMvc
-          .perform(
-              autenticado(delete(BASE), vitima)
-                  .contentType(MediaType.APPLICATION_JSON)
-                  .content("{\"senha\":\"" + SENHA + "\"}"))
-          .andExpect(status().isNoContent());
-    }
+    mockMvc
+        .perform(
+            autenticado(delete(BASE), vitima)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"senha\":\"" + SENHA + "\"}"))
+        .andExpect(status().isNoContent());
 
-    // E a segunda passagem não regerou nome/e-mail: o no-op é real, não uma reanonimização.
+    String emailAposPrimeira =
+        jdbcTemplate.queryForObject("SELECT email FROM usuario WHERE id = ?", String.class, vitima);
+
+    // A sessão morreu junto com a conta: o mesmo token não autentica mais.
+    mockMvc
+        .perform(
+            autenticado(delete(BASE), vitima)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"senha\":\"" + SENHA + "\"}"))
+        .andExpect(status().isUnauthorized());
+
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT email FROM usuario WHERE id = ?", String.class, vitima))
+        .as("e-mail anonimizado não pode ser regerado por uma segunda passagem")
+        .isEqualTo(emailAposPrimeira);
     assertThat(
             jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM usuario WHERE id = ? AND nome = 'Usuário removido'",

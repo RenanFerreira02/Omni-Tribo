@@ -56,7 +56,7 @@ class AuthControllerTest extends TesteIntegracaoMvcBase {
         mockMvc
             .perform(
                 post("/api/v1/auth/login")
-                    .header("X-Forwarded-For", ipTeste)
+                    .with(vindoDe(ipTeste))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(json("email", ALICE_EMAIL, "senha", SENHA_ALICE)))
             .andExpect(status().isOk())
@@ -78,7 +78,7 @@ class AuthControllerTest extends TesteIntegracaoMvcBase {
         mockMvc
             .perform(
                 post("/api/v1/auth/login")
-                    .header("X-Forwarded-For", ipTeste)
+                    .with(vindoDe(ipTeste))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(json("email", ALICE_EMAIL, "senha", "SenhaErrada!123456")))
             .andExpect(status().isUnauthorized())
@@ -98,7 +98,7 @@ class AuthControllerTest extends TesteIntegracaoMvcBase {
         mockMvc
             .perform(
                 post("/api/v1/auth/login")
-                    .header("X-Forwarded-For", ipTeste)
+                    .with(vindoDe(ipTeste))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(json("email", ALICE_EMAIL, "senha", "SenhaErrada!123456")))
             .andReturn();
@@ -107,7 +107,7 @@ class AuthControllerTest extends TesteIntegracaoMvcBase {
         mockMvc
             .perform(
                 post("/api/v1/auth/login")
-                    .header("X-Forwarded-For", ip2)
+                    .with(vindoDe(ip2))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(json("email", "naoexiste@exemplo.com", "senha", "SenhaErrada!123456")))
             .andReturn();
@@ -268,7 +268,7 @@ class AuthControllerTest extends TesteIntegracaoMvcBase {
         mockMvc
             .perform(
                 post("/api/v1/auth/registrar")
-                    .header("X-Forwarded-For", ipTeste)
+                    .with(vindoDe(ipTeste))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(
                         json(
@@ -290,7 +290,7 @@ class AuthControllerTest extends TesteIntegracaoMvcBase {
         mockMvc
             .perform(
                 post("/api/v1/auth/registrar")
-                    .header("X-Forwarded-For", ipTeste)
+                    .with(vindoDe(ipTeste))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(
                         json(
@@ -389,7 +389,7 @@ class AuthControllerTest extends TesteIntegracaoMvcBase {
             .perform(
                 post("/api/v1/auth/login")
                     // IP único por teste: isola buckets de rate limiting entre casos de teste.
-                    .header("X-Forwarded-For", ipTeste)
+                    .with(vindoDe(ipTeste))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(json("email", ALICE_EMAIL, "senha", SENHA_ALICE)))
             .andExpect(status().isOk())

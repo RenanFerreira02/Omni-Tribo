@@ -11,6 +11,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -106,9 +107,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
    * 400 para violação de constraint em parâmetro de método (header, path, query).
    *
    * <p>Existe por causa de uma sutileza do Spring MVC: num controller anotado com
-   * {@code @Validated} — hoje {@code CarteiraController} e {@code TriboFinanciamentoController},
-   * por causa do {@code @NotBlank @Size} no header {@code Idempotency-Key} — a validação de método
-   * embutida do MVC é DESLIGADA e passa a vir do proxy AOP, que lança {@code
+   * {@code @Validated} — hoje são SEIS ({@code CarteiraController}, {@code
+   * TriboFinanciamentoController}, {@code PontoCustodiaController}, {@code AlertaController},
+   * {@code IntegracoesController} e {@code UsuarioController}), seja pelo {@code @NotBlank @Size}
+   * no header {@code Idempotency-Key}, seja por constraint em {@code @RequestParam} — a validação
+   * de método embutida do MVC é DESLIGADA e passa a vir do proxy AOP, que lança {@code
    * ConstraintViolationException} em vez de {@code HandlerMethodValidationException}.
    *
    * <p>Sem este handler ela caía no handleGenerico: 500 com {@code log.error} e stack trace para
@@ -193,23 +196,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
   }
 
   /**
-   * Endpoints com contrato publicado e implementação prevista para fase futura (F6/F7). Loga em
-   * info, e não em error: um 501 aqui é planejado, não é incidente.
-   */
-  @ExceptionHandler(UnsupportedOperationException.class)
-  ProblemDetail handleNaoImplementado(
-      UnsupportedOperationException ex, HttpServletRequest request) {
-    log.info("Endpoint ainda não implementado [{}]: {}", request.getRequestURI(), ex.getMessage());
-    ProblemDetail pd =
-        ProblemDetail.forStatusAndDetail(
-            HttpStatus.NOT_IMPLEMENTED, "Funcionalidade ainda não disponível nesta versão da API.");
-    pd.setType(TipoProblema.NAO_IMPLEMENTADO);
-    pd.setInstance(URI.create(request.getRequestURI()));
-    pd.setProperty("traceId", MDC.get("correlationId"));
-    return pd;
-  }
-
-  /**
    * Colisão de @Version nos caminhos que não travam a linha (ex.: PATCH de missão). O aceite
    * concorrente NÃO passa por aqui — ele é serializado por SELECT ... FOR UPDATE e o perdedor
    * recebe TransicaoInvalidaException. Este handler é a rede de segurança para o resto.
@@ -227,6 +213,60 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     pd.setInstance(URI.create(request.getRequestURI()));
     pd.setProperty("traceId", MDC.get("correlationId"));
     return pd;
+  }
+
+  /**
+   * Violação de integridade no banco, ramificada pelo SQLState — e SÓ o 22001 muda de status.
+   *
+   * <p><b>A regra do projeto continua valendo:</b> nada captura {@code
+   * DataIntegrityViolationException} para "tratar" replay de idempotência. Se {@code
+   * uk_lancamento_idempotencia} disparar, é defeito, e continua subindo como 500 por este mesmo
+   * método, pelo caminho genérico. O que muda é um caso só.
+   *
+   * <p>{@code 22001} é {@code string_data_right_truncation}: valor maior que a coluna. Isso não é
+   * defeito do servidor, é requisição malformada — e era acionável <b>sem autenticação</b>, com uma
+   * requisição, por qualquer um: um {@code X-Forwarded-For} de 46 caracteres estourava {@code
+   * auditoria.ip}, e como a auditoria de login grava dentro da transação, TODO login virava 500. Um
+   * {@code traceparent} do W3C fazia o mesmo em {@code correlation_id}, sem má-fé nenhuma.
+   *
+   * <p>O truncamento no construtor de {@code Auditoria} e a allowlist do {@code
+   * CorrelationIdFilter} já tornam esse caminho inalcançável pelos headers. Este handler é a
+   * segunda barreira, para a coluna estreita que alguém adicionar depois sem lembrar da primeira:
+   * 400 em vez de 500, e {@code warn} em vez de {@code error}, para não fabricar incidente falso no
+   * log.
+   */
+  @ExceptionHandler(DataIntegrityViolationException.class)
+  ProblemDetail handleIntegridade(DataIntegrityViolationException ex, HttpServletRequest request) {
+    if (!"22001".equals(sqlState(ex))) {
+      return handleGenerico(ex, request);
+    }
+    log.warn(
+        "Valor excede o tamanho da coluna [traceId={}, uri={}]",
+        MDC.get("correlationId"),
+        request.getRequestURI());
+    ProblemDetail pd =
+        ProblemDetail.forStatusAndDetail(
+            HttpStatus.BAD_REQUEST, "Um dos valores enviados excede o tamanho máximo aceito.");
+    pd.setType(TipoProblema.REQUISICAO_INVALIDA);
+    pd.setInstance(URI.create(request.getRequestURI()));
+    pd.setProperty("traceId", MDC.get("correlationId"));
+    return pd;
+  }
+
+  /**
+   * O SQLState vive na {@code SQLException} lá no fundo da cadeia de causas — o Spring embrulha em
+   * {@code DataIntegrityViolationException}, que não o expõe.
+   */
+  private static String sqlState(Throwable ex) {
+    for (Throwable causa = ex; causa != null; causa = causa.getCause()) {
+      if (causa instanceof java.sql.SQLException sql) {
+        return sql.getSQLState();
+      }
+      if (causa.getCause() == causa) {
+        break;
+      }
+    }
+    return null;
   }
 
   @ExceptionHandler(Exception.class)
