@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 
-import CriarMissao from '../missao/criar';
+import CriarMissao from '../(app)/missao/criar';
 import { PERFIL, missao, problema } from '@/testes/fixtures';
 import { render } from '@/testes/render';
 import { servidor } from '@/testes/servidor';

@@ -31,7 +31,17 @@ interface EstadoSessao {
 
   definirSessao: (tokens: LoginResponse) => Promise<void>;
   definirUsuario: (usuario: MeResponse | null) => void;
-  definirAccessToken: (token: string) => void;
+
+  /**
+   * Esquece a sessão em MEMÓRIA e preserva o refresh no cofre.
+   *
+   * <p>Para quando a rotação falhou por obstáculo TEMPORÁRIO — 429 do rate limit, rede caindo no
+   * boot. O access token já não sobrevive ao processo, então zerar a memória não perde nada; o que
+   * não pode acontecer é apagar o cofre, porque aí uma sessão de 30 dias perfeitamente válida morre
+   * por causa de um limite de um minuto. Use `encerrar` quando a sessão de fato acabou.
+   */
+  limparMemoria: () => void;
+
   encerrar: () => Promise<void>;
   concluirRestauracao: () => void;
 }
@@ -49,7 +59,7 @@ export const useSessao = create<EstadoSessao>((set) => ({
 
   definirUsuario: (usuario) => set({ usuario }),
 
-  definirAccessToken: (token) => set({ accessToken: token }),
+  limparMemoria: () => set({ accessToken: null, refreshToken: null, usuario: null }),
 
   encerrar: async () => {
     await apagarSeguro(CHAVE_REFRESH);

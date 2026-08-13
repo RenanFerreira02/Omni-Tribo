@@ -42,7 +42,28 @@ import { useSessao } from '@/stores/sessao';
  * economizado é uma execução a mais antes do bloqueio.
  */
 
-const descreve = process.env.E2E_API_URL ? describe : describe.skip;
+/**
+ * Falha ALTO quando `E2E_API_URL` não está definida — não pula em silêncio.
+ *
+ * Antes era `process.env.E2E_API_URL ? describe : describe.skip`: sem a variável, os casos eram
+ * pulados e o jest saía com código ZERO. Um `npm run test:e2e` "verde" podia significar nenhum teste
+ * executado — e esta é justamente a suíte que pegaria deriva de contrato entre app e backend, o
+ * defeito que ela existe para achar.
+ *
+ * A instrução vem junto porque o endereço não é adivinhável: dentro do emulador, `localhost` é o
+ * próprio aparelho, não a máquina. Ver `apps/mobile/README.md`.
+ */
+beforeAll(() => {
+  if (!process.env.E2E_API_URL) {
+    throw new Error(
+      'E2E_API_URL não definida. Suba o backend e rode:\n' +
+        '  cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev\n' +
+        '  cd apps/mobile && E2E_API_URL=http://<ip-da-maquina>:8080 npm run test:e2e',
+    );
+  }
+});
+
+const descreve = describe;
 
 /** Pinheiros, na Rua Teodoro Sampaio — mesma região das missões do seed. */
 const ORIGEM = { lat: -23.564, lon: -46.6934 };

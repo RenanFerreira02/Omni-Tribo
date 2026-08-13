@@ -27,6 +27,21 @@ module.exports = defineConfig([
           message:
             'Cor literal é proibida fora de src/theme/tokens.ts. Importe de "@/theme" — ver apps/mobile/CLAUDE.md.',
         },
+        // A OUTRA metade da regra de cor, que faltava. O `CLAUDE.md` diz que "preenchimento usa
+        // `cores`; TEXTO usa `textoAcessivel`" e que "um `color: cores.ambar` novo é regressão" —
+        // mas o lint só pegava hex literal, então `cores.coral` como cor de texto passava limpo.
+        // As duas violações que existiam no app estavam exatamente nesta metade descoberta, e uma
+        // delas era o componente por onde passa TODO erro da interface.
+        //
+        // Os quatro tokens abaixo reprovam em WCAG AA como texto: tinta50 3,54:1, ambar 3,36:1,
+        // coral 3,20:1, verdePrimario 2,7:1. Cada um tem equivalente em `textoAcessivel` (ou
+        // `verdeEscuro`), com o mesmo matiz escurecido até o limiar.
+        {
+          selector:
+            'Property[key.name="color"] > MemberExpression[object.name="cores"][property.name=/^(ambar|coral|tinta50|verdePrimario)$/]',
+          message:
+            'Este token reprova em contraste como TEXTO. Use textoAcessivel.* (ou cores.verdeEscuro) — ver apps/mobile/CLAUDE.md.',
+        },
       ],
     },
   },

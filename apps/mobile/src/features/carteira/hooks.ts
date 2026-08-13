@@ -10,7 +10,6 @@ import type {
 } from '@/api/tipos';
 
 export const chavesCarteira = {
-  raiz: ['carteira'] as const,
   /** Raiz para invalidar saldo e extrato de uma vez depois de uma escrita. */
   todas: ['carteira'] as const,
   saldo: ['carteira', 'saldo'] as const,

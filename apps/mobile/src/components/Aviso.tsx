@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { cores, espaco, raio, tipografia } from '@/theme';
+import { cores, espaco, raio, textoAcessivel, tipografia } from '@/theme';
 
 export type TomAviso = 'informacao' | 'atencao' | 'erro';
 
@@ -37,10 +37,26 @@ export function Aviso({ titulo, mensagem, tom = 'informacao', testID }: Props) {
   );
 }
 
+/**
+ * PREENCHIMENTO usa `cores`; TEXTO usa `textoAcessivel`. É a regra do `CLAUDE.md`, e este componente
+ * era a violação mais cara dela.
+ *
+ * `cores.ambar` dá 3,36:1 e `cores.coral` 3,20:1 sobre os fundos claros — abaixo dos 4,5:1 do WCAG
+ * AA. E o `Aviso` é por onde passa TODO erro do app: check-in recusado, transferência negada,
+ * exclusão de conta, criação de missão. A informação mais crítica da interface estava no pior
+ * contraste dela.
+ *
+ * O lint só proíbe HEX literal, então `cores.coral` passava limpo — a regra que o `CLAUDE.md` diz
+ * ser "aplicada por lint, não por disciplina" cobria metade do problema, e as duas violações que
+ * existiam estavam justamente na metade descoberta. Ver a regra nova em `eslint.config.js`.
+ *
+ * `textoAcessivel` preserva o matiz e só escurece até o limiar: o aviso continua âmbar e o erro
+ * continua coral, agora legíveis.
+ */
 const PALETA: Record<TomAviso, { fundo: string; borda: string; texto: string }> = {
   informacao: { fundo: cores.verdeClaro, borda: cores.verdePrimario, texto: cores.verdeEscuro },
-  atencao: { fundo: cores.ambarClaro, borda: cores.ambar, texto: cores.ambar },
-  erro: { fundo: cores.coralClaro, borda: cores.coral, texto: cores.coral },
+  atencao: { fundo: cores.ambarClaro, borda: cores.ambar, texto: textoAcessivel.ambar },
+  erro: { fundo: cores.coralClaro, borda: cores.coral, texto: textoAcessivel.coral },
 };
 
 const estilos = StyleSheet.create({

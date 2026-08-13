@@ -72,11 +72,20 @@ export const raio = {
 } as const;
 
 export const tipografia = {
+  /**
+   * Números grandes que existem para serem lidos de longe: saldo, XP na tela de entrada, glifo de
+   * onboarding. Estavam como `fontSize` solto em quatro telas — a escala existe justamente para que
+   * "o número grande" seja o MESMO número grande em todas elas.
+   */
+  display: { fontSize: 34, lineHeight: 40, fontWeight: '700' },
+  destaque: { fontSize: 32, lineHeight: 38, fontWeight: '700' },
   titulo: { fontSize: 22, lineHeight: 28, fontWeight: '700' },
   subtitulo: { fontSize: 17, lineHeight: 24, fontWeight: '600' },
   corpo: { fontSize: 15, lineHeight: 22, fontWeight: '400' },
   rotulo: { fontSize: 13, lineHeight: 18, fontWeight: '600' },
   legenda: { fontSize: 12, lineHeight: 16, fontWeight: '400' },
+  /** Glifo das abas. Decorativo — sempre com `accessibilityElementsHidden`. */
+  icone: { fontSize: 20 },
 } as const;
 
 /**

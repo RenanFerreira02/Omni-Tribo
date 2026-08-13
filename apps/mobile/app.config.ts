@@ -15,8 +15,14 @@ const config: ExpoConfig = {
   version: '1.0.0',
   orientation: 'portrait',
   icon: './assets/images/icon.png',
-  // Esquema do deep link. Todo link recebido é entrada NÃO CONFIÁVEL: ver src/lib/deepLink.ts,
-  // que valida esquema, host e formato antes de qualquer navegação.
+  // Esquema do deep link. Todo link recebido é entrada NÃO CONFIÁVEL, e a validação está em
+  // `src/lib/deepLink.ts` (allowlist de rota + UUID no parâmetro), ligada por
+  // `src/features/navegacao/useDeepLink.ts` e coberta por teste.
+  //
+  // Este comentário já descreveu um arquivo que NÃO EXISTIA — o esquema estava registrado, o Expo
+  // Router navegava sozinho para qualquer caminho, e o id descia cru até a URL da API. Se um dia a
+  // validação sair, apague esta linha junto: um comentário que promete defesa inexistente é pior
+  // que a ausência dela, porque impede que alguém procure.
   scheme: 'omnitribo',
   userInterfaceStyle: 'light',
   android: {

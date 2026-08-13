@@ -1,7 +1,7 @@
 import { screen, fireEvent } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 
-import DetalheMissao from '../missao/[id]';
+import DetalheMissao from '../(app)/missao/[id]';
 import { missao, problema } from '@/testes/fixtures';
 import { render } from '@/testes/render';
 import { servidor } from '@/testes/servidor';
@@ -271,5 +271,46 @@ describe('detalhe da missão', () => {
 
     expect(screen.queryByText(/R\$/)).toBeNull();
     expect(screen.queryByText(/BRL/)).toBeNull();
+  });
+
+  // ─── Endereço recortado por participação ──────────────────────────────────────────────────
+
+  /**
+   * Missão de terceiro chega SEM logradouro e SEM CEP — o servidor recorta por participação.
+   *
+   * Antes o tipo declarava `string` e a tela renderizava direto: `<Text>{null}</Text>` não quebra,
+   * mas deixava uma linha vazia no bloco "Onde" que ninguém entendia. Dizer por que está oculto
+   * transforma a ausência em informação e explica o que a pessoa ganha ao aceitar.
+   */
+  it('missão de terceiro explica o endereço oculto em vez de deixar linha vazia', async () => {
+    comMissao({ status: 'ABERTA', criadorId: OUTRO, logradouro: null, cep: null });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('endereco-oculto')).toBeTruthy();
+    // O logradouro sumiu; o bairro CONTINUA visível — é o que orienta a decisão de aceitar sem
+    // identificar a casa. Texto EXATO do logradouro, e não regex: o título desta missão também
+    // menciona "Rua dos Pinheiros", e um regex casaria com ele e passaria por engano.
+    expect(screen.queryByText('Rua dos Pinheiros, 500')).toBeNull();
+    expect(screen.getByText(/Pinheiros, São Paulo/)).toBeTruthy();
+  });
+
+  it('participante vê o endereço completo', async () => {
+    comMissao({ status: 'ACEITA', criadorId: OUTRO, executorId: EU });
+    await render(<DetalheMissao />);
+    await screen.findByTestId('chip-status');
+
+    expect(screen.queryByTestId('endereco-oculto')).toBeNull();
+    expect(screen.getByText('Rua dos Pinheiros, 500')).toBeTruthy();
+  });
+
+  /** A complexidade congelada é o que explica POR QUE a recompensa é aquela. */
+  it('mostra a complexidade e de onde ela veio', async () => {
+    comMissao({ status: 'ABERTA', criadorId: OUTRO, pesoKg: 3.5, volumeL: 20 });
+    await render(<DetalheMissao />);
+
+    const complexidade = await screen.findByTestId('complexidade');
+    expect(complexidade).toHaveTextContent(
+      'Complexidade: Média — calculada a partir de 3.5 kg e 20 L',
+    );
   });
 });

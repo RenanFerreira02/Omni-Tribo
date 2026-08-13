@@ -1,3 +1,4 @@
+import { seg } from './caminho';
 import { cliente } from './cliente';
 import type { AlertaResponse, PaginaResponse } from './tipos';
 import { alertaResponseSchema, paginaSchema } from '@/schemas';
@@ -28,6 +29,6 @@ export async function contarNaoLidos(): Promise<number> {
 
 /** Idempotente no servidor: marcar de novo devolve o mesmo estado, sem erro. */
 export async function marcarAlertaLido(id: string): Promise<AlertaResponse> {
-  const { data } = await cliente.patch<AlertaResponse>(`/alertas/${id}/lido`);
+  const { data } = await cliente.patch<AlertaResponse>(`/alertas/${seg(id)}/lido`);
   return validarEmDev(alertaResponseSchema, data, `PATCH /alertas/${id}/lido`);
 }

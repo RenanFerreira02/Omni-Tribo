@@ -264,12 +264,18 @@ function LinhaLancamento({ lancamento }: { lancamento: LancamentoResponse }) {
         {lancamento.mensagem ? <Text style={estilos.mensagem}>{lancamento.mensagem}</Text> : null}
       </View>
       <View style={estilos.valor}>
-        <Text style={[estilos.sinal, { color: entrada ? cores.verdePrimario : cores.coral }]}>
+        {/* TEXTO usa `textoAcessivel`: `cores.coral` como cor de texto dá 3,20:1, abaixo do mínimo
+            de 4,5:1 — e aqui é o sinal que distingue entrada de saída no extrato, informação que
+            não pode depender de enxergar bem. `verdeEscuro` é a variante de texto do verde, que já
+            atendia. Ver a regra em `src/theme/tokens.ts`. */}
+        <Text
+          style={[estilos.sinal, { color: entrada ? cores.verdeEscuro : textoAcessivel.coral }]}
+        >
           {entrada ? '+' : '−'}
         </Text>
         <SaldoToken
           tokens={lancamento.valorTokens}
-          cor={entrada ? cores.verdePrimario : cores.coral}
+          cor={entrada ? cores.verdeEscuro : textoAcessivel.coral}
         />
       </View>
     </Card>

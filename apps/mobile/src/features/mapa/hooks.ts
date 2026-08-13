@@ -6,7 +6,6 @@ import {
   buscarEnderecoPorCep,
   buscarPontoCustodia,
   buscarTribo,
-  listarTribos,
   pontosCustodiaProximos,
 } from '@/api/lugares';
 import type {
@@ -17,8 +16,10 @@ import type {
 } from '@/api/tipos';
 
 export const chavesLugares = {
-  tribos: ['tribos'] as const,
   tribo: (id: string) => ['tribos', id] as const,
+  /** Detalhe por id. Prefixo PRÓPRIO: `pontos` é busca por raio, entidade diferente — invalidar
+      uma não pode varrer a outra. */
+  ponto: (id: string) => ['ponto-custodia', id] as const,
   pontos: (lat: number, lon: number, raio: number) =>
     // Mesma disciplina do radar de missões: coordenada arredondada na chave, senão cada movimento
     // do mapa cria uma entrada de cache nova.
@@ -26,16 +27,6 @@ export const chavesLugares = {
   clima: (lat: number, lon: number) => ['clima', lat.toFixed(2), lon.toFixed(2)] as const,
   cep: (cep: string) => ['enderecos', cep] as const,
 };
-
-export function useTribos() {
-  return useQuery<TriboResponse[], ErroApi>({
-    queryKey: chavesLugares.tribos,
-    queryFn: listarTribos,
-    // Tribos não mudam durante uma sessão: um bairro não deixa de existir enquanto o app está
-    // aberto.
-    staleTime: 15 * 60_000,
-  });
-}
 
 /** Só o detalhe traz o centro geográfico — é ele que o mapa usa quando não há localização. */
 export function useTribo(id: string | null | undefined) {
@@ -55,7 +46,7 @@ export function useTribo(id: string | null | undefined) {
  */
 export function usePontoCustodia(id: string | null | undefined) {
   return useQuery<PontoCustodiaResponse, ErroApi>({
-    queryKey: ['pontos-custodia', id ?? 'nenhum'],
+    queryKey: chavesLugares.ponto(id ?? 'nenhum'),
     enabled: Boolean(id),
     queryFn: () => buscarPontoCustodia(id!),
     retry: false,
@@ -81,8 +72,13 @@ export function usePontosCustodiaProximos(
  * Clima do card do mapa.
  *
  * `retry: false` porque o modo de falha esperado é o provedor externo fora do ar (503), e insistir
- * três vezes contra um serviço que caiu só atrasa a tela. Quem consome verifica
- * `erro.tipo === 'desconhecido'`/503 e **esconde o card** — clima ausente não é erro de produto.
+ * três vezes contra um serviço que caiu só atrasa a tela. Quem consome renderiza o card apenas
+ * quando há `data`, então qualquer falha — 503, rede, timeout — simplesmente **esconde o card**, sem
+ * precisar ramificar por tipo. Clima ausente não é erro de produto.
+ *
+ * (O comentário anterior dizia que o consumidor verificava `erro.tipo`. Não verifica, e não precisa:
+ * a ausência de `data` já é a condição certa. Descrever um mecanismo que não existe faz quem lê
+ * procurar um `if` que nunca vai achar.)
  *
  * O servidor já cacheia 10 min por célula de ~1,1 km; repetir isso aqui evita ida à rede ao voltar
  * para a aba.

@@ -3,7 +3,7 @@ import { HttpResponse, http } from 'msw';
 import { _limparRotacaoEmVoo, cliente } from '../cliente';
 import { problema } from '@/testes/fixtures';
 import { servidor } from '@/testes/servidor';
-import { useSessao } from '@/stores/sessao';
+import { lerRefreshPersistido, useSessao } from '@/stores/sessao';
 
 const BASE = 'http://api.teste/api/v1';
 
@@ -116,6 +116,47 @@ describe('rotação de refresh no 401', () => {
 
     expect(useSessao.getState().accessToken).toBeNull();
     expect(useSessao.getState().refreshToken).toBeNull();
+    // O COFRE, não só a memória. O título sempre prometeu isto e a asserção não existia — como
+    // `apagarSeguro` engole falha por desenho, um refresh órfão sobrevivendo no keystore deixava o
+    // teste verde. É metade do que ele diz garantir.
+    await expect(lerRefreshPersistido()).resolves.toBeNull();
+  });
+
+  /**
+   * 429 no refresh NÃO pode custar a sessão — este é o teste que falharia antes da correção.
+   *
+   * O backend passou a aplicar rate limit ao `/auth/refresh` (a isenção anterior se apoiava numa
+   * premissa falsa). Como o app tratava qualquer falha da rotação como sessão morta, e `encerrar()`
+   * apaga o keystore, um limite de um minuto destruía um refresh de 30 dias — irreversível.
+   */
+  it('429 na rotação preserva a sessão e o refresh no cofre', async () => {
+    servidor.use(
+      http.get(`${BASE}/carteira`, () => um401()),
+      http.post(`${BASE}/auth/refresh`, () =>
+        HttpResponse.json(problema('limite-requisicoes', 429, 'Muitas tentativas.'), {
+          status: 429,
+        }),
+      ),
+    );
+
+    await expect(cliente.get('/carteira')).rejects.toMatchObject({ tipo: 'naoAutenticado' });
+
+    // A requisição falha — não há token novo para reenviar. Mas a SESSÃO sobrevive:
+    expect(useSessao.getState().refreshToken).toBe('refresh-1');
+    await expect(lerRefreshPersistido()).resolves.toBe('refresh-1');
+  });
+
+  /** Mesma regra para queda de rede: o token continua válido, só não deu para usar agora. */
+  it('falha de rede na rotação preserva a sessão e o refresh no cofre', async () => {
+    servidor.use(
+      http.get(`${BASE}/carteira`, () => um401()),
+      http.post(`${BASE}/auth/refresh`, () => HttpResponse.error()),
+    );
+
+    await expect(cliente.get('/carteira')).rejects.toMatchObject({ tipo: 'naoAutenticado' });
+
+    expect(useSessao.getState().refreshToken).toBe('refresh-1');
+    await expect(lerRefreshPersistido()).resolves.toBe('refresh-1');
   });
 
   it('401 do próprio login NÃO dispara rotação', async () => {

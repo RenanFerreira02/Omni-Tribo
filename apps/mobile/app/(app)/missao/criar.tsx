@@ -6,7 +6,8 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { mensagemDe } from '@/api/erros';
-import type { CategoriaMissao, ComplexidadeMissao, CriarMissaoRequest } from '@/api/tipos';
+import { CATEGORIAS, COMPLEXIDADES, ROTULO_COMPLEXIDADE } from '@/features/missoes/rotulos';
+import type { CriarMissaoRequest } from '@/api/tipos';
 import { Aviso } from '@/components/Aviso';
 import { Botao } from '@/components/Botao';
 import { CampoTexto } from '@/components/CampoTexto';
@@ -23,14 +24,6 @@ import { useDebounce } from '@/lib/debounce';
 import { rotuloCategoria } from '@/lib/formatar';
 import { criarMissaoSchema, type CriarMissaoForm } from '@/schemas';
 import { cores, coresCategoria, espaco, textoAcessivel, tipografia } from '@/theme';
-
-const CATEGORIAS: CategoriaMissao[] = ['ENTREGA', 'COLETA', 'TRIBO', 'AJUDA'];
-const COMPLEXIDADES: ComplexidadeMissao[] = ['LEVE', 'MEDIA', 'PESADA'];
-const ROTULO_COMPLEXIDADE: Record<ComplexidadeMissao, string> = {
-  LEVE: 'Leve',
-  MEDIA: 'Média',
-  PESADA: 'Pesada',
-};
 
 export default function CriarMissao() {
   const router = useRouter();

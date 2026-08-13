@@ -18,7 +18,28 @@ import { useSessao } from '@/stores/sessao';
  */
 
 // Sem MSW: este arquivo roda sob `jest.e2e.config.js`, que não carrega o setup de mocks de rede.
-const descreve = process.env.E2E_API_URL ? describe : describe.skip;
+/**
+ * Falha ALTO quando `E2E_API_URL` não está definida — não pula em silêncio.
+ *
+ * Antes era `process.env.E2E_API_URL ? describe : describe.skip`: sem a variável, os casos eram
+ * pulados e o jest saía com código ZERO. Um `npm run test:e2e` "verde" podia significar nenhum teste
+ * executado — e esta é justamente a suíte que pegaria deriva de contrato entre app e backend, o
+ * defeito que ela existe para achar.
+ *
+ * A instrução vem junto porque o endereço não é adivinhável: dentro do emulador, `localhost` é o
+ * próprio aparelho, não a máquina. Ver `apps/mobile/README.md`.
+ */
+beforeAll(() => {
+  if (!process.env.E2E_API_URL) {
+    throw new Error(
+      'E2E_API_URL não definida. Suba o backend e rode:\n' +
+        '  cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev\n' +
+        '  cd apps/mobile && E2E_API_URL=http://<ip-da-maquina>:8080 npm run test:e2e',
+    );
+  }
+});
+
+const descreve = describe;
 
 descreve('integração com o backend local', () => {
   beforeAll(async () => {

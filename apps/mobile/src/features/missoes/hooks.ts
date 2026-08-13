@@ -1,6 +1,8 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { paraErroApi, type ErroApi } from '@/api/erros';
+import type { ErroApi } from '@/api/erros';
+import { chavesCarteira } from '@/features/carteira/hooks';
+import { chavesPerfil } from '@/features/perfil/hooks';
 import {
   aplicarAcao,
   buscarMissao,
@@ -25,6 +27,9 @@ const TAMANHO_PAGINA = 20;
 
 export const chaves = {
   missoes: ['missoes'] as const,
+  /** Prefixos, para invalidar uma FAMÍLIA sem varrer o detalhe (que já vem correto na resposta). */
+  todasAsListas: ['missoes', 'lista'] as const,
+  todosOsRadares: ['missoes', 'proximas'] as const,
   lista: (categoria?: CategoriaMissao) => ['missoes', 'lista', categoria ?? 'todas'] as const,
   proximas: (lat: number, lon: number, categoria?: CategoriaMissao) =>
     // Coordenada arredondada a 4 casas (~11 m) na chave: sem isso, cada tremida do GPS geraria uma
@@ -80,8 +85,14 @@ export function useMissao(id: string) {
   });
 }
 
-/** Para onde cada ação leva a missão. Usado só na PREVISÃO otimista — a verdade vem do servidor. */
-const STATUS_OTIMISTA: Partial<Record<AcaoMissao, MissaoResponse['status']>> = {
+/**
+ * Para onde cada ação leva a missão. Usado só na PREVISÃO otimista — a verdade vem do servidor.
+ *
+ * EXPORTADO para que `acoes.test.ts` possa cruzar esta tabela com a `MATRIZ` de ações disponíveis.
+ * As duas juntas espelham a máquina de estados do backend, e nada garantia que concordassem: uma
+ * ação oferecida sem previsão aqui deixa o botão sem efeito visível até o servidor responder.
+ */
+export const STATUS_OTIMISTA: Partial<Record<AcaoMissao, MissaoResponse['status']>> = {
   publicar: 'ABERTA',
   aceitar: 'ACEITA',
   iniciar: 'EM_ANDAMENTO',
@@ -140,12 +151,30 @@ export function useAcaoMissao(id: string) {
       // A resposta JÁ é o estado novo: escrever no cache evita um GET redundante e o "pisca" de
       // dado velho enquanto ele volta.
       queryClient.setQueryData(chaves.detalhe(id), missao);
+
+      // Carteira e perfil TAMBÉM mudaram, e não eram invalidados. `confirmar` credita tokens e XP
+      // no servidor; sem isto, quem estivesse com a carteira montada continuava vendo o saldo
+      // anterior — e a recompensa que acabou de entrar só aparecia num remount da aba.
+      queryClient.invalidateQueries({ queryKey: chavesCarteira.todas });
+      queryClient.invalidateQueries({ queryKey: chavesPerfil.perfil });
     },
 
-    onSettled: () => {
-      // Sempre, inclusive no erro: depois de um 409 o estado real é outro, e a tela precisa dele.
-      // As listas também mudaram de composição (a missão saiu de ABERTA, ou voltou para ela).
-      queryClient.invalidateQueries({ queryKey: chaves.missoes });
+    onSettled: (_dados, erro) => {
+      // Só quando FALHOU. Invalidar sempre desfazia o `setQueryData` logo acima — `['missoes']` é
+      // prefixo de `['missoes','detalhe',id]`, então a query da tela ativa era marcada stale e
+      // refetchada na hora. O comentário dizia "evita um GET redundante" e a linha seguinte fazia
+      // o GET acontecer de qualquer jeito.
+      //
+      // No erro a invalidação é necessária de verdade: depois de um 409 o estado real é outro, e
+      // nem o cache nem o update otimista sabem qual é.
+      if (erro) {
+        queryClient.invalidateQueries({ queryKey: chaves.missoes });
+        return;
+      }
+      // No sucesso, só as LISTAS: a composição delas mudou (a missão saiu de ABERTA, ou voltou),
+      // mas o detalhe já está correto pela resposta.
+      queryClient.invalidateQueries({ queryKey: chaves.todasAsListas });
+      queryClient.invalidateQueries({ queryKey: chaves.todosOsRadares });
     },
 
     throwOnError: false,
@@ -198,10 +227,4 @@ export function useCheckin(id: string) {
     },
     throwOnError: false,
   });
-}
-
-/** Normaliza o erro de qualquer um dos hooks acima para o tipo que a UI ramifica. */
-export function erroDe(erro: unknown): ErroApi | null {
-  if (erro === null || erro === undefined) return null;
-  return paraErroApi(erro);
 }

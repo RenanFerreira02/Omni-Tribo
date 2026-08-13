@@ -51,7 +51,9 @@ describe('paraErroApi — uma linha por URI do catálogo', () => {
     ['conflito-concorrencia', 409, 'conflitoConcorrencia'],
     ['regra-negocio-violada', 422, 'regraNegocioViolada'],
     ['limite-requisicoes', 429, 'limiteRequisicoes'],
-    ['nao-implementado', 501, 'naoImplementado'],
+    // `nao-implementado` saiu da lista junto com a URI: o backend removeu o handler de
+    // `UnsupportedOperationException` (era código morto — nada o lançava) e a constante do catálogo.
+    // Manter a linha aqui garantiria o mapeamento de algo que nunca chega.
     ['erro-interno', 500, 'erroInterno'],
     // As quatro do ADR 0010 — a razão de o catálogo ter sido ampliado.
     ['saque-desabilitado', 422, 'saqueDesabilitado'],

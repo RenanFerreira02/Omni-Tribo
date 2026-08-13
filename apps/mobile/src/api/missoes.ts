@@ -1,3 +1,4 @@
+import { seg } from './caminho';
 import { cliente } from './cliente';
 import type {
   CriarMissaoRequest,
@@ -39,7 +40,7 @@ export async function missoesProximas(filtro: FiltroProximas): Promise<MissaoPro
 }
 
 export async function buscarMissao(id: string): Promise<MissaoResponse> {
-  const { data } = await cliente.get<MissaoResponse>(`/missoes/${id}`);
+  const { data } = await cliente.get<MissaoResponse>(`/missoes/${seg(id)}`);
   return validarEmDev(missaoResponseSchema, data, `GET /missoes/${id}`);
 }
 
@@ -81,7 +82,7 @@ export async function aplicarAcao(
   motivo?: string,
 ): Promise<MissaoResponse> {
   const corpo = motivo ? { motivo } : undefined;
-  const { data } = await cliente.post<MissaoResponse>(`/missoes/${id}/${acao}`, corpo);
+  const { data } = await cliente.post<MissaoResponse>(`/missoes/${seg(id)}/${seg(acao)}`, corpo);
   return validarEmDev(missaoResponseSchema, data, `POST /missoes/${id}/${acao}`);
 }
 
@@ -100,7 +101,7 @@ export async function registrarCheckin(
   corpo: RegistrarCheckinRequest,
   chaveIdempotencia: string,
 ): Promise<MissaoResponse> {
-  const { data } = await cliente.post<MissaoResponse>(`/missoes/${id}/checkin`, corpo, {
+  const { data } = await cliente.post<MissaoResponse>(`/missoes/${seg(id)}/checkin`, corpo, {
     headers: { 'Idempotency-Key': chaveIdempotencia },
   });
   return validarEmDev(missaoResponseSchema, data, `POST /missoes/${id}/checkin`);
