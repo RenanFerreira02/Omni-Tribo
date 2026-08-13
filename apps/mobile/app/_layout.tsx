@@ -1,12 +1,14 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { paraErroApi, valeTentarDeNovo } from '@/api/erros';
+import { useDeepLink } from '@/features/navegacao/useDeepLink';
 import { restaurarSessao } from '@/features/auth/restaurarSessao';
+import { useSessao } from '@/stores/sessao';
 import { cores } from '@/theme';
 
 const queryClient = new QueryClient({
@@ -23,13 +25,25 @@ const queryClient = new QueryClient({
 });
 
 export default function LayoutRaiz() {
-  const [pronto, setPronto] = useState(false);
+  // Lê o `restaurando` do STORE, e não um `useState` local.
+  //
+  // O store sempre teve essa flag, com um comentário dizendo que ela "segura o redirecionamento das
+  // rotas" — e nenhuma rota a lia. Quem segurava era um `useState` daqui, e havia até uma asserção
+  // de teste afirmando que `restaurando: false` destrava o app, o que não era verdade. Dois portões
+  // para a mesma coisa, e o documentado era o desligado.
+  const restaurando = useSessao((estado) => estado.restaurando);
 
   useEffect(() => {
-    restaurarSessao().finally(() => setPronto(true));
+    void restaurarSessao();
   }, []);
 
-  if (!pronto) return null;
+  // Todo link externo passa por aqui e é VALIDADO antes de virar navegação. Ver `src/lib/deepLink.ts`
+  // — o esquema está registrado desde sempre, mas nada conferia rota nem formato de parâmetro.
+  useDeepLink();
+
+  // `restaurarSessao` chama `concluirRestauracao` no `finally`, então isto destrava em qualquer
+  // desfecho — inclusive falha. Sem essa garantia, o app ficaria na splash para sempre.
+  if (restaurando) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -41,10 +55,11 @@ export default function LayoutRaiz() {
           >
             <Stack.Screen name="(auth)" />
             <Stack.Screen name="(tabs)" />
-            <Stack.Screen
-              name="missao/[id]"
-              options={{ headerShown: true, title: 'Missão', presentation: 'card' }}
-            />
+            {/* `(app)` agrupa as telas autenticadas que ficam fora das abas — beneficios,
+                missao/criar e missao/[id]. Elas estavam soltas na raiz, sem guarda de sessão, e o
+                header de "Missão" era declarado aqui. Agora quem cuida das duas coisas é
+                `app/(app)/_layout.tsx`. */}
+            <Stack.Screen name="(app)" />
           </Stack>
         </QueryClientProvider>
       </SafeAreaProvider>

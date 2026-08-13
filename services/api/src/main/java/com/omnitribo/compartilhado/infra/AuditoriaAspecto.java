@@ -1,6 +1,7 @@
 package com.omnitribo.compartilhado.infra;
 
 import com.omnitribo.compartilhado.api.AuditoriaPersistencia;
+import com.omnitribo.compartilhado.api.EnderecoDoCliente;
 import com.omnitribo.compartilhado.api.RecursoAuditavel;
 import com.omnitribo.compartilhado.dominio.Auditavel;
 import com.omnitribo.identidade.api.AutenticadoPrincipal;
@@ -58,7 +59,7 @@ public class AuditoriaAspecto {
     var attrs = RequestContextHolder.getRequestAttributes();
     if (attrs instanceof ServletRequestAttributes sra) {
       HttpServletRequest req = sra.getRequest();
-      ip = extrairIp(req);
+      ip = EnderecoDoCliente.de(req);
       userAgent = req.getHeader("User-Agent");
     }
 
@@ -90,15 +91,5 @@ public class AuditoriaAspecto {
       return principal.id();
     }
     return null; // Ação anônima ou chamada fora de contexto HTTP
-  }
-
-  private String extrairIp(HttpServletRequest request) {
-    // X-Forwarded-For é preenchido por proxies/load balancers; pegamos o primeiro IP da cadeia.
-    // Em produção, validar que o proxy é confiável antes de confiar neste header.
-    String xff = request.getHeader("X-Forwarded-For");
-    if (xff != null && !xff.isBlank()) {
-      return xff.split(",")[0].trim();
-    }
-    return request.getRemoteAddr();
   }
 }

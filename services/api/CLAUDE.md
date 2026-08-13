@@ -98,12 +98,14 @@ Antes de terminar qualquer tarefa: `./mvnw verify`, e cole a saída real. Compil
   concorrente repopular com estado pré-commit, e a entrada obsoleta sobreviveria o TTL inteiro. Por
   isso NÃO se usa `spring-boot-starter-cache`/`@CacheEvict`, que dispara dentro da transação. São
   **cinco** pontos de invalidação, não dois: `criar`, `atualizar`, `aplicar`, `registrarCheckin` e
-  `expirarLote` — este último chama a máquina de estados direto, sem passar por `aplicar`.
+  `expirarUma` — este último chama a máquina de estados direto, sem passar por `aplicar`, e agora roda
+  uma transação POR MISSÃO (o laço vive em `ExpiracaoMissoesJob.varrer`, fora do bean, senão o
+  `@Transactional` seria ignorado por auto-invocação).
 - Ao escrever teste, saiba o que `application-test.yml` desliga de propósito — três coisas, todas
   para não mascarar o que o teste mede:
   - rate limit de leitura/escrita em 10000/min: um teste de rate limit precisa sobrescrever o valor;
   - `app.agendamento.habilitado: false`: o job de expiração não roda, para não mudar status entre
-    arrange e assert. A regra é testada chamando `expirarLote()` direto;
+    arrange e assert. A regra é testada chamando `ExpiracaoMissoesJob.varrer()` direto;
   - pool Hikari em **40**, dimensionado pelo teste mais pesado (`ConclusaoConcorrenteTest`, 100
     threads). Não é 100 porque as threads serializam atrás de um único `FOR UPDATE` na missão; 40 é
     margem para runner de CI lento não virar `SQLTransientConnectionException` — que apareceria como

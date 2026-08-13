@@ -108,19 +108,7 @@ public class Outbox {
     return criadoEm;
   }
 
-  public Instant getPublicadoEm() {
-    return publicadoEm;
-  }
-
   public int getTentativas() {
     return tentativas;
-  }
-
-  public Instant getProximaTentativaEm() {
-    return proximaTentativaEm;
-  }
-
-  public String getUltimoErro() {
-    return ultimoErro;
   }
 }

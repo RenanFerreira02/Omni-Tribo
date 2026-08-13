@@ -58,18 +58,26 @@ F6 e derrubava até o login (ver Notas de manutenção de 2026-08-07).
 
 O schema de TODOS já existe desde V4–V7: o banco está à frente do código. Encontrar tabela sem
 código correspondente é o estado esperado, não resíduo. Mesma coisa fora de `services/api/`:
-`tools/carrier-mock/` (logística) e `tools/seed/` (`make seed`) são diretórios reservados, hoje
-vazios.
+`tools/carrier-mock/` (logística), `tools/seed/` (`make seed`) e `tools/dataset/` são diretórios
+reservados, hoje vazios.
 
-`RegrasArquiteturaTest` aplica a regra aos 7 módulos de negócio; `compartilhado` é **isento** por
-ser shared por design (ver o array `MODULOS` no teste). Violação em `compartilhado` não é pega por
-teste nenhum — é só disciplina.
+`RegrasArquiteturaTest` aplica a regra aos 7 módulos de negócio; `compartilhado` fica fora do array
+`MODULOS` porque é shared por design. Mas **`compartilhado/infra` tem regra própria** e é fechado a
+todo mundo: `dominio` é kernel (livre), `api` é porta (livre), `infra` é adaptador PRIVADO. A
+assimetria é medida — há 46 imports legítimos de `compartilhado.dominio` vindos de outros módulos, e
+proteger o módulo inteiro deixaria o teste vermelho em quase todo arquivo.
+
+Por isso `ConsultasGeoespaciais`, `EmissorDeToken` (impl `JwtService`) e `ControleDeTentativasLogin`
+(impl `BloqueioLoginService`) são **interfaces em `compartilhado/api`**. Antes eram classes concretas
+em `infra`, e quatro domínios dependiam da primeira — domínio dependendo de infra, sem teste nenhum
+acusando.
 
 **A regra do ArchUnit é DIRECIONAL, e isso restringe o desenho de `compartilhado`.** `compartilhado`
-é isento como ALVO, mas suas classes continuam sendo ORIGEM: `ConsultasGeoespaciais` NÃO pode
-importar `Missao`, `StatusMissao` nem `CategoriaMissao`. Por isso status e categoria entram como
-String (sempre `.name()` de um enum já validado pelo binder, nunca texto livre do cliente) e o
-retorno é `AlvoProximo`, um par neutro id+distância que o chamador reidrata.
+é isento como ALVO, mas suas classes continuam sendo ORIGEM — e mover para `api/` não afrouxa isso:
+`ConsultasGeoespaciais` NÃO pode importar `Missao`, `StatusMissao` nem `CategoriaMissao`. Por isso
+status e categoria entram como String (sempre `.name()` de um enum já validado pelo binder, nunca
+texto livre do cliente) e o retorno é `AlvoProximo`, um par neutro id+distância que o chamador
+reidrata. Mesma razão pela qual `EmissorDeToken` recebe `papel` como String.
 
 ## Economia (três moedas)
 
@@ -107,10 +115,18 @@ chegaria em AGUARDANDO_CONFIRMACAO sem poder ser concluída); cancelar ou expira
 financiadores, senão os tokens ficam presos e a conservação vira mentira.
 
 O estorno tem DOIS pontos de chamada, não um: `MissaoService.aplicar` e
-`ExpiracaoMissoesService.expirarLote`. O job de expiração é o único caminho para EXPIRADA e não passa
+`ExpiracaoMissoesService.expirarUma`. O job de expiração é o único caminho para EXPIRADA e não passa
 por `aplicar()` — sem a chamada lá, os tokens ficariam presos numa missão morta e a reconciliação
 continuaria respondendo `integro=true`, porque ledger e projeção seguem batendo. A perda seria
 invisível justamente para o endpoint que existe para achá-la.
+
+**Todo estado não-terminal precisa de saída que não dependa de um humano específico aparecer.**
+`EM_ANDAMENTO` e `AGUARDANDO_CONFIRMACAO` não tinham, e o pote de quem financiou ficava imobilizado
+para sempre quando o executor ou o criador sumia. Hoje os dois têm varredura por prazo (`SISTEMA`,
+calibrada em `app.missoes.expiracao.prazo-*`) e porta manual (`POST /missoes/{id}/destravar`, só
+ADMIN). Os desfechos diferem de propósito: abandono sem check-in → `EXPIRADA` com estorno; omissão
+do criador APÓS o check-in → `CONCLUIDA` **pagando o executor**, porque o check-in geolocalizado é a
+evidência que o sistema aceita como prova em todo outro caminho.
 
 ## Stack
 
@@ -205,7 +221,8 @@ exceção), e há um comentário obsoleto em `MissaoController` (~linha 298) diz
 `/api/v1/usuarios` — `GET me` (perfil completo: nome, handle, tribo, XP, nível derivado,
 conquistas) · `GET me/dados` (exportação LGPD) · `GET|PUT me/consentimentos[/{tipo}]` ·
 `DELETE me` (anonimização; exige a senha atual no corpo). **`GET /auth/me` continua existindo e é
-outra coisa**: a checagem barata do boot, resolvida só dos claims do JWT.
+outra coisa**: a checagem barata do boot, resolvida só dos claims do JWT. Não a enriqueça: trocaria
+essa checagem por uma consulta com joins em toda abertura do app.
 
 `/api/v1/tribos` — `GET` (lista) · `GET /{id}` (com centro geográfico DERIVADO por `ST_Centroid`).
 
@@ -264,7 +281,12 @@ CI (`.github/workflows/`), três workflows:
   **0009 economia do cuidado: TOKEN como recompensa, BRL fora do ciclo** · **0010 granularidade do
   catálogo de tipos de problema: uma URI por REAÇÃO DE UI** · 0011 dependências externas e
   anonimização · **0012 mapa por WebView e Leaflet** · 0013 persistência de segredo por plataforma:
-  nada é gravado na web.
+  nada é gravado na web · **0014 expiração com uma transação por missão** (fecha o deadlock e o item
+  envenenado) · **0015 destravamento de estados sem saída** · **0016 autorização reconferida por
+  requisição** · **0017 papéis de banco separados** (a aplicação não pode alterar o ledger) ·
+  0018 fronteira de `compartilhado` · 0019 borda HTTP e cabeçalho não confiável.
+  Os seis últimos são da verificação de 2026-08-11 e cada um registra a alternativa descartada com o
+  motivo MEDIDO — vários deles são a resposta a "por que não fizemos o óbvio?".
 - `docs/qualidade/integridade-transacional.md` — evidência de concorrência da carteira (100 threads,
   deadlock, rollback) e a seção "O que esta fase NÃO garante". É o documento a defender oralmente.
 - `docs/seguranca/autenticacao.md` — modelo de ameaça e desenho do fluxo de auth.
@@ -447,15 +469,14 @@ com radar geoespacial e paginação infinita, detalhe com o ciclo de vida e chec
 saldo em TOKEN e extrato. Suíte com Jest/RTL/MSW, mais um teste de integração contra o backend em
 execução (`npm run test:e2e`), fora do `npm test`.
 
-O catálogo de erro foi ampliado antes da primeira tela, como a antiga Pendência #4 exigia — ver
-**ADR 0010**. Ficam de fora, e o motivo está na Pendência #3: as quatro leituras que o backend ainda
-não expõe. A mais visível é `GET /auth/me`, que devolve só `{id, email, papel}` — por isso a tela de
-perfil é mínima e não mostra nome, tribo, XP nem nível.
+O catálogo de erro foi ampliado antes da primeira tela — ver **ADR 0010**. As quatro leituras que
+faltavam ao backend já existem: `GET /alertas`, `GET /tribos`, `GET /pontos-custodia/{id}` e o
+perfil completo em `GET /usuarios/me`, consumido pela tela de perfil (`src/api/perfil.ts`).
 
 `develop` carrega o merge de duas fases (carteira e geolocalização) que chegou quebrado — construtor
 de uma branch com corpos de método da outra — e foi consertado na auditoria de 2026-08-07.
 
-Módulo `missoes`: máquina de estados em `StatusMissao` + `MissaoStateMachine` (9 estados, **13**
+Módulo `missoes`: máquina de estados em `StatusMissao` + `MissaoStateMachine` (9 estados, **17**
 transições — ver ADR 0006), endpoints em `/api/v1/missoes`, aceite com lock pessimista, radar de
 proximidade com cache, expiração por `@Scheduled`. **Recompensa derivada por
 `CalculadoraDeRecompensa` e congelada com `versao_formula`** — o cliente não a informa (V16).
@@ -490,23 +511,17 @@ Usuários seed (perfis `dev` e `test`, carregados via `db/seed/V900__seed_dev.sq
 
 Seção para armadilhas diagnosticadas e ainda não corrigidas. Ao resolver uma, remova-a daqui.
 
-**1. O `REVOKE UPDATE, DELETE` das tabelas append-only não vale em runtime.** As migrations criam o
-papel `omnitribo_app` com `SELECT, INSERT` apenas em `lancamento`, `auditoria`, `checkin` e
-`missao_evento`, e o comentário SQL descreve isso como "defesa em profundidade... mesmo que o código
-da aplicação tente executá-los". **Mas a aplicação não conecta com esse papel** —
-`application-dev.yml` e `application-test.yml` trazem `omnitribo` como default de
-`${DATASOURCE_USERNAME}`, e `application.yml` (de onde prod herda — `application-prod.yml` não
-declara datasource) resolve a mesma variável sem default. Em todos os casos é o dono das tabelas,
-para quem GRANT e REVOKE não se aplicam. Verificado: como `omnitribo_app` o `UPDATE lancamento` responde
-`permission denied`; como `omnitribo` ele altera todas as linhas.
+> **Quatro saíram na verificação de 2026-08-11** (branch `chore/verificacao-backend`):
+> - conta anonimizada escrevendo por 15 min — o `JwtAuthFilter` consulta `ConsultaSessao` a cada
+>   requisição (cache de 60 s) e monta o principal do BANCO, o que também faz `papel` ser reconferido;
+> - `nivel` divergente na exportação LGPD, que passou a derivar por `RegraNivel`;
+> - o `REVOKE` inerte: a aplicação agora conecta como `omnitribo_app` e o Flyway tem credencial
+>   própria com DDL. `MigracaoTest.aplicacao_nao_consegue_apagar_nem_alterar_o_ledger_em_runtime`
+>   prova em runtime (SQLState 42501), não mais só lendo o catálogo;
+> - `EM_ANDAMENTO` e `AGUARDANDO_CONFIRMACAO` sem saída — ver a máquina de estados, que agora tem
+>   **17 transições** e varredura por prazo mais porta de ADMIN.
 
-O papel está correto e `MigracaoTest` agora trava a matriz de privilégios, então a metade que existe
-não regride em silêncio. Falta a outra metade: apontar o datasource para `omnitribo_app` e dar ao
-Flyway um usuário próprio com DDL (`spring.flyway.user`), já que o papel de aplicação não pode criar
-schema. Enquanto isso não for feito, a imutabilidade do ledger é garantida só pela disciplina do
-código — que é o que o ADR 0008 já argumenta —, e não pelo banco.
-
-**2. ENTREGA e AJUDA ainda CUNHAM token, até a carteira de patrocinador da F8.** `pagaTokensDoPote`
+**1. ENTREGA e AJUDA ainda CUNHAM token, até a carteira de patrocinador da F8.** `pagaTokensDoPote`
 cobre só TRIBO e COLETA, então a conservação
 `SUM(carteira.saldo_tokens) + SUM(missao.pote_tokens)` vale para essas duas, não para o sistema
 inteiro.
@@ -519,30 +534,8 @@ do challenge. Preferimos uma lacuna documentada a uma regra errada codificada. F
 carteira de patrocinador financiar o pote pela mecânica que já existe (`FinanciamentoMissao`), e aí
 `pagaTokensDoPote` passa a valer para todas as categorias.
 
-**3. Conta anonimizada continua ESCREVENDO por até 15 minutos.** Achado da auditoria do mobile, e o
-mais grave em aberto. `StatusUsuario.ATIVO` é verificado em exatamente um lugar —
-`AutenticacaoService` (linha ~175), no login. Um access token emitido ANTES do `DELETE /usuarios/me`
-continua válido pelos 15 minutos de TTL, e foi medido: `POST /api/v1/missoes` respondeu **201**, com
-`criadorId` apontando para o usuário já anonimizado.
-
-O comentário em `ExclusaoContaService` trata essa janela como hipótese de falha da revogação — ela
-existe SEMPRE, porque revogar refresh token não invalida access token já emitido. A correção é
-verificar `status`/`anonimizado_em` no filtro de autenticação, e não só no login; o custo é uma
-leitura por requisição, que é exatamente o que o `/auth/me` barato hoje evita. Decisão pendente.
-
-**4. `nivel` diverge entre dois endpoints.** `GET /usuarios/me` DERIVA o nível por `RegraNivel`;
-`GET /usuarios/me/dados` (exportação LGPD) lê a coluna cache `usuario.nivel`. Para a alice do seed
-um responde 2 e o outro 3. Quem está certo é a fórmula — a exportação deveria derivar também.
-
-**5. Transferência exige digitar um UUID.** Não existe endpoint que liste membros da tribo, então a
+**2. Transferência exige digitar um UUID.** Não existe endpoint que liste membros da tribo, então a
 tela pede o identificador do destinatário como texto. Funciona e é inutilizável na prática.
 **Não é esquecimento**: `TriboController.java:22` documenta a omissão como decisão de privacidade —
 listar membros daria a qualquer autenticado um mapa social do bairro. A saída não é expor a lista;
 é algo como busca por handle exato ou convite. Não decida isso sozinho.
-
-**6. Uma decisão de contrato que divergiu da Pendência #3 original, e o motivo.** As quatro
-leituras que faltavam foram implementadas — `GET /alertas`, `GET /tribos`, `GET /pontos-custodia/{id}`
-e o perfil completo —, mas o perfil **não** ampliou `GET /auth/me`: virou `GET /usuarios/me`.
-`/auth/me` é chamado no boot e se resolve só dos claims do JWT, sem tocar o banco; enriquecê-lo
-trocaria uma checagem barata de identidade por uma consulta com joins em toda abertura do app. São
-duas perguntas com custos e frequências diferentes.

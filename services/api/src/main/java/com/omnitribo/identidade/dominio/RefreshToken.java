@@ -62,23 +62,11 @@ public class RefreshToken {
     return usuarioId;
   }
 
-  public String getTokenHash() {
-    return tokenHash;
-  }
-
   public UUID getFamiliaId() {
     return familiaId;
   }
 
-  public Instant getExpiraEm() {
-    return expiraEm;
-  }
-
   public Instant getRevogadoEm() {
     return revogadoEm;
-  }
-
-  public UUID getSubstituidoPor() {
-    return substituidoPor;
   }
 }

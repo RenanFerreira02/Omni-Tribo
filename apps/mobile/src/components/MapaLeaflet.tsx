@@ -4,6 +4,21 @@ import { WebView } from 'react-native-webview';
 
 import { cores } from '@/theme';
 
+/**
+ * Coage a número finito antes de interpolar em JavaScript da WebView.
+ *
+ * A página é nossa e o HTML é estático, mas `centro` vem de resposta de servidor, e o validador de
+ * schema do app é `validarEmDev` — que só AVISA, e nem roda em produção. Sem esta barreira, um valor
+ * inesperado seria concatenado direto dentro de `<script>`. `JSON.stringify` protege os marcadores;
+ * a coordenada não tinha proteção nenhuma.
+ *
+ * Zero como fallback é seguro aqui porque só afeta o CENTRO da câmera: o pior caso é o mapa abrir no
+ * Golfo da Guiné, visivelmente errado, em vez de executar algo.
+ */
+function numero(valor: unknown): number {
+  return typeof valor === 'number' && Number.isFinite(valor) ? valor : 0;
+}
+
 export interface MarcadorMapa {
   id: string;
   lat: number;
@@ -28,7 +43,7 @@ interface Props {
   /** Mostra o ponto azul do usuário. Falso quando a permissão foi negada. */
   mostrarUsuario?: boolean;
   aoTocarMarcador?: (id: string) => void;
-  /** Já vem com debounce aplicado por quem chama — ver `useRegiaoComDebounce`. */
+  /** Já vem com debounce aplicado por quem chama — ver `useCallbackComDebounce`. */
   aoMudarRegiao?: (regiao: RegiaoMapa) => void;
   /** Modo seletor: um toque no mapa devolve a coordenada, para escolher o ponto da missão. */
   aoTocarMapa?: (lat: number, lon: number) => void;
@@ -80,7 +95,12 @@ export function MapaLeaflet({
   }, [marcadores, enviar]);
 
   useEffect(() => {
-    enviar(`window.omniCentralizar(${centro.lat}, ${centro.lon}, ${mostrarUsuario})`);
+    // `numero()` e não interpolação direta: `centro` pode vir de `TriboResponse`, e o validador de
+    // schema do app SÓ AVISA em dev — em produção ele nem roda e devolve o dado como veio. Um valor
+    // não numérico chegando aqui seria concatenado dentro de uma chamada de JS na WebView.
+    enviar(
+      `window.omniCentralizar(${numero(centro.lat)}, ${numero(centro.lon)}, ${mostrarUsuario === true})`,
+    );
   }, [centro.lat, centro.lon, mostrarUsuario, enviar]);
 
   const aoReceberMensagem = useCallback(
@@ -114,7 +134,17 @@ export function MapaLeaflet({
     <View style={[estilos.container, estilo]} testID={testID}>
       <WebView
         ref={webview}
-        originWhitelist={['*']}
+        // A página é HTML estático nosso, carregado por `source={{ html }}` — origem `about:blank`.
+        // `['*']` autorizava qualquer origem a ser carregada nesta WebView, o que só faria diferença
+        // no dia em que algo conseguisse iniciar uma navegação aqui dentro. Restringir agora custa
+        // nada e fecha a porta antes de alguém precisar dela.
+        originWhitelist={['about:*']}
+        // Navegação de nível superior é RECUSADA. O Leaflet precisa buscar tiles (que são
+        // sub-recursos e não passam por aqui), mas a página nunca deve NAVEGAR para lugar nenhum —
+        // um link no popup de um marcador, por exemplo, tiraria o usuário do app sem aviso.
+        onShouldStartLoadWithRequest={(requisicao) => requisicao.url.startsWith('about:')}
+        // Sem janelas novas: `window.open` a partir da página não abre nada.
+        setSupportMultipleWindows={false}
         source={{ html }}
         onMessage={aoReceberMensagem}
         // O mapa é conteúdo visual sem equivalente textual útil para leitor de tela. A lista de
@@ -165,7 +195,7 @@ function paginaLeaflet(centro: { lat: number; lon: number }, mostrarUsuario: boo
 <div id="mapa"></div>
 <script>
   var mapa = L.map('mapa', { zoomControl: false, attributionControl: true })
-              .setView([${centro.lat}, ${centro.lon}], 15);
+              .setView([${numero(centro.lat)}, ${numero(centro.lon)}], 15);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19, attribution: '© OpenStreetMap'
   }).addTo(mapa);

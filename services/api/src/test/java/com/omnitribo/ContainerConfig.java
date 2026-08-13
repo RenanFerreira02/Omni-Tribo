@@ -17,7 +17,7 @@ import org.testcontainers.utility.DockerImageName;
  * destruído pelo mecanismo Ryuk do Testcontainers ao final. @DynamicPropertySource propaga a URL
  * para todos os contextos Spring das subclasses.
  */
-abstract class ContainerConfig {
+public abstract class ContainerConfig {
 
   /**
    * {@code max_connections} elevado de 100 (padrão) para 500.
@@ -48,10 +48,37 @@ abstract class ContainerConfig {
     POSTGRES.start();
   }
 
+  /** Credenciais do papel de aplicação, criadas pela V2. Espelham application-dev.yml. */
+  static final String APP_USUARIO = "omnitribo_app";
+
+  static final String APP_SENHA = "omnitribo_app_dev";
+
+  /**
+   * DOIS usuários de banco, e a separação é o ponto — não detalhe de configuração de teste.
+   *
+   * <p>O Flyway conecta como o dono do contêiner: é ele que cria o schema E o papel {@code
+   * omnitribo_app} (na V2). A APLICAÇÃO conecta como {@code omnitribo_app}, que tem apenas {@code
+   * SELECT, INSERT} nas tabelas append-only.
+   *
+   * <p>Sem isso, o {@code REVOKE UPDATE, DELETE} das migrations era decorativo: a aplicação
+   * conectava como o DONO das tabelas, para quem GRANT e REVOKE simplesmente não se aplicam. O
+   * papel existia correto no catálogo e desligado em runtime — e nada acusava, porque um teste que
+   * roda como dono nunca esbarra no privilégio que deveria estar protegendo o ledger.
+   *
+   * <p>A ordem funciona porque o Boot constrói um DataSource dedicado para o Flyway, migra, e só
+   * então o {@code EntityManagerFactory} — que depende do {@code FlywayMigrationInitializer} — pede
+   * a primeira conexão do pool principal, quando {@code omnitribo_app} já existe. Se algum dia não
+   * valer, o sintoma é determinístico e barulhento: {@code FATAL: role "omnitribo_app" does not
+   * exist} no boot de toda a suíte.
+   */
   @DynamicPropertySource
   static void jdbcProperties(DynamicPropertyRegistry registry) {
+    registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
+    registry.add("spring.flyway.user", POSTGRES::getUsername);
+    registry.add("spring.flyway.password", POSTGRES::getPassword);
+
     registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-    registry.add("spring.datasource.username", POSTGRES::getUsername);
-    registry.add("spring.datasource.password", POSTGRES::getPassword);
+    registry.add("spring.datasource.username", () -> APP_USUARIO);
+    registry.add("spring.datasource.password", () -> APP_SENHA);
   }
 }

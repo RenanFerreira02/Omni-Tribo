@@ -46,11 +46,29 @@ class MissaoStateMachineTest {
     ESPERADAS.put(
         chave(StatusMissao.EM_ANDAMENTO, EventoMissao.CHECKIN),
         StatusMissao.AGUARDANDO_CONFIRMACAO);
+    // Saídas do beco sem saída de EM_ANDAMENTO: antes CHECKIN era a ÚNICA, e um executor que
+    // abandonava prendia o pote da missão em custódia para sempre — sem que nem um ADMIN pudesse
+    // intervir. EXPIRADA e não CONCLUIDA porque não houve check-in: não há evidência de trabalho.
+    ESPERADAS.put(
+        chave(StatusMissao.EM_ANDAMENTO, EventoMissao.EXPIRAR_EXECUCAO), StatusMissao.EXPIRADA);
+    ESPERADAS.put(chave(StatusMissao.EM_ANDAMENTO, EventoMissao.DESTRAVAR), StatusMissao.CANCELADA);
     ESPERADAS.put(
         chave(StatusMissao.AGUARDANDO_CONFIRMACAO, EventoMissao.CONFIRMAR), StatusMissao.CONCLUIDA);
     ESPERADAS.put(
         chave(StatusMissao.AGUARDANDO_CONFIRMACAO, EventoMissao.CONTESTAR),
         StatusMissao.EM_DISPUTA);
+    // Mesmo beco do outro lado: as duas saídas acima são do CRIADOR, então um criador que sumia
+    // deixava a missão parada indefinidamente, e nem o ADMIN entrava (EM_DISPUTA só se alcança por
+    // CONTESTAR, que também é dele).
+    //
+    // CONCLUIDA, PAGANDO o executor — houve check-in, e o check-in geolocalizado validado no
+    // servidor é a evidência que o sistema aceita como prova em todo outro caminho. Ver o javadoc
+    // de EventoMissao.EXPIRAR_CONFIRMACAO para a alternativa descartada.
+    ESPERADAS.put(
+        chave(StatusMissao.AGUARDANDO_CONFIRMACAO, EventoMissao.EXPIRAR_CONFIRMACAO),
+        StatusMissao.CONCLUIDA);
+    ESPERADAS.put(
+        chave(StatusMissao.AGUARDANDO_CONFIRMACAO, EventoMissao.DESTRAVAR), StatusMissao.CANCELADA);
     ESPERADAS.put(
         chave(StatusMissao.EM_DISPUTA, EventoMissao.RESOLVER_CONCLUIR), StatusMissao.CONCLUIDA);
     ESPERADAS.put(

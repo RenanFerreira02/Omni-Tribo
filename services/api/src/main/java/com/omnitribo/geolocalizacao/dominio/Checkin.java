@@ -145,14 +145,6 @@ public class Checkin {
     return distanciaAlvoM;
   }
 
-  public MetodoCheckin getMetodo() {
-    return metodo;
-  }
-
-  public boolean isMockDetectado() {
-    return mockDetectado;
-  }
-
   public BigDecimal getVelocidadeImplicitaKmh() {
     return velocidadeImplicitaKmh;
   }

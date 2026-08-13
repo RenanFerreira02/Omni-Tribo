@@ -5,7 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
-/** Contrato da resolução de disputa por ADMIN. A implementação chega em F7. */
+/** Contrato da resolução de disputa por ADMIN. */
 @Schema(description = "Decisão do administrador sobre uma missão em disputa")
 public record ResolverDisputaRequest(
     @NotNull(message = "Resultado é obrigatório") Resultado resultado,

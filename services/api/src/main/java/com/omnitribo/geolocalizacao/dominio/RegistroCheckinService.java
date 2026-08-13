@@ -1,7 +1,7 @@
 package com.omnitribo.geolocalizacao.dominio;
 
+import com.omnitribo.compartilhado.api.ConsultasGeoespaciais;
 import com.omnitribo.compartilhado.dominio.Coordenadas;
-import com.omnitribo.compartilhado.infra.ConsultasGeoespaciais;
 import com.omnitribo.geolocalizacao.api.ComandoCheckin;
 import com.omnitribo.geolocalizacao.api.RegistroCheckin;
 import com.omnitribo.geolocalizacao.api.ResultadoCheckin;

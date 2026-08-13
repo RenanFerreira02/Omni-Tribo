@@ -103,10 +103,6 @@ public class Usuario {
     return nome;
   }
 
-  public void setNome(String nome) {
-    this.nome = nome;
-  }
-
   public String getEmail() {
     return email;
   }
@@ -115,20 +111,12 @@ public class Usuario {
     return senhaHash;
   }
 
-  public void setSenhaHash(String senhaHash) {
-    this.senhaHash = senhaHash;
-  }
-
   public String getHandle() {
     return handle;
   }
 
   public UUID getTriboId() {
     return triboId;
-  }
-
-  public void setTriboId(UUID triboId) {
-    this.triboId = triboId;
   }
 
   public long getXp() {
@@ -149,18 +137,6 @@ public class Usuario {
 
   public int getStreak() {
     return streak;
-  }
-
-  public void setStreak(int streak) {
-    this.streak = streak;
-  }
-
-  public BigDecimal getRating() {
-    return rating;
-  }
-
-  public void setRating(BigDecimal rating) {
-    this.rating = rating;
   }
 
   public PapelUsuario getPapel() {
@@ -205,20 +181,8 @@ public class Usuario {
     return anonimizadoEm != null;
   }
 
-  public Instant getAnonimizadoEm() {
-    return anonimizadoEm;
-  }
-
   public Instant getCriadoEm() {
     return criadoEm;
-  }
-
-  public Instant getAtualizadoEm() {
-    return atualizadoEm;
-  }
-
-  public void setAtualizadoEm(Instant atualizadoEm) {
-    this.atualizadoEm = atualizadoEm;
   }
 
   public int getVersao() {

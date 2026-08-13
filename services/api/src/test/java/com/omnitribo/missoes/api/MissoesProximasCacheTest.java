@@ -11,8 +11,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.omnitribo.JwtTestConfig;
 import com.omnitribo.TesteIntegracaoMvcBase;
+import com.omnitribo.compartilhado.api.ConsultasGeoespaciais;
 import com.omnitribo.compartilhado.dominio.Geohash;
-import com.omnitribo.compartilhado.infra.ConsultasGeoespaciais;
 import com.omnitribo.missoes.infra.CacheMissoesProximas;
 import java.math.BigDecimal;
 import java.time.Instant;

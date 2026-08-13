@@ -41,7 +41,10 @@ public record MissaoFiltroRequest(
   public enum CampoOrdenacao {
     CRIADA_EM("criadaEm"),
     JANELA_FIM("janelaFim"),
-    VALOR_BRL("valorBrl"),
+    // VALOR_BRL saiu: ordenar por uma coluna que a ck_missao_economia (V15) obriga a ser ZERO em
+    // toda linha é ordenação por constante — devolve a mesma ordem arbitrária sempre e sugere ao
+    // cliente um critério que não existe.
+    TOKENS_RECOMPENSA("tokensRecompensa"),
     XP_RECOMPENSA("xpRecompensa");
 
     private final String propriedade;

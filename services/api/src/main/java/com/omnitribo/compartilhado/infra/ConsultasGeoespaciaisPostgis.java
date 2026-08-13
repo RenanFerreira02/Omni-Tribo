@@ -1,5 +1,6 @@
 package com.omnitribo.compartilhado.infra;
 
+import com.omnitribo.compartilhado.api.ConsultasGeoespaciais;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -8,21 +9,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
 /**
- * ÚNICO ponto do sistema que chama funções PostGIS. Nenhum {@code ST_*} existe fora desta classe.
- *
- * <p>Trocar PostGIS por Oracle Spatial é reescrever este arquivo e mais nada: {@code ST_DWithin} →
- * {@code SDO_WITHIN_DISTANCE}, {@code ST_Distance} → {@code SDO_GEOM.SDO_DISTANCE}. Substitui a
- * regra "um repositório geo por módulo" do ADR 0002, que espalharia as chamadas por dois arquivos —
- * ver ADR 0007.
- *
- * <p>Mora em compartilhado/infra porque missoes e geolocalizacao precisam dos dois lados da mesma
- * álgebra. Atenção a uma sutileza que restringe o desenho: a regra do ArchUnit é DIRECIONAL.
- * compartilhado é isento como ALVO, mas esta classe continua {@code
- * resideOutsideOfPackage("com.omnitribo.missoes..")} como ORIGEM. Consequência concreta e
- * inegociável: ela NÃO pode importar {@code Missao}, {@code StatusMissao} nem {@code
- * CategoriaMissao}. Por isso status e categoria entram como String — sempre {@code .name()} de um
- * enum já validado pelo binder, nunca texto livre do cliente — e o retorno é {@link AlvoProximo},
- * um par neutro id+distância que o chamador reidrata.
+ * Implementação PostGIS da porta {@link ConsultasGeoespaciais}. ÚNICO arquivo do sistema que chama
+ * {@code ST_*}.
  *
  * <p>Não é um repositório do Spring Data: {@code @Query(nativeQuery=true)} exige uma interface
  * ligada a uma {@code @Entity}, e a única entidade visível daqui seria {@code Outbox}. Amarrar a
@@ -30,17 +18,13 @@ import org.springframework.stereotype.Component;
  * convenção. Usa {@link JdbcClient}, que participa da transação corrente via DataSourceUtils. A
  * parte da regra que de fato protege alguma coisa — parâmetros nomeados, zero concatenação — está
  * integralmente preservada. Ver ADR 0007.
+ *
+ * <p>Os {@code CAST(:param AS ...)} não são decoração: um parâmetro nulo sem tipo chega ao
+ * PostgreSQL como {@code bytea} e a consulta estoura com "function ... does not exist". O cast tipa
+ * o parâmetro mesmo quando o valor é nulo — o caso de {@code :categoria}, que é filtro opcional.
  */
 @Component
-public class ConsultasGeoespaciais {
-
-  /** Par neutro: quem, e a que distância em metros. Sem tipo de módulo algum. */
-  public record AlvoProximo(UUID id, double distanciaM) {}
-
-  /**
-   * Coordenada nua, pelo mesmo motivo de {@link AlvoProximo}: nenhum tipo de módulo cruza daqui.
-   */
-  public record Centro(double lat, double lon) {}
+public class ConsultasGeoespaciaisPostgis implements ConsultasGeoespaciais {
 
   /**
    * Missões abertas dentro do raio, da mais próxima para a mais distante.
@@ -144,10 +128,11 @@ public class ConsultasGeoespaciais {
 
   private final JdbcClient jdbc;
 
-  public ConsultasGeoespaciais(JdbcClient jdbc) {
+  public ConsultasGeoespaciaisPostgis(JdbcClient jdbc) {
     this.jdbc = jdbc;
   }
 
+  @Override
   public List<AlvoProximo> missoesNoRaio(
       BigDecimal lat, BigDecimal lon, int raioMetros, String status, String categoria, int limite) {
     return jdbc.sql(SQL_MISSOES_NO_RAIO)
@@ -163,6 +148,7 @@ public class ConsultasGeoespaciais {
         .list();
   }
 
+  @Override
   public List<AlvoProximo> pontosCustodiaNoRaio(
       BigDecimal lat, BigDecimal lon, int raioMetros, int limite) {
     return jdbc.sql(SQL_PONTOS_CUSTODIA_NO_RAIO)
@@ -180,6 +166,7 @@ public class ConsultasGeoespaciais {
    * Vazio quando a tribo ainda não tem missão nem ponto de custódia. Ver {@link
    * #SQL_CENTRO_DA_TRIBO}.
    */
+  @Override
   public Optional<Centro> centroDaTribo(UUID triboId) {
     return jdbc.sql(SQL_CENTRO_DA_TRIBO)
         .param("tribo", triboId)
@@ -190,12 +177,16 @@ public class ConsultasGeoespaciais {
   /**
    * Distância esférica em metros entre dois pares lat/lon.
    *
-   * <p>Recebe quatro escalares e NÃO tem cláusula FROM — de propósito, não por preguiça. O check-in
-   * roda numa transação REQUIRES_NEW enquanto a transação chamadora segura {@code SELECT ... FOR
-   * UPDATE} sobre a linha da missão. Se este método lesse a tabela {@code missao}, seriam duas
-   * conexões disputando a mesma linha e o deadlock seria garantido. Quem chama já tem a origem
-   * carregada e passa como valor.
+   * <p>Recebe quatro escalares e NÃO tem cláusula FROM — de propósito, não por preguiça. Quem chama
+   * já segura {@code SELECT ... FOR UPDATE} sobre a linha da missão e já tem a origem carregada;
+   * reler {@code missao} aqui seria uma segunda leitura da mesma linha travada, feita por uma
+   * classe de {@code compartilhado} que não pode conhecer a tabela de nenhum módulo.
+   *
+   * <p>(Este método já foi documentado como rodando sob {@code REQUIRES_NEW}. Não roda, e nada no
+   * caminho de valor roda — a propagação foi removida depois de o deadlock de pool derrubar até o
+   * login. O desenho por valores continua certo, pelas duas razões acima.)
    */
+  @Override
   public double distanciaMetros(
       BigDecimal latA, BigDecimal lonA, BigDecimal latB, BigDecimal lonB) {
     return jdbc.sql(SQL_DISTANCIA)

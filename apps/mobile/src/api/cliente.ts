@@ -1,7 +1,7 @@
 import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 
 import { PREFIXO_API, resolverBaseUrl } from './baseUrl';
-import { paraErroApi } from './erros';
+import { paraErroApi, sessaoAcabou } from './erros';
 import { novoCorrelationId } from '@/lib/ids';
 import { lerRefreshPersistido, sessaoAtual } from '@/stores/sessao';
 import type { LoginResponse } from './tipos';
@@ -95,11 +95,20 @@ cliente.interceptors.response.use(
       const novoToken = await rotacaoCompartilhada();
       config.headers.set('Authorization', `Bearer ${novoToken}`);
       return cliente.request(config);
-    } catch {
-      // Refresh recusado: a sessão acabou de verdade. Limpar aqui (e não na tela) garante que
-      // qualquer requisição em qualquer aba chegue ao mesmo desfecho — o layout raiz observa o
-      // store e redireciona para (auth)/login.
-      await sessaoAtual().encerrar();
+    } catch (falhaDaRotacao) {
+      // Encerrar SÓ quando a sessão de fato acabou — antes qualquer falha aqui deslogava.
+      //
+      // O caso que expôs isso: o backend passou a aplicar rate limit ao `/auth/refresh`, então um
+      // 429 é rotina sob concorrência. Como `encerrar()` apaga o refresh do keystore, um limite de
+      // um minuto custava a sessão de 30 dias — irreversível, e sem nada na tela explicando.
+      //
+      // Limpar aqui (e não na tela) continua certo para o caso legítimo: garante que qualquer
+      // requisição, em qualquer aba, chegue ao mesmo desfecho. Quem observa o store e redireciona
+      // são os layouts de `(tabs)` e `(app)` — não o layout RAIZ, que só espera a restauração de
+      // boot terminar.
+      if (sessaoAcabou(paraErroApi(falhaDaRotacao))) {
+        await sessaoAtual().encerrar();
+      }
       return Promise.reject(erro);
     }
   },

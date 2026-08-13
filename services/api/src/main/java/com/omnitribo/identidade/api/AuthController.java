@@ -1,5 +1,6 @@
 package com.omnitribo.identidade.api;
 
+import com.omnitribo.compartilhado.api.EnderecoDoCliente;
 import com.omnitribo.identidade.dominio.AutenticacaoService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -27,19 +28,21 @@ public class AuthController {
   @ResponseStatus(HttpStatus.CREATED)
   public LoginResponse registrar(
       @Valid @RequestBody RegistrarRequest request, HttpServletRequest http) {
-    return autenticacaoService.registrar(request, extrairIp(http), http.getHeader("User-Agent"));
+    return autenticacaoService.registrar(
+        request, EnderecoDoCliente.de(http), http.getHeader("User-Agent"));
   }
 
   @PostMapping("/login")
   public LoginResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
-    return autenticacaoService.login(request, extrairIp(http), http.getHeader("User-Agent"));
+    return autenticacaoService.login(
+        request, EnderecoDoCliente.de(http), http.getHeader("User-Agent"));
   }
 
   @PostMapping("/refresh")
   public LoginResponse refresh(
       @Valid @RequestBody RefreshRequest request, HttpServletRequest http) {
     return autenticacaoService.refresh(
-        request.refreshToken(), extrairIp(http), http.getHeader("User-Agent"));
+        request.refreshToken(), EnderecoDoCliente.de(http), http.getHeader("User-Agent"));
   }
 
   @PostMapping("/logout")
@@ -50,7 +53,10 @@ public class AuthController {
       HttpServletRequest http) {
     // usuarioId vem do JWT — nunca do corpo. Previne logout forçado de outro usuário (IDOR).
     autenticacaoService.logout(
-        principal.id(), request.refreshToken(), extrairIp(http), http.getHeader("User-Agent"));
+        principal.id(),
+        request.refreshToken(),
+        EnderecoDoCliente.de(http),
+        http.getHeader("User-Agent"));
   }
 
   /**
@@ -60,12 +66,6 @@ public class AuthController {
   @GetMapping("/me")
   public MeResponse me(@AuthenticationPrincipal AutenticadoPrincipal principal) {
     return new MeResponse(principal.id(), principal.email(), principal.papel().name());
-  }
-
-  private String extrairIp(HttpServletRequest request) {
-    String xff = request.getHeader("X-Forwarded-For");
-    if (xff != null && !xff.isBlank()) return xff.split(",")[0].trim();
-    return request.getRemoteAddr();
   }
 
   public record MeResponse(UUID id, String email, String papel) {}

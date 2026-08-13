@@ -2,6 +2,7 @@ package com.omnitribo.identidade.dominio;
 
 import com.omnitribo.compartilhado.dominio.DominioException;
 import com.omnitribo.compartilhado.dominio.RecursoNaoEncontradoException;
+import com.omnitribo.identidade.api.ConsultaSessao;
 import com.omnitribo.identidade.api.ExclusaoContaRequest;
 import com.omnitribo.identidade.infra.RefreshTokenRepository;
 import com.omnitribo.identidade.infra.UsuarioRepository;
@@ -12,6 +13,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Direito ao esquecimento (LGPD art. 18, VI), implementado como ANONIMIZAÇÃO.
@@ -24,9 +27,18 @@ import org.springframework.transaction.annotation.Transactional;
  * a obrigação de retenção contábil, e está registrada no ADR 0011.
  *
  * <p><b>Ordem das operações.</b> Senha primeiro, anonimização depois, revogação por último — todas
- * na mesma transação. Se a revogação falhasse depois de um commit da anonimização, existiria uma
- * janela de até 15 minutos em que um access token ainda válido pertence a uma conta que já não tem
- * dono.
+ * na mesma transação.
+ *
+ * <p><b>Revogar refresh token NÃO fecha a janela do access token</b>, e o comentário anterior aqui
+ * tratava essa janela como hipótese de falha da revogação. Ela existia SEMPRE: um access token é
+ * autocontido e vale os 15 minutos do TTL independentemente do que aconteça no banco. Foi medido —
+ * depois do DELETE, {@code POST /api/v1/missoes} respondia <b>201</b> com {@code criadorId}
+ * apontando para o usuário já anonimizado.
+ *
+ * <p>Quem fecha isso é o {@code JwtAuthFilter}, que consulta {@link
+ * com.omnitribo.identidade.api.ConsultaSessao} a cada requisição. Aqui só resta descartar a entrada
+ * em cache — <b>depois do commit</b>, senão uma requisição concorrente repopula o cache com o
+ * estado anterior e a entrada obsoleta sobrevive o TTL inteiro.
  */
 @Service
 public class ExclusaoContaService {
@@ -34,14 +46,17 @@ public class ExclusaoContaService {
   private final UsuarioRepository usuarioRepository;
   private final RefreshTokenRepository refreshTokenRepository;
   private final PasswordEncoder passwordEncoder;
+  private final ConsultaSessao consultaSessao;
 
   public ExclusaoContaService(
       UsuarioRepository usuarioRepository,
       RefreshTokenRepository refreshTokenRepository,
-      PasswordEncoder passwordEncoder) {
+      PasswordEncoder passwordEncoder,
+      ConsultaSessao consultaSessao) {
     this.usuarioRepository = usuarioRepository;
     this.refreshTokenRepository = refreshTokenRepository;
     this.passwordEncoder = passwordEncoder;
+    this.consultaSessao = consultaSessao;
   }
 
   @Transactional
@@ -74,5 +89,16 @@ public class ExclusaoContaService {
     List<RefreshToken> vivos = refreshTokenRepository.findByUsuarioIdAndRevogadoEmIsNull(usuarioId);
     vivos.forEach(token -> token.revogar(null));
     refreshTokenRepository.saveAll(vivos);
+
+    // Depois do commit, nunca dentro. Invalidar aqui deixaria uma requisição concorrente reler o
+    // estado PRÉ-anonimização e repopular o cache — e aí a conta apagada continuaria escrevendo
+    // pelos 60 s do TTL, que é justamente o que esta chamada existe para levar a zero.
+    TransactionSynchronizationManager.registerSynchronization(
+        new TransactionSynchronization() {
+          @Override
+          public void afterCommit() {
+            consultaSessao.invalidar(usuarioId);
+          }
+        });
   }
 }

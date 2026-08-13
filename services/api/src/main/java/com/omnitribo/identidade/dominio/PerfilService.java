@@ -5,7 +5,6 @@ import com.omnitribo.identidade.api.ConquistaResponse;
 import com.omnitribo.identidade.api.PerfilResponse;
 import com.omnitribo.identidade.infra.UsuarioRepository;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,22 +14,15 @@ public class PerfilService {
 
   private final UsuarioRepository usuarioRepository;
   private final TriboService triboService;
-  private final CalculadoraDeConquistas.Calibracao calibracao;
+  private final ParametrosConquistas calibracao;
 
   public PerfilService(
       UsuarioRepository usuarioRepository,
       TriboService triboService,
-      @Value("${app.identidade.conquistas.xp-iniciante:1}") long xpIniciante,
-      @Value("${app.identidade.conquistas.xp-vizinho-presente:500}") long xpVizinhoPresente,
-      @Value("${app.identidade.conquistas.xp-pilar-da-tribo:2000}") long xpPilarDaTribo,
-      @Value("${app.identidade.conquistas.nivel-veterano:10}") int nivelVeterano,
-      @Value("${app.identidade.conquistas.streak-constante:7}") int streakConstante,
-      @Value("${app.identidade.conquistas.versao:1}") int versao) {
+      ParametrosConquistas calibracao) {
     this.usuarioRepository = usuarioRepository;
     this.triboService = triboService;
-    this.calibracao =
-        new CalculadoraDeConquistas.Calibracao(
-            xpIniciante, xpVizinhoPresente, xpPilarDaTribo, nivelVeterano, streakConstante, versao);
+    this.calibracao = calibracao;
   }
 
   @Transactional(readOnly = true)

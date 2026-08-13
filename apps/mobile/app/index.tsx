@@ -2,6 +2,7 @@ import { Redirect } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import { consumirRotaPendente } from '@/features/navegacao/useDeepLink';
 import { jaViuOnboarding } from '@/features/onboarding/visto';
 import { useSessao } from '@/stores/sessao';
 import { cores } from '@/theme';
@@ -35,7 +36,13 @@ export default function Entrada() {
     };
   }, []);
 
-  if (accessToken) return <Redirect href="/(tabs)" />;
+  // Deep link recebido antes de haver sessão: agora que ela existe, honra a intenção original em vez
+  // de largar a pessoa na tela de missões sem explicação. Consome uma vez só — um link guardado
+  // indefinidamente levaria alguém a uma tela inesperada dias depois.
+  if (accessToken) {
+    const pendente = consumirRotaPendente();
+    return <Redirect href={pendente ?? '/(tabs)'} />;
+  }
 
   if (precisaOnboarding === null) {
     return (

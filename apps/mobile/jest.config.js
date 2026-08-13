@@ -28,4 +28,26 @@ module.exports = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
+  /**
+   * 30 s, e não os 5 s do default do jest. Foi ESTA linha que faltava enquanto o Mobile CI ficou
+   * vermelho desde a F9, com a suíte passando em nove configurações locais diferentes.
+   *
+   * O que estoura não é teste lento: é o PRIMEIRO teste de cada suíte de tela. O `react-native`
+   * exporta seus componentes por getters preguiçosos, então `View`, `Text` e companhia só são
+   * carregados de fato quando ACESSADOS — no primeiro `render()`, ou seja, dentro do primeiro teste
+   * e não no carregamento do arquivo. Com o `babel-plugin-istanbul` instrumentando tudo (o CI roda
+   * `--coverage`) e sem cache de transformação em disco (o runner sempre começa frio), esse
+   * `require` transitivo é caro uma vez por worker.
+   *
+   * Medido aqui: o primeiro teste de `criarMissao` leva 221 ms com cache quente e 2110 ms com
+   * `--no-cache` — 10×, numa máquina ociosa de 16 núcleos. O runner é ~2× mais lento por suíte e
+   * roda 14 suítes disputando os vCPUs. Baixando este valor para 1500 ms com cache frio, falham
+   * exatamente cinco testes: o primeiro de cada arquivo de tela, e nenhum outro.
+   *
+   * **Não mascara teste travado.** `findBy*` e `waitFor` da RNTL têm orçamento próprio de 1000 ms,
+   * então elemento que nunca aparece continua falhando em ~1 s dizendo o que não achou. Este teto
+   * só alcança o que escapa deles. Mesmo número de `jest.e2e.config.js`, que já subia o timeout
+   * pela razão análoga (rede real e Argon2 no primeiro login).
+   */
+  testTimeout: 30000,
 };

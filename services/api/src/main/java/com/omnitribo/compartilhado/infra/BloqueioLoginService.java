@@ -3,6 +3,7 @@ package com.omnitribo.compartilhado.infra;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.omnitribo.compartilhado.api.AuditoriaPersistencia;
+import com.omnitribo.compartilhado.api.ControleDeTentativasLogin;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import jakarta.annotation.PostConstruct;
@@ -36,7 +37,7 @@ import org.springframework.stereotype.Component;
  * sempre.
  */
 @Component
-public class BloqueioLoginService {
+public class BloqueioLoginService implements ControleDeTentativasLogin {
 
   private final AuditoriaPersistencia auditoriaPersistencia;
 
@@ -85,6 +86,7 @@ public class BloqueioLoginService {
    *
    * @return {@code null} se permitida; {@link BloqueioAtivo} com tempo restante se bloqueada
    */
+  @Override
   public BloqueioAtivo verificar(String ip, String email) {
     String chave = chave(ip, email);
 
@@ -111,6 +113,7 @@ public class BloqueioLoginService {
   }
 
   /** Registra falha de login. Se atingir o limiar, aplica bloqueio progressivo. */
+  @Override
   public void registrarFalha(String ip, String email) {
     String chave = chave(ip, email);
     Instant agora = Instant.now();
@@ -149,6 +152,7 @@ public class BloqueioLoginService {
   }
 
   /** Limpa o contador de falhas após login bem-sucedido. */
+  @Override
   public void registrarSucesso(String ip, String email) {
     bloqueios.invalidate(chave(ip, email));
   }
@@ -174,8 +178,6 @@ public class BloqueioLoginService {
       throw new IllegalStateException("SHA-256 não disponível", e);
     }
   }
-
-  public record BloqueioAtivo(long segundosRestantes) {}
 
   record BloqueioInfo(int falhas, Instant ultimaFalha, Instant bloqueadoAte) {}
 }

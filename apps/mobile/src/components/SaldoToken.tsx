@@ -58,5 +58,5 @@ export function IconeToken({
 const estilos = StyleSheet.create({
   linha: { flexDirection: 'row', alignItems: 'center', gap: espaco.xs },
   normal: { ...tipografia.rotulo },
-  grande: { fontSize: 34, lineHeight: 40, fontWeight: '700' },
+  grande: tipografia.display,
 });

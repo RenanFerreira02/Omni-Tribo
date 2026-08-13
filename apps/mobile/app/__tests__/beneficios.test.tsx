@@ -1,7 +1,7 @@
 import { fireEvent, screen } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 
-import TelaBeneficios from '../beneficios';
+import TelaBeneficios from '../(app)/beneficios';
 import { BENEFICIOS } from '@/features/beneficios/catalogo';
 import { CARTEIRA, problema } from '@/testes/fixtures';
 import { render } from '@/testes/render';

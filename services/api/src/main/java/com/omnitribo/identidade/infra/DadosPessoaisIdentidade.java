@@ -1,6 +1,7 @@
 package com.omnitribo.identidade.infra;
 
 import com.omnitribo.compartilhado.api.DadosPessoaisDoUsuario;
+import com.omnitribo.identidade.dominio.RegraNivel;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,7 +35,7 @@ public class DadosPessoaisIdentidade implements DadosPessoaisDoUsuario {
     List<Map<String, Object>> cadastro =
         jdbc.sql(
                 """
-                SELECT u.nome, u.email, u.handle, u.xp, u.nivel, u.streak, u.rating,
+                SELECT u.nome, u.email, u.handle, u.xp, u.streak, u.rating,
                        u.papel, u.status, u.criado_em AS cadastrado_em,
                        t.nome AS tribo, t.bairro AS bairro_da_tribo
                   FROM usuario u
@@ -63,6 +64,16 @@ public class DadosPessoaisIdentidade implements DadosPessoaisDoUsuario {
         .map(
             linha -> {
               Map<String, Object> completo = new LinkedHashMap<>(linha);
+              // Nível DERIVADO do XP, não lido de `usuario.nivel`.
+              //
+              // A coluna é cache recalculado a cada concessão, e as duas leituras divergiam de
+              // verdade: para a alice do seed, GET /usuarios/me respondia 2 (derivado por
+              // RegraNivel) e esta exportação respondia 3 (a coluna). Duas respostas para a mesma
+              // pergunta, e a que ia no arquivo de direito do titular era a errada.
+              //
+              // Quem manda é a FÓRMULA — a coluna existe para evitar recalcular em listagem, não
+              // para ser fonte de verdade. Ver PerfilService, que já derivava.
+              completo.put("nivel", RegraNivel.nivelPara(((Number) linha.get("xp")).longValue()));
               completo.put("consentimentos", consentimentos);
               return completo;
             })

@@ -73,7 +73,7 @@ class BloqueioProgressivoTest extends TesteIntegracaoMvcBase {
     mockMvc
         .perform(
             post("/api/v1/auth/login")
-                .header("X-Forwarded-For", ip)
+                .with(vindoDe(ip))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"email\":\"" + email + "\",\"senha\":\"SenhaQualquer!123\"}"))
         .andExpect(status().isTooManyRequests())

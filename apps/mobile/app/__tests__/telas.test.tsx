@@ -8,7 +8,7 @@ import TelaPerfil from '../(tabs)/perfil';
 import Onboarding from '../onboarding';
 import { sacar } from '@/api/carteira';
 import { paraErroApi } from '@/api/erros';
-import { PERFIL, problema } from '@/testes/fixtures';
+import { PERFIL, alerta, problema } from '@/testes/fixtures';
 import { render } from '@/testes/render';
 import { servidor } from '@/testes/servidor';
 import { useSessao } from '@/stores/sessao';
@@ -325,6 +325,41 @@ describe('perfil', () => {
     await screen.findByText('Alice Ferreira');
     expect(screen.queryByText(/R\$/)).toBeNull();
   });
+
+  // ─── Sair ───────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * NÃO EXISTIA teste de logout, e é essa ausência que deixava o vazamento entre contas invisível.
+   *
+   * O `QueryClient` vive pelo processo inteiro e as chaves são globais (`['perfil']`,
+   * `['carteira','saldo']`). Sem `clear()`, o perfil e o saldo de quem saiu ficavam em memória — e a
+   * próxima pessoa a entrar no mesmo aparelho os via até o primeiro refetch. Só o login limpava; a
+   * saída, que é onde a expectativa de esquecimento é explícita, não.
+   */
+  it('sair revoga o refresh no servidor, limpa a sessão e ESQUECE o cache', async () => {
+    let revogado: string | null = null;
+    servidor.use(
+      http.post(`${BASE}/auth/logout`, async ({ request }) => {
+        const corpo = (await request.json()) as { refreshToken: string };
+        revogado = corpo.refreshToken;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    const { queryClient } = await render(<TelaPerfil />);
+    await screen.findByText('Alice Ferreira');
+    // O perfil está no cache: é exatamente o que não pode sobreviver ao logout.
+    expect(queryClient.getQueryData(['perfil'])).toBeDefined();
+
+    await fireEvent.press(screen.getByTestId('botao-sair'));
+
+    await screen.findByText('Alice Ferreira').catch(() => undefined);
+    expect(revogado).toBe('refresh-1');
+    expect(useSessao.getState().accessToken).toBeNull();
+    expect(useSessao.getState().refreshToken).toBeNull();
+    expect(queryClient.getQueryData(['perfil'])).toBeUndefined();
+    expect(mockSubstituir).toHaveBeenCalledWith('/(auth)/login');
+  });
 });
 
 // ─── Notificações ─────────────────────────────────────────────────────────────────────────────
@@ -349,7 +384,11 @@ describe('notificações', () => {
     servidor.use(
       http.patch(`${BASE}/alertas/:id/lido`, ({ params }) => {
         marcado = params.id as string;
-        return HttpResponse.json({ id: params.id, lido: true });
+        // Pela FÁBRICA, não por um objeto à mão. `{ id, lido }` omitia `tipo`, `titulo`, `corpo`,
+        // `missaoId` e `criadoEm` — uma forma que o backend nunca devolve. O `validarEmDev` do app
+        // acusava isso a cada execução (era o `console.warn [contrato]` no log do CI) e seguia em
+        // frente, então o teste exercitava a resposta errada sem nada ficar vermelho.
+        return HttpResponse.json(alerta({ id: params.id as string, lido: true }));
       }),
     );
 

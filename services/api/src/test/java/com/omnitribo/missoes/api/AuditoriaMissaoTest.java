@@ -47,7 +47,7 @@ class AuditoriaMissaoTest extends TesteIntegracaoMvcBase {
         .perform(
             post(BASE + "/{id}/publicar", missaoId)
                 .header("Authorization", bearer(ALICE_ID))
-                .header("X-Forwarded-For", ip)
+                .with(vindoDe(ip))
                 .header("User-Agent", UA_TESTE))
         .andExpect(status().isOk());
 
@@ -116,7 +116,7 @@ class AuditoriaMissaoTest extends TesteIntegracaoMvcBase {
             .perform(
                 post(BASE)
                     .header("Authorization", bearer(ALICE_ID))
-                    .header("X-Forwarded-For", ip)
+                    .with(vindoDe(ip))
                     .header("User-Agent", UA_TESTE)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(corpoEntregaValido()))

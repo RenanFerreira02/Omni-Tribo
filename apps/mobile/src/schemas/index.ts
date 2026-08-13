@@ -2,11 +2,16 @@ import { z } from 'zod';
 
 /** Espelha as regras de Bean Validation do backend, para falhar no formulário e não na rede. */
 
+/**
+ * Espelho de `ComplexidadeMissao`. Um lugar só — estava repetido em três, e um enum de domínio
+ * copiado é a forma mais silenciosa de as cópias divergirem quando o backend ganhar um valor novo.
+ */
+export const complexidadeSchema = z.enum(['LEVE', 'MEDIA', 'PESADA']);
+
 export const loginSchema = z.object({
   email: z.email('Informe um e-mail válido.'),
   senha: z.string().min(1, 'Informe sua senha.'),
 });
-export type LoginForm = z.infer<typeof loginSchema>;
 
 export const registroSchema = z.object({
   nome: z.string().min(1, 'Informe seu nome.').max(100, 'Nome muito longo (máx. 100).'),
@@ -18,7 +23,6 @@ export const registroSchema = z.object({
   // 12 é o mínimo do backend. Deixar o app aceitar menos só trocaria um erro imediato por um 400.
   senha: z.string().min(12, 'A senha precisa de ao menos 12 caracteres.'),
 });
-export type RegistroForm = z.infer<typeof registroSchema>;
 
 export const transferenciaSchema = z.object({
   destinatarioId: z.guid('Escolha um membro da sua tribo.'),
@@ -30,7 +34,6 @@ export const transferenciaSchema = z.object({
     .max(500, 'O máximo por transferência é 500 tokens.'),
   mensagem: z.string().max(200, 'A mensagem pode ter no máximo 200 caracteres.').optional(),
 });
-export type TransferenciaForm = z.infer<typeof transferenciaSchema>;
 
 /**
  * Criação de missão.
@@ -55,7 +58,7 @@ export const criarMissaoSchema = z
       .string()
       .min(1, 'Descreva o que precisa ser feito.')
       .max(2000, 'A descrição pode ter no máximo 2000 caracteres.'),
-    complexidade: z.enum(['LEVE', 'MEDIA', 'PESADA']).optional(),
+    complexidade: complexidadeSchema.optional(),
     pesoKg: z.number().min(0, 'O peso não pode ser negativo.').optional(),
     volumeL: z.number().min(0, 'O volume não pode ser negativo.').optional(),
     origemLat: z.number().min(-90).max(90),
@@ -163,8 +166,11 @@ export const missaoResponseSchema = z.object({
   destinoLat: z.number().nullable(),
   destinoLon: z.number().nullable(),
   pontoCustodiaId: z.guid().nullable(),
-  cep: z.string(),
-  logradouro: z.string(),
+  // Nulos para quem não participa da missão — o servidor recorta o endereço por participação.
+  // Sem `.nullable()` aqui, toda listagem de missão alheia dispara um aviso de divergência em dev,
+  // treinando quem lê o log a ignorar o aviso. Ver o comentário em `tipos.ts`.
+  cep: z.string().nullable(),
+  logradouro: z.string().nullable(),
   bairro: z.string(),
   cidade: z.string(),
   uf: z.string(),
@@ -176,6 +182,8 @@ export const missaoResponseSchema = z.object({
   criadaEm: z.string(),
   aceitaEm: z.string().nullable(),
   concluidaEm: z.string().nullable(),
+  complexidade: complexidadeSchema,
+  versaoFormula: z.number(),
   versao: z.number(),
 });
 
@@ -295,7 +303,7 @@ export const enderecoResponseSchema = z.object({
 export const previaRecompensaResponseSchema = z.object({
   xpRecompensa: z.number(),
   tokensRecompensa: z.number(),
-  complexidade: z.enum(['LEVE', 'MEDIA', 'PESADA']),
+  complexidade: complexidadeSchema,
   versaoFormula: z.number(),
 });
 

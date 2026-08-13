@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Botao } from '@/components/Botao';
 import { CampoTexto } from '@/components/CampoTexto';
 import { useLogin } from '@/features/auth/hooks';
-import { errosPorCampo, mensagemDoErro } from '@/lib/formulario';
+import { errosDoZod, errosPorCampo, mensagemDoErro } from '@/lib/formulario';
 import { loginSchema } from '@/schemas';
 import { cores, espaco, textoAcessivel, tipografia } from '@/theme';
 
@@ -25,11 +25,10 @@ export default function Login() {
   async function submeter() {
     const analise = loginSchema.safeParse({ email: email.trim(), senha });
     if (!analise.success) {
-      setErrosLocais(
-        Object.fromEntries(
-          analise.error.issues.map((problema) => [String(problema.path[0]), problema.message]),
-        ),
-      );
+      // `errosDoZod`, e não `Object.fromEntries`: o utilitário guarda a PRIMEIRA mensagem por
+      // campo, e a expressão copiada guardava a última. Duas telas mostrando mensagens diferentes
+      // para o mesmo campo com duas regras violadas — e a função existia justamente para isso.
+      setErrosLocais(errosDoZod(analise.error));
       return;
     }
     setErrosLocais({});
@@ -101,7 +100,7 @@ const estilos = StyleSheet.create({
   flex: { flex: 1 },
   conteudo: { flexGrow: 1, justifyContent: 'center', padding: espaco.xl, gap: espaco.xxl },
   cabecalho: { gap: espaco.sm },
-  marca: { fontSize: 32, lineHeight: 38, fontWeight: '700', color: cores.verdeEscuro },
+  marca: { ...tipografia.destaque, color: cores.verdeEscuro },
   subtitulo: { ...tipografia.corpo, color: cores.tinta70 },
   formulario: { gap: espaco.lg },
   aviso: { ...tipografia.corpo, color: textoAcessivel.coral },

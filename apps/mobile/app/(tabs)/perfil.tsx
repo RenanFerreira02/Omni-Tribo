@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, Share, StyleSheet, Switch, Text, View } from 'react-native';
@@ -42,6 +43,7 @@ const ROTULO_CONSENTIMENTO: Record<TipoConsentimento, { titulo: string; descrica
 
 export default function TelaPerfil() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const encerrar = useSessao((estado) => estado.encerrar);
   const refreshToken = useSessao((estado) => estado.refreshToken);
 
@@ -59,6 +61,12 @@ export default function TelaPerfil() {
   async function sair() {
     if (refreshToken) await logout(refreshToken).catch(() => undefined);
     await encerrar();
+    // Sair precisa ESQUECER. O `QueryClient` vive pelo processo inteiro e as chaves são globais
+    // (`['perfil']`, `['carteira','saldo']`), então sem isto o perfil e o saldo desta conta ficavam
+    // em memória — visíveis para a próxima pessoa a entrar no mesmo aparelho, até o primeiro
+    // refetch. O login já limpava; a saída, que é onde a expectativa de esquecimento é explícita,
+    // não limpava.
+    queryClient.clear();
     router.replace('/(auth)/login');
   }
 
@@ -79,6 +87,10 @@ export default function TelaPerfil() {
       {
         onSuccess: async () => {
           await encerrar();
+          // Mesma razão do `sair()`, e aqui é ainda mais forte: a pessoa acabou de exercer o
+          // direito ao esquecimento. Deixar perfil e saldo dela no cache do processo seria a
+          // contradição mais direta possível do que o botão promete.
+          queryClient.clear();
           router.replace('/(auth)/login');
         },
       },

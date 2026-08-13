@@ -19,8 +19,6 @@ export type StatusMissao =
   | 'CANCELADA'
   | 'EXPIRADA';
 
-export const STATUS_TERMINAIS: readonly StatusMissao[] = ['CONCLUIDA', 'CANCELADA', 'EXPIRADA'];
-
 export type ComplexidadeMissao = 'LEVE' | 'MEDIA' | 'PESADA';
 
 export type PapelUsuario = 'USUARIO' | 'ADMIN';
@@ -172,8 +170,22 @@ export interface MissaoResponse {
   destinoLat: number | null;
   destinoLon: number | null;
   pontoCustodiaId: string | null;
-  cep: string;
-  logradouro: string;
+
+  /**
+   * `cep` e `logradouro` são NULOS para quem não participa da missão.
+   *
+   * O servidor recorta por participação: criador e executor recebem o endereço completo e a
+   * coordenada com 6 casas; qualquer outro usuário recebe `null` nestes dois campos e coordenada
+   * com **3 casas (~110 m)**. A listagem devolvia endereço exato de toda missão do sistema a
+   * qualquer autenticado, o que era um catálogo de endereços do bairro.
+   *
+   * Consequência para a UI: sempre trate como ausente e explique por quê — aceitar a missão é o
+   * que revela o endereço. Nunca renderize direto: `<Text>{null}</Text>` não quebra, só deixa uma
+   * linha vazia que ninguém entende.
+   */
+  cep: string | null;
+  logradouro: string | null;
+
   bairro: string;
   cidade: string;
   uf: string;
@@ -185,6 +197,18 @@ export interface MissaoResponse {
   criadaEm: string;
   aceitaEm: string | null;
   concluidaEm: string | null;
+
+  /**
+   * Complexidade EFETIVA e versão da fórmula, CONGELADAS na criação.
+   *
+   * Derivadas de peso e volume quando existem, declaradas quando não. É o par que responde "por que
+   * esta missão vale isto?" — e `versaoFormula` é o que diz sob qual calibração a recompensa foi
+   * congelada, já que os números do servidor são ajustáveis. `PreviaRecompensaResponse` já os
+   * trazia; a missão criada não, e por isso o app não conseguia explicar a própria recompensa.
+   */
+  complexidade: ComplexidadeMissao;
+  versaoFormula: number;
+
   versao: number;
 }
 
@@ -264,12 +288,6 @@ export interface CriarMissaoRequest {
   pontoCustodiaId?: string;
 }
 
-export interface TransferirRequest {
-  destinatarioId: string;
-  tokens: number;
-  mensagem?: string;
-}
-
 export interface TransferenciaResponse {
   lancamentoSaidaId: string;
   /** Nulo num replay de idempotência. */
@@ -295,7 +313,14 @@ export interface FiltroMissoes {
   minhas?: EscopoMissao;
   pagina?: number;
   tamanho?: number;
-  ordenarPor?: 'CRIADA_EM' | 'JANELA_FIM' | 'VALOR_BRL' | 'XP_RECOMPENSA';
+  /**
+   * Allowlist de ordenação do backend. `VALOR_BRL` SAIU e deu lugar a `TOKENS_RECOMPENSA`.
+   *
+   * Ordenar por `valorBrl` era ordenar por constante: a `ck_missao_economia` (V15) obriga a coluna a
+   * ser ZERO em toda linha. O backend removeu a opção do enum, então enviá-la agora é 400 — e o
+   * autocomplete daqui entregava exatamente esse valor.
+   */
+  ordenarPor?: 'CRIADA_EM' | 'JANELA_FIM' | 'TOKENS_RECOMPENSA' | 'XP_RECOMPENSA';
   direcao?: 'ASC' | 'DESC';
 }
 

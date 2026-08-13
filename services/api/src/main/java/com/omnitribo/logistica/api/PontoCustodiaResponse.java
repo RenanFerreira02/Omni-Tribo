@@ -23,10 +23,4 @@ public record PontoCustodiaResponse(
     BigDecimal lon,
     int capacidade,
     int ocupacao,
-    @Schema(description = "Distância em metros; só na busca por raio") BigDecimal distanciaM) {
-
-  /** Capacidade 0 significa "sem limite declarado", e aí lotado não faz sentido. */
-  public boolean lotado() {
-    return capacidade > 0 && ocupacao >= capacidade;
-  }
-}
+    @Schema(description = "Distância em metros; só na busca por raio") BigDecimal distanciaM) {}

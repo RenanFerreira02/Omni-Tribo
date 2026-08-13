@@ -33,7 +33,10 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/v1/tribos")
-@Tag(name = "Tribos", description = "Financiamento comunitário de missões")
+// Tag PRÓPRIA, e não "Tribos": duas @Tag com o mesmo nome e descrições diferentes fazem o
+// documento OpenAPI final ficar com uma delas de forma não determinística. `TriboController` é
+// sobre a comunidade; este é sobre o pote de uma missão.
+@Tag(name = "Financiamento", description = "Financiamento comunitário do pote de missões")
 @SecurityRequirement(name = "bearerAuth")
 @Validated
 public class TriboFinanciamentoController {

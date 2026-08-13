@@ -66,14 +66,30 @@ export default function TelaMapa() {
   const aoMudarRegiao = useCallbackComDebounce((nova: RegiaoMapa) => setRegiao(nova), 500);
 
   const marcadores: MarcadorMapa[] = useMemo(() => {
-    const deMissoes = (missoes.data ?? []).map<MarcadorMapa>((item) => ({
-      id: `missao:${item.missao.id}`,
-      lat: item.missao.origemLat ?? 0,
-      lon: item.missao.origemLon ?? 0,
-      cor: coresCategoria[item.missao.categoria].texto,
-      forma: 'pino',
-      rotulo: item.missao.titulo,
-    }));
+    // `flatMap` e não `map`: missão sem coordenada é DESCARTADA, não plantada em (0, 0).
+    //
+    // O `?? 0` anterior punha o marcador no Golfo da Guiné — um pino a milhares de quilômetros, com
+    // o rótulo de uma missão do bairro. Some da tela é o desfecho honesto: o radar já ordena por
+    // distância, e uma missão sem origem não tem lugar num mapa.
+    //
+    // A coordenada aqui vem ARREDONDADA pelo servidor (3 casas, ~110 m) porque o radar só devolve
+    // missão de terceiro. É por isso que o pino não coincide exatamente com o endereço, enquanto o
+    // rótulo de distância ao lado é medido com precisão plena pelo PostGIS: a divergência é
+    // deliberada, e some quando a pessoa aceita a missão.
+    const deMissoes = (missoes.data ?? []).flatMap<MarcadorMapa>((item) => {
+      const { origemLat, origemLon } = item.missao;
+      if (origemLat === null || origemLon === null) return [];
+      return [
+        {
+          id: `missao:${item.missao.id}`,
+          lat: origemLat,
+          lon: origemLon,
+          cor: coresCategoria[item.missao.categoria].texto,
+          forma: 'pino',
+          rotulo: item.missao.titulo,
+        },
+      ];
+    });
 
     const dePontos = (pontos.data ?? []).map<MarcadorMapa>((ponto) => ({
       id: `ponto:${ponto.id}`,

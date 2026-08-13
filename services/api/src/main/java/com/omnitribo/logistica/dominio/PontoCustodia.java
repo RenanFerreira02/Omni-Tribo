@@ -66,10 +66,6 @@ public class PontoCustodia {
     return apelido;
   }
 
-  public void setApelido(String apelido) {
-    this.apelido = apelido;
-  }
-
   @SuppressFBWarnings(
       value = "EI_EXPOSE_REP",
       justification = "Point de JTS é imutável após construção; cópia defensiva sem benefício")
@@ -89,20 +85,8 @@ public class PontoCustodia {
     return ocupacao;
   }
 
-  public void incrementarOcupacao() {
-    this.ocupacao++;
-  }
-
-  public void decrementarOcupacao() {
-    if (this.ocupacao > 0) this.ocupacao--;
-  }
-
   public boolean isAtivo() {
     return ativo;
-  }
-
-  public void setAtivo(boolean ativo) {
-    this.ativo = ativo;
   }
 
   public Instant getCriadoEm() {

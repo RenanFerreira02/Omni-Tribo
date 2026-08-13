@@ -37,10 +37,9 @@ public class CheckinRejeitadoException extends RegraNegocioVioladaException {
   private final MotivoRejeicaoCheckin motivo;
   private final transient Map<String, Object> propriedades;
 
-  public CheckinRejeitadoException(MotivoRejeicaoCheckin motivo, String mensagem) {
-    this(motivo, mensagem, Map.of());
-  }
-
+  // Construção só pela fábrica `de`: era público um construtor sem propriedades que ninguém usava,
+  // e usá-lo produziria um 422 sem os números que a tela precisa para orientar o usuário — o
+  // problema que esta classe inteira existe para resolver.
   private CheckinRejeitadoException(
       MotivoRejeicaoCheckin motivo, String mensagem, Map<String, Object> propriedades) {
     super(mensagem);
@@ -86,10 +85,6 @@ public class CheckinRejeitadoException extends RegraNegocioVioladaException {
     if (valor != null) {
       destino.put(chave, valor);
     }
-  }
-
-  public MotivoRejeicaoCheckin getMotivo() {
-    return motivo;
   }
 
   @Override

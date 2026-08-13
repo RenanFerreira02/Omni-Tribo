@@ -1,3 +1,4 @@
+import { seg } from './caminho';
 import { cliente } from './cliente';
 import type {
   ClimaResponse,
@@ -23,12 +24,12 @@ export async function listarTribos(): Promise<TriboResponse[]> {
 
 /** Só o detalhe traz o centro geográfico; a lista o omite para não virar N+1 no servidor. */
 export async function buscarTribo(id: string): Promise<TriboResponse> {
-  const { data } = await cliente.get<TriboResponse>(`/tribos/${id}`);
+  const { data } = await cliente.get<TriboResponse>(`/tribos/${seg(id)}`);
   return validarEmDev(triboResponseSchema, data, `GET /tribos/${id}`);
 }
 
 export async function buscarPontoCustodia(id: string): Promise<PontoCustodiaResponse> {
-  const { data } = await cliente.get<PontoCustodiaResponse>(`/pontos-custodia/${id}`);
+  const { data } = await cliente.get<PontoCustodiaResponse>(`/pontos-custodia/${seg(id)}`);
   return validarEmDev(pontoCustodiaResponseSchema, data, `GET /pontos-custodia/${id}`);
 }
 
@@ -63,6 +64,6 @@ export async function buscarClima(lat: number, lon: number): Promise<ClimaRespon
  * pedem reações opostas do usuário.
  */
 export async function buscarEnderecoPorCep(cep: string): Promise<EnderecoResponse> {
-  const { data } = await cliente.get<EnderecoResponse>(`/enderecos/${cep}`);
+  const { data } = await cliente.get<EnderecoResponse>(`/enderecos/${seg(cep)}`);
   return validarEmDev(enderecoResponseSchema, data, `GET /enderecos/${cep}`);
 }

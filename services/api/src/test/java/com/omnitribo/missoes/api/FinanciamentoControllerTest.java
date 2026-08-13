@@ -52,7 +52,7 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
 
   // Chamado direto, não pelo @Scheduled: app.agendamento.habilitado é false em teste de propósito,
   // para que nenhum job mude estado entre o arrange e o assert.
-  @Autowired com.omnitribo.missoes.dominio.ExpiracaoMissoesService expiracaoMissoesService;
+  @Autowired com.omnitribo.missoes.infra.ExpiracaoMissoesJob expiracaoMissoesJob;
 
   private UUID tribo;
   private UUID outraTribo;
@@ -197,7 +197,7 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
         "UPDATE missao SET janela_fim = NOW() - INTERVAL '1 hour' WHERE id = ?", missaoId);
 
     // Chamado direto: app.agendamento.habilitado é false em teste, de propósito.
-    expiracaoMissoesService.expirarLote(50);
+    expiracaoMissoesJob.varrer(50, 5000);
 
     assertThat(statusDaMissao()).isEqualTo("EXPIRADA");
     assertThat(poteDaMissao()).as("pote zerado na expiração").isZero();
@@ -431,7 +431,173 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     assertLedgerReconcilia(jdbcTemplate);
   }
 
+  /**
+   * Retry de um financiamento que COMPLETOU o pote também devolve replay — e este é o caso que o
+   * teste acima não pegava.
+   *
+   * <p>Com {@code recompensa / 2}, o pote termina na metade e o teto nunca dispara; o defeito
+   * ficava invisível. Financiando a recompensa INTEIRA, o pote fica cheio na primeira chamada, e o
+   * retry caía em {@code validarTeto} — {@code pote + tokens > recompensa} — respondendo <b>422</b>
+   * em vez do replay. O cliente recebia erro para uma operação que já tinha dado certo, sem nenhuma
+   * forma de distinguir isso de uma falha real.
+   *
+   * <p>A causa era de ORDEM: a sondagem de idempotência acontecia depois das validações de estado.
+   * Agora é autorização → lock → sonda → valida → escreve, como em saque e transferência.
+   */
+  @Test
+  void retryDeFinanciamentoQueCompletouOPoteDevolveReplayENao422() throws Exception {
+    mockMvc
+        .perform(financiar(financiador, recompensa, "financiar-pote-cheio"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.poteTokens").value(recompensa));
+
+    mockMvc
+        .perform(financiar(financiador, recompensa, "financiar-pote-cheio"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.replay").value(true))
+        .andExpect(jsonPath("$.poteTokens").value(recompensa));
+
+    assertThat(poteDaMissao()).as("pote creditado uma vez só").isEqualTo(recompensa);
+    assertThat(saldoTokens(financiador)).isEqualTo(SALDO - recompensa);
+    assertLedgerReconcilia(jdbcTemplate);
+  }
+
+  // ─── Becos sem saída (A4) ────────────────────────────────────────────────────────────────────
+
+  /**
+   * Executor abandona em EM_ANDAMENTO: a varredura expira e DEVOLVE o pote aos financiadores.
+   *
+   * <p>Antes, {@code EM_ANDAMENTO} tinha uma saída só — {@code CHECKIN} — e nenhum ator, nem ADMIN,
+   * conseguia tirar a missão de lá. O pote ficava em custódia PARA SEMPRE, e a reconciliação
+   * continuava respondendo íntegro: quem quebra é a conservação, que é outra invariante.
+   */
+  @Test
+  void execucaoAbandonadaExpiraEEstornaOPote() throws Exception {
+    long circulacaoInicial = tokensEmCirculacao(jdbcTemplate);
+    levarAteEmAndamento();
+
+    // Recua o marco para além do prazo de execução (48h). É `estado_desde` que a varredura lê —
+    // janela_fim é o prazo da OFERTA e não diz nada sobre abandono depois do aceite.
+    jdbcTemplate.update(
+        "UPDATE missao SET estado_desde = now() - INTERVAL '72 hours' WHERE id = ?", missaoId);
+
+    assertThat(expiracaoMissoesJob.varrer(50, 5000).expiradas()).isEqualTo(1);
+
+    assertThat(statusDaMissao()).isEqualTo("EXPIRADA");
+    assertThat(poteDaMissao()).as("pote devolvido, não preso").isZero();
+    assertThat(saldoTokens(financiador)).as("financiador recuperou os tokens").isEqualTo(SALDO);
+    assertThat(saldoTokens(executor)).as("sem check-in, sem pagamento").isZero();
+    assertThat(tokensEmCirculacao(jdbcTemplate)).isEqualTo(circulacaoInicial);
+    assertLedgerReconcilia(jdbcTemplate);
+  }
+
+  /**
+   * Criador some depois do check-in: a varredura CONCLUI e PAGA o executor.
+   *
+   * <p>É a decisão de produto documentada em {@code EventoMissao.EXPIRAR_CONFIRMACAO}. Expirar
+   * estornando puniria quem executou por uma omissão do outro lado, e o check-in geolocalizado
+   * validado no servidor é a evidência que o sistema aceita como prova em todo outro caminho.
+   *
+   * <p>Passa por CONCLUIDA, então a regra "só CONCLUIDA credita" continua intacta e o pagamento
+   * reusa o único caminho de crédito que existe.
+   */
+  @Test
+  void confirmacaoOmitidaConcluiEPagaOExecutor() throws Exception {
+    long circulacaoInicial = tokensEmCirculacao(jdbcTemplate);
+    levarAteEmAndamento();
+    jdbcTemplate.update(
+        "UPDATE missao SET status = 'AGUARDANDO_CONFIRMACAO', estado_desde = now()"
+            + " - INTERVAL '96 hours' WHERE id = ?",
+        missaoId);
+
+    assertThat(expiracaoMissoesJob.varrer(50, 5000).expiradas()).isEqualTo(1);
+
+    assertThat(statusDaMissao()).isEqualTo("CONCLUIDA");
+    assertThat(saldoTokens(executor)).as("executor recebeu do pote").isEqualTo(recompensa);
+    assertThat(poteDaMissao()).as("pote consumido pelo pagamento").isZero();
+    assertThat(tokensEmCirculacao(jdbcTemplate))
+        .as("CONSERVAÇÃO: pagou do pote, não cunhou")
+        .isEqualTo(circulacaoInicial);
+    assertLedgerReconcilia(jdbcTemplate);
+  }
+
+  /** ADMIN destrava manualmente: CANCELADA com estorno, e a justificativa vai para a trilha. */
+  @Test
+  void adminDestravaMissaoParadaEEstornaOPote() throws Exception {
+    levarAteEmAndamento();
+
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/destravar", missaoId)
+                .header("Authorization", bearerAdmin())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"justificativa\":\"Executor avisou por telefone que não concluirá.\"}"))
+        .andExpect(status().isOk());
+
+    assertThat(statusDaMissao()).isEqualTo("CANCELADA");
+    assertThat(saldoTokens(financiador)).isEqualTo(SALDO);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM missao_evento WHERE missao_id = ?"
+                    + " AND tipo = 'DESTRAVADA_POR_ADMIN'",
+                Long.class,
+                missaoId))
+        .isEqualTo(1L);
+    assertLedgerReconcilia(jdbcTemplate);
+  }
+
+  /** Não-ADMIN não destrava — nem o criador, que é dono da missão. */
+  @Test
+  void destravarExigeAdmin() throws Exception {
+    levarAteEmAndamento();
+
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/destravar", missaoId)
+                .header("Authorization", bearer(criador))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"justificativa\":\"Quero cancelar do meu jeito.\"}"))
+        .andExpect(status().isForbidden());
+
+    assertThat(statusDaMissao()).isEqualTo("EM_ANDAMENTO");
+  }
+
   // ─── Apoio ───────────────────────────────────────────────────────────────────────────────────
+
+  /** Financia, publica, aceita e inicia — o cenário comum dos testes de beco sem saída. */
+  private void levarAteEmAndamento() throws Exception {
+    mockMvc
+        .perform(financiar(financiador, recompensa, "financiar-travada-" + UUID.randomUUID()))
+        .andExpect(status().isCreated());
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/publicar", missaoId).header("Authorization", bearer(criador)))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/aceitar", missaoId).header("Authorization", bearer(executor)))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/iniciar", missaoId).header("Authorization", bearer(executor)))
+        .andExpect(status().isOk());
+  }
+
+  private String statusDaMissao() {
+    return jdbcTemplate.queryForObject(
+        "SELECT status FROM missao WHERE id = ?", String.class, missaoId);
+  }
+
+  /**
+   * Admin do seed (V900). Precisa ser um usuário REAL: o filtro consulta a conta a cada request.
+   */
+  private String bearerAdmin() {
+    return "Bearer "
+        + com.omnitribo.JwtTestConfig.gerarTokenValido(
+            UUID.fromString("bbbbbbbb-0000-0000-0000-000000000001"),
+            "admin@omnitribo.dev",
+            "ADMIN");
+  }
 
   private java.util.concurrent.Callable<Integer> financiarAoSinal(
       UUID quem, long tokens, String chave, java.util.concurrent.CountDownLatch largada) {
@@ -553,11 +719,6 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
   private long poteDaMissao() {
     return jdbcTemplate.queryForObject(
         "SELECT pote_tokens FROM missao WHERE id = ?", Long.class, missaoId);
-  }
-
-  private String statusDaMissao() {
-    return jdbcTemplate.queryForObject(
-        "SELECT status FROM missao WHERE id = ?", String.class, missaoId);
   }
 
   private String bearer(UUID usuarioId) {

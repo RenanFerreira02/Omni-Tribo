@@ -6,7 +6,10 @@
 - src/features/<dominio>/ hooks de TanStack Query e lógica. src/api/ é o único lugar que fala HTTP.
 - src/components/ design system, sem chamada de API. src/stores/ Zustand só para UI e sessão.
 - src/theme/tokens.ts — NENHUM hex literal fora daqui. A regra é aplicada por lint
-  (`no-restricted-syntax` em eslint.config.js), não por disciplina.
+  (`no-restricted-syntax` em eslint.config.js), não por disciplina. **A segunda metade dela também é
+  lint agora**: `cores.{ambar,coral,tinta50,verdePrimario}` numa propriedade `color` é erro. Só o hex
+  era travado, e as duas violações que existiam estavam justamente na metade descoberta — uma delas
+  no `Aviso`, por onde passa TODO erro do app.
 - **Preenchimento usa `cores`; TEXTO usa `textoAcessivel`.** Os 12 tokens de marca foram desenhados
   para preencher, e como texto reprovavam em WCAG AA — `tinta50` dava 3,54:1, `ambar` 3,36:1,
   `coral` 3,20:1, contra o mínimo de 4,5:1. Onze dos vinte e dois pares texto/fundo do app
@@ -21,6 +24,18 @@
   direto.** A lib não tem implementação web — o módulo resolvido no bundle do browser é
   literalmente `export default {}` e toda chamada estoura com `... is not a function`, no boot,
   antes da primeira tela. Ver a seção Plataforma web abaixo e o ADR 0013.
+- **Falha de rotação de refresh só encerra a sessão quando ela ACABOU** (`sessaoAcabou` em
+  `src/api/erros.ts`). O `/auth/refresh` tem rate limit no backend, e `encerrar()` apaga o keystore:
+  tratar 429 ou queda de rede como sessão morta custava um refresh de 30 dias, irreversível. Para
+  obstáculo temporário existe `limparMemoria()`, que zera a memória e PRESERVA o cofre.
+- **Sair precisa esquecer.** `queryClient.clear()` no logout, no registro e na exclusão de conta — as
+  query keys são globais (`['perfil']`, `['carteira','saldo']`), então sem isso a próxima pessoa a
+  entrar no aparelho vê nome, e-mail e saldo da anterior.
+- **Deep link é validado em `src/lib/deepLink.ts`** (allowlist de rota + UUID), ligado por
+  `useDeepLink` e coberto por teste. Toda tela autenticada fora das abas vive em `app/(app)/`, que
+  tem guarda de sessão — o grupo entre parênteses não entra na URL.
+- **Path param interpolado passa por `seg()`** (`src/api/caminho.ts`). Axios não escapa segmento de
+  path, e um id com `/` remonta a requisição contra outro endpoint com o Bearer junto.
 - TypeScript strict. `any` só com comentário justificando.
 - Toda chamada de API tem estado de carregando, vazio e erro tratados na UI.
 - npx expo install, nunca npm install, para pacotes do ecossistema Expo.
@@ -96,7 +111,7 @@ Campos garantidos em toda resposta de erro: `type`, `title`, `status`, `detail`,
 `traceId`. Erros de validação trazem também `errors[{campo, mensagem}]`, prontos para marcar o campo
 no formulário.
 
-## Ambiente de teste — três armadilhas
+## Ambiente de teste — quatro armadilhas
 
 Custaram tempo e não aparecem em lugar nenhum da documentação do Expo:
 
@@ -109,3 +124,10 @@ Custaram tempo e não aparecem em lugar nenhum da documentação do Expo:
   dublês. Por isso o teste de integração roda em `testEnvironment: 'node'`
   (`jest.e2e.config.js`), com stub de `react-native`; sob o preset do RN toda chamada volta como
   `semRede`, indistinguível de backend desligado.
+- **O PRIMEIRO teste de uma suíte de tela é ordens de grandeza mais caro que os outros**, e os 5 s
+  de default do jest não cabiam nele no CI. O `react-native` exporta componentes por getters
+  preguiçosos: o grafo de módulos só carrega no primeiro `render()`, dentro do primeiro teste. Com
+  `--coverage` e cache de transformação frio, medimos 221 ms → 2110 ms. Foi essa a causa do Mobile
+  CI vermelho da F9 até 2026-08-13, e o motivo de a suíte passar em toda máquina local: cache quente
+  e CPU rápida escondiam. Hoje `jest.config.js` fixa `testTimeout: 30000`. Se um teste novo estourar
+  isso, é lentidão de verdade — não o aquecimento.

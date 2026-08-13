@@ -59,5 +59,16 @@ export default function LayoutTabs() {
 }
 
 function Icone({ cor, glifo }: { cor: ColorValue; glifo: string }) {
-  return <Text style={{ color: cor, fontSize: 20 }}>{glifo}</Text>;
+  return (
+    // Decorativo: o TÍTULO da aba já diz o que ela é, e o leitor de tela anunciando "círculo com
+    // ponto, Missões" só atrapalha. O app já esconde glifo decorativo em `IndicadorPaginas` e no
+    // onboarding — aqui tinha ficado de fora.
+    <Text
+      style={{ color: cor, fontSize: tipografia.icone.fontSize }}
+      accessibilityElementsHidden
+      importantForAccessibility="no"
+    >
+      {glifo}
+    </Text>
+  );
 }

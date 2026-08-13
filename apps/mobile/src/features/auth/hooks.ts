@@ -25,6 +25,7 @@ export function useLogin() {
 export function useRegistro() {
   const definirSessao = useSessao((estado) => estado.definirSessao);
   const definirUsuario = useSessao((estado) => estado.definirUsuario);
+  const queryClient = useQueryClient();
 
   return useMutation<void, ErroApi, DadosRegistro>({
     mutationFn: async (dados) => {
@@ -33,6 +34,11 @@ export function useRegistro() {
       const tokens = await registrar(dados);
       await definirSessao(tokens);
       definirUsuario(await me());
+      // MESMA limpeza do login, e ela faltava aqui. As chaves de query são globais (`['perfil']`,
+      // `['carteira','saldo']`), então quem se registrasse num aparelho onde outra pessoa tinha
+      // usado o app veria o nome, o e-mail e o SALDO dela até o primeiro refetch. Entrar por
+      // "criar conta" não é um caminho menos sensível que entrar por "login".
+      queryClient.clear();
     },
   });
 }

@@ -4,7 +4,6 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { mensagemDe, type ErroApi } from '@/api/erros';
-import type { AcaoMissao } from '@/api/missoes';
 import { Aviso } from '@/components/Aviso';
 import { Botao } from '@/components/Botao';
 import { Card } from '@/components/Card';
@@ -16,6 +15,7 @@ import { SaldoToken } from '@/components/SaldoToken';
 import { acoesDisponiveis, papelNaMissao, type AcaoDisponivel } from '@/features/missoes/acoes';
 import { useAcaoMissao, useCheckin, useMissao } from '@/features/missoes/hooks';
 import { orientacaoDe, type OrientacaoCheckin } from '@/features/missoes/mensagensCheckin';
+import { ROTULO_COMPLEXIDADE } from '@/features/missoes/rotulos';
 import { useLocalizacao } from '@/features/missoes/useLocalizacao';
 import { usePontoCustodia } from '@/features/mapa/hooks';
 import { formatarDataHora, rotuloCategoria, rotuloStatus } from '@/lib/formatar';
@@ -123,7 +123,9 @@ export default function DetalheMissao() {
       void fazerCheckin();
       return;
     }
-    acao.mutate({ acao: item.acao as AcaoMissao });
+    // Sem ` as AcaoMissao`: o early return acima já estreita o tipo, e a asserção só silenciaria
+    // um erro real se `AcaoMissao` mudasse.
+    acao.mutate({ acao: item.acao });
   }
 
   function aoTocar(item: AcaoDisponivel) {
@@ -167,11 +169,32 @@ export default function DetalheMissao() {
             <Text style={estilos.xp}>{missao.xpRecompensa} XP</Text>
             <SaldoToken tokens={missao.tokensRecompensa} testID="recompensa-tokens" />
           </View>
+          {/* POR QUE vale isto. A recompensa é calculada pelo servidor e congelada na criação; sem
+              a complexidade efetiva, o número aparecia sem explicação nenhuma e o usuário não tinha
+              como relacioná-lo ao esforço. Em ENTREGA e COLETA ela é DERIVADA de peso e volume — é a
+              resposta para "por que aquela missão paga mais que a minha?". */}
+          <Text style={estilos.legenda} testID="complexidade">
+            Complexidade: {ROTULO_COMPLEXIDADE[missao.complexidade]}
+            {missao.pesoKg !== null && missao.volumeL !== null
+              ? ` — calculada a partir de ${missao.pesoKg} kg e ${missao.volumeL} L`
+              : ' — informada por quem criou'}
+          </Text>
         </Card>
 
         <Card>
           <Text style={estilos.rotulo}>Onde</Text>
-          <Text style={estilos.linha}>{missao.logradouro}</Text>
+          {/* O servidor OCULTA logradouro e CEP de quem não participa da missão, e manda a
+              coordenada arredondada — a listagem antes entregava o endereço exato de toda missão do
+              bairro a qualquer autenticado. Renderizar `null` direto não quebra, mas deixa uma linha
+              vazia que ninguém entende; dizer POR QUE está oculto transforma a ausência em
+              informação, e explica o que a pessoa ganha ao aceitar. */}
+          {missao.logradouro ? (
+            <Text style={estilos.linha}>{missao.logradouro}</Text>
+          ) : (
+            <Text style={estilos.legenda} testID="endereco-oculto">
+              O endereço completo aparece quando você aceitar a missão.
+            </Text>
+          )}
           <Text style={estilos.linha}>
             {missao.bairro}, {missao.cidade} — {missao.uf}
           </Text>

@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Botao } from '@/components/Botao';
 import { CampoTexto } from '@/components/CampoTexto';
 import { useRegistro } from '@/features/auth/hooks';
-import { errosPorCampo, mensagemDoErro } from '@/lib/formulario';
+import { errosDoZod, errosPorCampo, mensagemDoErro } from '@/lib/formulario';
 import { registroSchema } from '@/schemas';
 import { cores, espaco, textoAcessivel, tipografia } from '@/theme';
 
@@ -31,11 +31,10 @@ export default function Registrar() {
       senha,
     });
     if (!analise.success) {
-      setErrosLocais(
-        Object.fromEntries(
-          analise.error.issues.map((problema) => [String(problema.path[0]), problema.message]),
-        ),
-      );
+      // `errosDoZod`, e não `Object.fromEntries`: o utilitário guarda a PRIMEIRA mensagem por
+      // campo, e a expressão copiada guardava a última. Duas telas mostrando mensagens diferentes
+      // para o mesmo campo com duas regras violadas — e a função existia justamente para isso.
+      setErrosLocais(errosDoZod(analise.error));
       return;
     }
     setErrosLocais({});

@@ -1,4 +1,5 @@
 import { acoesDisponiveis, papelNaMissao, type PapelNaMissao } from '../acoes';
+import { STATUS_OTIMISTA } from '../hooks';
 import type { StatusMissao } from '@/api/tipos';
 
 /**
@@ -135,3 +136,52 @@ describe('tabela de ações da missão', () => {
 function rotulos(status: StatusMissao, papel: PapelNaMissao): string[] {
   return acoesDisponiveis(status, papel).acoes.map((a) => a.rotulo);
 }
+
+/**
+ * As duas tabelas que reconstroem a máquina de estados do backend precisam CONCORDAR.
+ *
+ * `MATRIZ` (aqui) decide o que a tela oferece; `STATUS_OTIMISTA` (em `hooks.ts`) decide para onde a
+ * tela prevê que a missão vai. Juntas, são um espelho parcial do `StatusMissao` do servidor — e nada
+ * ligava uma à outra: o typecheck não acusa, e nenhum teste cruzava as duas.
+ *
+ * O modo de falha é discreto: uma ação oferecida sem entrada em `STATUS_OTIMISTA` simplesmente não
+ * atualiza a tela até o servidor responder, e um destino igual ao estado de origem faz o update
+ * otimista virar no-op — nos dois casos o botão "não faz nada" por um instante, sem erro nenhum.
+ */
+describe('consistência entre MATRIZ e STATUS_OTIMISTA', () => {
+  const STATUS: StatusMissao[] = [
+    'RASCUNHO',
+    'ABERTA',
+    'ACEITA',
+    'EM_ANDAMENTO',
+    'AGUARDANDO_CONFIRMACAO',
+    'EM_DISPUTA',
+    'CONCLUIDA',
+    'CANCELADA',
+    'EXPIRADA',
+  ];
+  const PAPEIS: PapelNaMissao[] = ['CRIADOR', 'EXECUTOR', 'TERCEIRO'];
+
+  it('toda ação oferecida prevê um status, e o status previsto muda alguma coisa', () => {
+    for (const status of STATUS) {
+      for (const papel of PAPEIS) {
+        for (const item of acoesDisponiveis(status, papel).acoes) {
+          // `checkin` é a exceção: não passa por `useAcaoMissao` e tem mutation própria, porque o
+          // corpo carrega a leitura do sensor.
+          if (item.acao === 'checkin') continue;
+
+          // O `expect` do Jest aceita UM argumento só (o segundo é sintaxe do Vitest), então a
+          // identificação do caso entra no valor comparado — é ela que diz QUAL célula da matriz
+          // quebrou quando este teste fica vermelho.
+          const onde = `${status}/${papel}/${item.acao}`;
+          const previsto = STATUS_OTIMISTA[item.acao];
+          expect({ onde, previsto: previsto ?? null }).toEqual({
+            onde,
+            previsto: expect.any(String),
+          });
+          expect({ onde, mudou: previsto !== status }).toEqual({ onde, mudou: true });
+        }
+      }
+    }
+  });
+});

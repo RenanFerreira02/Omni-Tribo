@@ -1,10 +1,10 @@
 package com.omnitribo.identidade.dominio;
 
 import com.omnitribo.carteira.api.ProvisionamentoCarteira;
+import com.omnitribo.compartilhado.api.ControleDeTentativasLogin;
+import com.omnitribo.compartilhado.api.EmissorDeToken;
 import com.omnitribo.compartilhado.dominio.BloqueioException;
 import com.omnitribo.compartilhado.dominio.DominioException;
-import com.omnitribo.compartilhado.infra.BloqueioLoginService;
-import com.omnitribo.compartilhado.infra.JwtService;
 import com.omnitribo.identidade.api.LoginRequest;
 import com.omnitribo.identidade.api.LoginResponse;
 import com.omnitribo.identidade.api.RegistrarRequest;
@@ -37,8 +37,8 @@ public class AutenticacaoService {
   private final UsuarioRepository usuarioRepository;
   private final RefreshTokenRepository refreshTokenRepository;
   private final AuditoriaService auditoriaService;
-  private final JwtService jwtService;
-  private final BloqueioLoginService bloqueioLoginService;
+  private final EmissorDeToken jwtService;
+  private final ControleDeTentativasLogin bloqueioLoginService;
   private final PasswordEncoder passwordEncoder;
   private final ProvisionamentoCarteira provisionamentoCarteira;
   private final SecureRandom secureRandom = new SecureRandom();
@@ -71,8 +71,8 @@ public class AutenticacaoService {
       UsuarioRepository usuarioRepository,
       RefreshTokenRepository refreshTokenRepository,
       AuditoriaService auditoriaService,
-      JwtService jwtService,
-      BloqueioLoginService bloqueioLoginService,
+      EmissorDeToken jwtService,
+      ControleDeTentativasLogin bloqueioLoginService,
       PasswordEncoder passwordEncoder,
       ProvisionamentoCarteira provisionamentoCarteira) {
     this.usuarioRepository = usuarioRepository;

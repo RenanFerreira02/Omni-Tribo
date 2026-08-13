@@ -54,7 +54,9 @@ export type ErroApi =
   /** 503: provedor externo (clima, CEP) fora do ar. A tela ESCONDE o recurso, não mostra erro. */
   | (Base & { tipo: 'servicoExternoIndisponivel' })
   | (Base & { tipo: 'limiteRequisicoes'; retryAfter: number | null })
-  | (Base & { tipo: 'naoImplementado' })
+  // `naoImplementado` SAIU: o backend não emite mais `nao-implementado` — o handler de
+  // `UnsupportedOperationException` era código morto e foi removido junto com a URI do catálogo.
+  // Um `type` que ninguém emite é promessa de reação de UI para um caso que não acontece.
   | (Base & { tipo: 'erroInterno' })
   /** Requisição que não chegou a ter resposta: avião, DNS, backend desligado, IP errado. */
   | (Base & { tipo: 'semRede' })
@@ -73,7 +75,6 @@ const POR_SEGMENTO = {
   'regra-negocio-violada': 'regraNegocioViolada',
   'conflito-concorrencia': 'conflitoConcorrencia',
   'limite-requisicoes': 'limiteRequisicoes',
-  'nao-implementado': 'naoImplementado',
   'erro-interno': 'erroInterno',
   'saque-desabilitado': 'saqueDesabilitado',
   'checkin-fora-do-raio': 'checkinForaDoRaio',
@@ -216,9 +217,28 @@ function cabecalhoRetryAfter(erro: { response?: { headers?: unknown } }): number
   return Number.isFinite(numero) ? numero : null;
 }
 
-/** Mensagem única para exibir ao usuário. Nenhuma decisão de fluxo depende dela. */
+/**
+ * Mensagem única para exibir ao usuário. Nenhuma decisão de fluxo depende dela.
+ *
+ * O 429 ganha o TEMPO DE ESPERA quando o servidor o informa. `retryAfter` era decodificado do corpo
+ * e do header `Retry-After` e não tinha um único consumidor — o usuário lia "aguarde antes de tentar
+ * novamente" sem saber se eram cinco segundos ou quinze minutos, que é a diferença entre esperar e
+ * desistir do app. Compor aqui, e não em cada tela, é o que faz toda mensagem de limite ganhar o
+ * dado de uma vez.
+ */
 export function mensagemDe(erro: ErroApi): string {
+  if (erro.tipo === 'limiteRequisicoes' && erro.retryAfter !== null) {
+    return `${erro.detail} ${esperaLegivel(erro.retryAfter)}`;
+  }
   return erro.detail;
+}
+
+/** "Tente de novo em 45 segundos" / "em 2 minutos". Arredonda para cima: prometer menos frustra. */
+function esperaLegivel(segundos: number): string {
+  if (segundos <= 0) return 'Tente de novo agora.';
+  if (segundos < 60) return `Tente de novo em ${Math.ceil(segundos)} segundos.`;
+  const minutos = Math.ceil(segundos / 60);
+  return `Tente de novo em ${minutos} ${minutos === 1 ? 'minuto' : 'minutos'}.`;
 }
 
 /**
@@ -227,4 +247,24 @@ export function mensagemDe(erro: ErroApi): string {
  */
 export function valeTentarDeNovo(erro: ErroApi): boolean {
   return erro.tipo === 'conflitoConcorrencia' || erro.tipo === 'semRede';
+}
+
+/**
+ * A rotação de refresh falhou porque a SESSÃO acabou — e não por um obstáculo temporário.
+ *
+ * **Só isto autoriza encerrar a sessão**, e a distinção passou a ser vital: o backend removeu a
+ * isenção de rate limit do `POST /auth/refresh` (a justificativa antiga era falsa — `refresh()`
+ * nunca chamou o serviço de bloqueio). Um 429 ali é rotina sob concorrência, e antes caía no mesmo
+ * `catch` genérico que um 401 legítimo.
+ *
+ * O custo desse engano não era uma tela de erro: `encerrar()` APAGA o refresh do keystore, então um
+ * limite temporário destruía uma sessão de 30 dias, de forma irreversível. No boot era pior — o
+ * usuário abria o app deslogado sem ter feito nada.
+ *
+ * `semRede` e `limiteRequisicoes` preservam a sessão: o token continua válido, só não deu para usar
+ * agora. Qualquer outro tipo inesperado também preserva — a postura segura aqui é manter a sessão e
+ * deixar a requisição falhar, nunca o contrário.
+ */
+export function sessaoAcabou(erro: ErroApi): boolean {
+  return erro.tipo === 'naoAutenticado' || erro.tipo === 'acessoNegado';
 }

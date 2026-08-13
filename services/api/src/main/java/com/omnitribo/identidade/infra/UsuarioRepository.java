@@ -1,5 +1,6 @@
 package com.omnitribo.identidade.infra;
 
+import com.omnitribo.identidade.dominio.EstadoDaConta;
 import com.omnitribo.identidade.dominio.Usuario;
 import jakarta.persistence.LockModeType;
 import java.util.Optional;
@@ -12,8 +13,6 @@ import org.springframework.data.repository.query.Param;
 public interface UsuarioRepository extends JpaRepository<Usuario, UUID> {
 
   Optional<Usuario> findByEmail(String email);
-
-  Optional<Usuario> findByHandle(String handle);
 
   boolean existsByEmail(String email);
 
@@ -32,6 +31,26 @@ public interface UsuarioRepository extends JpaRepository<Usuario, UUID> {
    */
   @Query("select u.triboId from Usuario u where u.id = :id")
   Optional<UUID> buscarTriboId(@Param("id") UUID id);
+
+  /**
+   * O que a autenticação precisa saber sobre a conta, a cada requisição.
+   *
+   * <p>Projeção pela MESMA razão de {@code buscarTriboId}, e aqui com consequência maior: esta
+   * consulta roda no filtro, antes de tudo. Materializar {@code Usuario} deixaria a entidade no
+   * persistence context e faria o {@code buscarParaAtualizar} de qualquer operação de valor
+   * devolver a instância em cache sem reemitir o {@code FOR UPDATE} — o lock sumiria em toda
+   * requisição autenticada, sem que teste nenhum acusasse.
+   *
+   * <p>Busca por PK indexada: ~0,1 ms no miss do cache, e o cache absorve o resto.
+   */
+  @Query(
+      """
+      select new com.omnitribo.identidade.dominio.EstadoDaConta(
+                 u.id, u.email, u.papel, u.status, u.anonimizadoEm)
+        from Usuario u
+       where u.id = :id
+      """)
+  Optional<EstadoDaConta> buscarEstadoDaConta(@Param("id") UUID id);
 
   /**
    * {@code SELECT ... FOR UPDATE} na linha do usuário, para a concessão de XP.
