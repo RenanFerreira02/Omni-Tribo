@@ -111,7 +111,7 @@ Campos garantidos em toda resposta de erro: `type`, `title`, `status`, `detail`,
 `traceId`. Erros de validação trazem também `errors[{campo, mensagem}]`, prontos para marcar o campo
 no formulário.
 
-## Ambiente de teste — três armadilhas
+## Ambiente de teste — quatro armadilhas
 
 Custaram tempo e não aparecem em lugar nenhum da documentação do Expo:
 
@@ -124,3 +124,10 @@ Custaram tempo e não aparecem em lugar nenhum da documentação do Expo:
   dublês. Por isso o teste de integração roda em `testEnvironment: 'node'`
   (`jest.e2e.config.js`), com stub de `react-native`; sob o preset do RN toda chamada volta como
   `semRede`, indistinguível de backend desligado.
+- **O PRIMEIRO teste de uma suíte de tela é ordens de grandeza mais caro que os outros**, e os 5 s
+  de default do jest não cabiam nele no CI. O `react-native` exporta componentes por getters
+  preguiçosos: o grafo de módulos só carrega no primeiro `render()`, dentro do primeiro teste. Com
+  `--coverage` e cache de transformação frio, medimos 221 ms → 2110 ms. Foi essa a causa do Mobile
+  CI vermelho da F9 até 2026-08-13, e o motivo de a suíte passar em toda máquina local: cache quente
+  e CPU rápida escondiam. Hoje `jest.config.js` fixa `testTimeout: 30000`. Se um teste novo estourar
+  isso, é lentidão de verdade — não o aquecimento.

@@ -8,7 +8,7 @@ import TelaPerfil from '../(tabs)/perfil';
 import Onboarding from '../onboarding';
 import { sacar } from '@/api/carteira';
 import { paraErroApi } from '@/api/erros';
-import { PERFIL, problema } from '@/testes/fixtures';
+import { PERFIL, alerta, problema } from '@/testes/fixtures';
 import { render } from '@/testes/render';
 import { servidor } from '@/testes/servidor';
 import { useSessao } from '@/stores/sessao';
@@ -384,7 +384,11 @@ describe('notificações', () => {
     servidor.use(
       http.patch(`${BASE}/alertas/:id/lido`, ({ params }) => {
         marcado = params.id as string;
-        return HttpResponse.json({ id: params.id, lido: true });
+        // Pela FÁBRICA, não por um objeto à mão. `{ id, lido }` omitia `tipo`, `titulo`, `corpo`,
+        // `missaoId` e `criadoEm` — uma forma que o backend nunca devolve. O `validarEmDev` do app
+        // acusava isso a cada execução (era o `console.warn [contrato]` no log do CI) e seguia em
+        // frente, então o teste exercitava a resposta errada sem nada ficar vermelho.
+        return HttpResponse.json(alerta({ id: params.id as string, lido: true }));
       }),
     );
 
