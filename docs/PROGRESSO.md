@@ -10,7 +10,7 @@
 | F5   | Missões e ciclo de vida               | ✅ Concluído | [F5](auditoria/F5.md) | 2026-08-06 |
 | F6   | Geolocalização e check-in             | ✅ Concluído | [F6](auditoria/F6.md) | 2026-08-07 |
 | F7   | Carteira e integridade transacional   | ✅ Concluído | [F7](auditoria/F7.md) | 2026-08-07 |
-| F8   | Logística, notificações e patrocinador| 🟨 Parcial  | —         | 2026-08-09 |
+| F8   | Logística, notificações e patrocinador| 🟨 Parcial  | —         | 2026-08-14 |
 | F9   | App mobile — autenticação             | ✅ Concluído | [fundação](auditoria/mobile-fundacao.md) | 2026-08-08 |
 | F10  | App mobile — missões e check-in       | ✅ Concluído | [fundação](auditoria/mobile-fundacao.md) | 2026-08-08 |
 | F11  | App mobile — carteira e perfil        | ✅ Concluído | [fundação](auditoria/mobile-fundacao.md) | 2026-08-08 |
@@ -28,15 +28,59 @@
 typecheck e lint sem erro, mais **19 testes de integração** contra a API em execução — destes, 12
 são o ciclo ponta a ponta com dois usuários reais (`docs/evidencias/f12-ciclo-ponta-a-ponta.md`).
 
-**F8 está PARCIAL, e a distinção importa:** `logistica` e `notificacoes` deixaram de ser módulos sem
-caminho de leitura, mas a carteira de PATROCINADOR — o que fecharia a Pendência #2 e faria ENTREGA e
-AJUDA pararem de cunhar token — continua não existindo.
+**F8 está PARCIAL, e a distinção importa.** O que era a parte grande foi entregue em 2026-08-14: o
+módulo **"Fim da Entrega Falida"**, que é a tese do produto. Webhook de transportadora autenticado
+por HMAC sobre o corpo bruto (ADR 0021), conversão da entrega falida em missão de retirada ABERTA no
+ponto de custódia (ADR 0020), trava de reputação por nível mínimo, notificação por tribo com
+consentimento e teto por hora, e baixa da custódia na conclusão. `tools/carrier-mock/enviar.sh`
+exercita o caminho feliz e cinco negativos.
+
+O que continua faltando é a carteira de PATROCINADOR — o que fecharia a Pendência #1 e faria ENTREGA
+e AJUDA pararem de cunhar token. Com o webhook em pé, essa lacuna ficou mais visível: cada entrega
+falida convertida cunha tokens. O caminho está montado — `entrega_falida.valor_ofertado_brl` já
+guarda o que a transportadora oferece, e a mecânica de pote existe em `FinanciamentoMissao`.
 
 **As fases de mobile foram auditadas em 2026-08-09**, por dois agentes independentes que mediram
 contra o sistema em execução. Quatro defeitos; dois corrigidos no mesmo dia, dois em aberto nas
 Pendências do CLAUDE.md.
 
 ## Notas de manutenção
+
+- **2026-08-14** — **Módulo "Fim da Entrega Falida" (F8).** Três coisas que só apareceram porque a
+  suíte foi escrita antes de declarar pronto, e que valem mais registradas do que o resumo da
+  feature.
+
+  - **`save()` fazia `merge()`, e o vínculo com a missão sumia no commit.** `EntregaFalida` tem
+    `@Id` ATRIBUÍDO (`UUID.randomUUID()` no construtor) e não tem `@Version`, então o `isNew()` do
+    Spring Data devolve false e `save()` chama `em.merge()` em vez de `em.persist()`. `merge()`
+    devolve uma instância NOVA e gerenciada; a original fica DESTACADA. Mutá-la depois disso
+    (`vincularMissao`) não é visto pelo dirty checking. O sintoma: a linha era gravada, a missão era
+    criada, e `missao_id` ficava nulo para sempre — a baixa da custódia na conclusão não achava nada
+    para dar baixa. **Nada falha em tempo de compilação**, e o caminho feliz do webhook respondia
+    200. Correção: usar o retorno de `save()`. Vale para qualquer entidade do projeto com id
+    atribuído e sem `@Version`.
+
+  - **Centroide de tribo é a métrica errada para "está perto".** A notificação media a distância
+    até `centroDaTribo`, e o seed já continha o contraexemplo: a Tribo Pinheiros possui o locker da
+    Consolação, ~3,8 km a leste, e o centroide fica a mais de 3 km da própria loja da tribo em
+    Pinheiros. Uma encomenda no Leroy Merlin Pinheiros **não notificava ninguém de Pinheiros** e
+    notificava a Vila Madalena. Bairro real é espalhado e às vezes côncavo; o centro geométrico de
+    uma região em U cai fora dela. Passou a ser a distância MÍNIMA às âncoras da tribo. Ver ADR
+    0020; `centroDaTribo` continua existindo para centralizar mapa, que é a pergunta dele.
+
+  - **A recusa por lotação não cabia na invariante de ocupação.** `MigracaoTest` trava
+    `ocupacao == pendentes + convertidas-não-concluídas`, e uma entrega recusada gravada com
+    `missao_id` nulo contava como pendente — exigindo `ocupacao + 1` num ponto lotado justamente por
+    não caber mais nada. A causa era `missao_id IS NULL` significar duas coisas incompatíveis. A V21
+    acrescentou `recusada_em`, e a assertion foi atualizada. **Uma coluna `status` seria mais
+    legível e não sobreviveu**: a V21 roda ANTES dos seeds (faixa 900+ é a última), nenhum DEFAULT
+    distingue convertida de pendente, e corrigir exigiria editar seed já aplicado — que muda o
+    checksum e derruba todo banco de dev existente.
+
+  - Efeito colateral do desenho, registrado como Pendência #2 no `CLAUDE.md`: a missão criada pelo
+    webhook tem o usuário-sistema como criador, e `CONFIRMAR` exige `AtorEsperado.CRIADOR`. Como
+    esse usuário nunca autentica, a missão só sai de `AGUARDANDO_CONFIRMACAO` pela varredura de
+    prazo — que conclui pagando o executor, mas depois da espera.
 
 - **2026-08-09** — **O botão "Sacar em reais" saiu da carteira; entrou a vitrine de resgate
   (`app/beneficios.tsx`).**

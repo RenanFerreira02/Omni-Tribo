@@ -63,6 +63,7 @@ export function missao(sobrescrever: Partial<MissaoResponse> = {}): MissaoRespon
     concluidaEm: null,
     complexidade: 'MEDIA',
     versaoFormula: 1,
+    nivelMinimo: 1,
     versao: 0,
     ...sobrescrever,
   };

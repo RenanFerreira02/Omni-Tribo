@@ -38,6 +38,44 @@ class CalculadoraDeRecompensaTest {
           new BigDecimal("2"),
           new BigDecimal("0.5"),
           new BigDecimal("5"),
+          // v1 não tinha o conceito de valor ofertado. ZERO, e não o valor de produção, porque esta
+          // constante existe para reproduzir a calibração que produziu as missões com
+          // versao_formula = 1 — copiar o número novo para cá apagaria justamente a diferença que
+          // a versão registra.
+          BigDecimal.ZERO,
+          1000L,
+          3,
+          5000,
+          new BigDecimal("5"),
+          new BigDecimal("20"),
+          new BigDecimal("25"),
+          new BigDecimal("80"));
+
+  /**
+   * Espelha o bloco {@code app.missoes.recompensa} ATUAL do application.yml.
+   *
+   * <p>A v2 acrescentou {@code tokens-por-real-ofertado}, para que o valor que a transportadora
+   * declara no webhook de entrega falida influencie a recompensa em TOKEN. Todo o resto é idêntico
+   * à v1 de propósito: assim {@code douradoV2} com valor ofertado nulo tem de dar exatamente o
+   * mesmo resultado de {@code douradoV1}, o que prova que a mudança de fórmula não mexeu no que já
+   * existia.
+   */
+  private static final ParametrosRecompensa V2 =
+      new ParametrosRecompensa(
+          2,
+          Map.of(
+              CategoriaMissao.ENTREGA, 20L,
+              CategoriaMissao.COLETA, 20L,
+              CategoriaMissao.TRIBO, 25L,
+              CategoriaMissao.AJUDA, 20L),
+          Map.of(
+              ComplexidadeMissao.LEVE, new BigDecimal("1.0"),
+              ComplexidadeMissao.MEDIA, new BigDecimal("1.5"),
+              ComplexidadeMissao.PESADA, new BigDecimal("2.0")),
+          new BigDecimal("2"),
+          new BigDecimal("0.5"),
+          new BigDecimal("5"),
+          new BigDecimal("0.5"),
           1000L,
           3,
           5000,
@@ -48,12 +86,22 @@ class CalculadoraDeRecompensaTest {
 
   private static Insumos insumos(
       CategoriaMissao categoria, String peso, String volume, Double distanciaM) {
+    return insumos(categoria, peso, volume, distanciaM, null);
+  }
+
+  private static Insumos insumos(
+      CategoriaMissao categoria,
+      String peso,
+      String volume,
+      Double distanciaM,
+      String valorOfertado) {
     return new Insumos(
         categoria,
         null,
         peso == null ? null : new BigDecimal(peso),
         volume == null ? null : new BigDecimal(volume),
-        distanciaM);
+        distanciaM,
+        valorOfertado == null ? null : new BigDecimal(valorOfertado));
   }
 
   // ─── Dourado ────────────────────────────────────────────────────────────────────────────────
@@ -77,6 +125,74 @@ class CalculadoraDeRecompensaTest {
     assertThat(r.tokens()).isEqualTo(43L);
     assertThat(r.xp()).isEqualTo(129); // 43 × 3
     assertThat(r.versaoFormula()).isEqualTo(1);
+  }
+
+  /**
+   * Fixa a saída da calibração v2 — a que está em produção hoje.
+   *
+   * <p>Mesma função do dourado acima, e as mesmas instruções se ele quebrar: subir {@code versao}
+   * no YAML e criar um V3 aqui, nunca ajustar o número esperado no lugar.
+   */
+  @Test
+  void douradoV2() {
+    // ENTREGA · 10 kg · 40 L · 3 km · R$ 30 ofertados  →  MEDIA
+    //   base 20 × 1.5 = 30 · +3 km × 2 = 6 · +10 kg × 0.5 = 5 · +0.4 × 5 = 2 · +30 × 0.5 = 15 → 58
+    Recompensa r =
+        CalculadoraDeRecompensa.calcular(
+            insumos(CategoriaMissao.ENTREGA, "10", "40", 3000.0, "30.00"), V2);
+
+    assertThat(r.complexidade()).isEqualTo(ComplexidadeMissao.MEDIA);
+    assertThat(r.tokens()).isEqualTo(58L);
+    assertThat(r.xp()).isEqualTo(174); // 58 × 3
+    assertThat(r.versaoFormula()).isEqualTo(2);
+  }
+
+  /**
+   * A v2 não mexeu no que já existia.
+   *
+   * <p>Sem valor ofertado — o caso de TODA missão criada por usuário —, a calibração nova produz
+   * exatamente o mesmo número da antiga. É o que garante que subir a versão da fórmula não
+   * reprecificou silenciosamente o app inteiro para pagar mais ou menos por missão comum.
+   */
+  @Test
+  void semValorOfertadoAV2ReproduzAV1() {
+    Insumos i = insumos(CategoriaMissao.ENTREGA, "10", "40", 3000.0);
+
+    Recompensa v1 = CalculadoraDeRecompensa.calcular(i, V1);
+    Recompensa v2 = CalculadoraDeRecompensa.calcular(i, V2);
+
+    assertThat(v2.tokens()).isEqualTo(v1.tokens());
+    assertThat(v2.xp()).isEqualTo(v1.xp());
+    assertThat(v2.complexidade()).isEqualTo(v1.complexidade());
+  }
+
+  /**
+   * Valor ofertado negativo não REDUZ a recompensa.
+   *
+   * <p>Dado ruim de parceiro não pode rebaixar o que a comunidade recebe abaixo do que o esforço
+   * físico já justifica. Sem esta regra, um payload com valor negativo — erro de integração ou
+   * abuso — faria a missão pagar menos do que a mesma missão sem valor nenhum.
+   */
+  @Test
+  void valorOfertadoNegativoNaoReduzARecompensa() {
+    Recompensa semValor =
+        CalculadoraDeRecompensa.calcular(insumos(CategoriaMissao.ENTREGA, "10", "40", 3000.0), V2);
+    Recompensa comNegativo =
+        CalculadoraDeRecompensa.calcular(
+            insumos(CategoriaMissao.ENTREGA, "10", "40", 3000.0, "-500.00"), V2);
+
+    assertThat(comNegativo.tokens()).isEqualTo(semValor.tokens());
+  }
+
+  /** Valor ofertado alto satura no teto, não estoura. */
+  @Test
+  void valorOfertadoAltoSaturaNoTeto() {
+    Recompensa r =
+        CalculadoraDeRecompensa.calcular(
+            insumos(CategoriaMissao.ENTREGA, "10", "40", 3000.0, "999999.99"), V2);
+
+    assertThat(r.tokens()).isEqualTo(1000L); // teto-tokens
+    assertThat(r.xp()).isEqualTo(3000); // 1000 × 3, abaixo do teto-xp de 5000
   }
 
   // ─── Determinismo ───────────────────────────────────────────────────────────────────────────
@@ -173,7 +289,7 @@ class CalculadoraDeRecompensaTest {
 
   private static long declarada(ComplexidadeMissao complexidade) {
     return CalculadoraDeRecompensa.calcular(
-            new Insumos(CategoriaMissao.TRIBO, complexidade, null, null, null), V1)
+            new Insumos(CategoriaMissao.TRIBO, complexidade, null, null, null, null), V1)
         .tokens();
   }
 
@@ -231,7 +347,12 @@ class CalculadoraDeRecompensaTest {
     // impede a complexidade de virar o mesmo arbítrio que a recompensa livre era, com três degraus.
     Insumos i =
         new Insumos(
-            CategoriaMissao.ENTREGA, declarada, new BigDecimal("1"), new BigDecimal("2"), null);
+            CategoriaMissao.ENTREGA,
+            declarada,
+            new BigDecimal("1"),
+            new BigDecimal("2"),
+            null,
+            null);
 
     assertThat(CalculadoraDeRecompensa.complexidadeEfetiva(i, V1))
         .isEqualTo(ComplexidadeMissao.LEVE);
@@ -239,7 +360,8 @@ class CalculadoraDeRecompensaTest {
 
   @Test
   void semPesoEVolumeADeclaracaoEhRespeitada() {
-    Insumos i = new Insumos(CategoriaMissao.TRIBO, ComplexidadeMissao.PESADA, null, null, null);
+    Insumos i =
+        new Insumos(CategoriaMissao.TRIBO, ComplexidadeMissao.PESADA, null, null, null, null);
 
     assertThat(CalculadoraDeRecompensa.complexidadeEfetiva(i, V1))
         .isEqualTo(ComplexidadeMissao.PESADA);
@@ -252,7 +374,8 @@ class CalculadoraDeRecompensaTest {
     // TRIBO nunca tem destino — a fórmula precisa funcionar sem esse insumo, não falhar.
     long semDistancia =
         CalculadoraDeRecompensa.calcular(
-                new Insumos(CategoriaMissao.TRIBO, ComplexidadeMissao.LEVE, null, null, null), V1)
+                new Insumos(CategoriaMissao.TRIBO, ComplexidadeMissao.LEVE, null, null, null, null),
+                V1)
             .tokens();
 
     assertThat(semDistancia).isEqualTo(25L); // base TRIBO 25 × 1.0, sem adicional algum
@@ -268,6 +391,7 @@ class CalculadoraDeRecompensaTest {
             V1.tokensPorKm(),
             V1.tokensPorKg(),
             V1.tokensPorCemLitros(),
+            V1.tokensPorRealOfertado(),
             V1.tetoTokens(),
             V1.xpPorToken(),
             V1.tetoXp(),

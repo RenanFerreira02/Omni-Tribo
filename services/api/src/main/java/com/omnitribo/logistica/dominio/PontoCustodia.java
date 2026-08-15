@@ -92,4 +92,45 @@ public class PontoCustodia {
   public Instant getCriadoEm() {
     return criadoEm;
   }
+
+  /** Há espaço físico para mais uma encomenda? */
+  public boolean temVaga() {
+    return ocupacao < capacidade;
+  }
+
+  /**
+   * Registra a entrada de uma encomenda na custódia.
+   *
+   * <p>Não é setter público por decisão: ocupação não é dado que alguém informa, é consequência de
+   * uma encomenda ter chegado ou saído. O javadoc de {@code PontoCustodiaService} guardou o lugar
+   * desta chamada — "quando esse fluxo chegar, ele NÃO deve virar endpoint" —, e continua valendo:
+   * quem chama é {@code EntregaFalidaService} (webhook) e a conclusão de missão, nunca uma
+   * requisição de usuário.
+   *
+   * <p>A verificação de vaga acontece no serviço, sob o {@code SELECT ... FOR UPDATE} do ponto.
+   * Aqui ela é só a rede de segurança contra um chamador futuro que esqueça o lock: sem o lock,
+   * dois webhooks concorrentes leem a mesma ocupação e ambos incrementam, e o ponto passa da
+   * capacidade sem que nada acuse.
+   */
+  public void registrarEntrada() {
+    if (!temVaga()) {
+      throw new IllegalStateException(
+          "Ponto de custódia " + codigo + " sem vaga: " + ocupacao + "/" + capacidade);
+    }
+    ocupacao++;
+  }
+
+  /**
+   * Registra a saída de uma encomenda — a missão de retirada concluiu e o pacote foi entregue.
+   *
+   * <p>Piso em zero, e não é paranoia decorativa: a entrega da outbox é at-least-once, e um
+   * decremento redespachado levaria a ocupação a negativo. Negativo é pior do que parece, porque
+   * `temVaga()` continuaria verdadeiro e o erro só apareceria como uma capacidade que cresce
+   * sozinha. A baixa é síncrona hoje justamente para não depender disto.
+   */
+  public void registrarSaida() {
+    if (ocupacao > 0) {
+      ocupacao--;
+    }
+  }
 }

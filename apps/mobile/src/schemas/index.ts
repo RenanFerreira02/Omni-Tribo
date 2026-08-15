@@ -184,6 +184,7 @@ export const missaoResponseSchema = z.object({
   concluidaEm: z.string().nullable(),
   complexidade: complexidadeSchema,
   versaoFormula: z.number(),
+  nivelMinimo: z.number(),
   versao: z.number(),
 });
 

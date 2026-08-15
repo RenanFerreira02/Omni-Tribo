@@ -31,6 +31,14 @@ export interface AcaoDisponivel {
   irreversivel: boolean;
   /** Texto do diálogo de confirmação. Presente exatamente quando `irreversivel`. */
   confirmacao?: { titulo: string; mensagem: string };
+  /**
+   * Presente quando a ação aparece mas NÃO pode ser disparada.
+   *
+   * Botão desabilitado com o motivo à vista é melhor do que botão que falha depois do toque: a
+   * pessoa descobre o requisito antes de gastar a ação, e não como um erro. A checagem definitiva
+   * continua no servidor — este campo é conveniência de UI, nunca autorização.
+   */
+  bloqueio?: { motivo: string };
 }
 
 export interface EstadoDeAcoes {
@@ -194,4 +202,41 @@ const MATRIZ: Record<StatusMissao, Record<PapelNaMissao, EstadoDeAcoes>> = {
 
 export function acoesDisponiveis(status: StatusMissao, papel: PapelNaMissao): EstadoDeAcoes {
   return MATRIZ[status][papel];
+}
+
+/**
+ * Aplica a trava de reputação sobre um estado já calculado.
+ *
+ * Camada SEPARADA da `MATRIZ` de propósito. A matriz é uma função pura de (status × papel) e é
+ * exaustiva por construção; o nível depende de dois valores que não estão nela — o `nivelMinimo` da
+ * missão e o nível de quem olha, que vem do perfil e não da sessão. Enfiar isso na tabela obrigaria
+ * cada célula a conhecer o usuário e destruiria a exaustividade que o `Record<StatusMissao, …>`
+ * garante.
+ *
+ * Só `aceitar` é travado: é a única transição que o servidor recusa por nível.
+ *
+ * `nivelDoUsuario` indefinido (perfil ainda carregando) NÃO bloqueia — bloquear ali mostraria um
+ * botão desabilitado que habilita sozinho um instante depois, o que parece defeito.
+ */
+export function comTravaDeNivel(
+  estado: EstadoDeAcoes,
+  nivelMinimo: number,
+  nivelDoUsuario: number | undefined,
+): EstadoDeAcoes {
+  if (nivelMinimo <= 1 || nivelDoUsuario === undefined || nivelDoUsuario >= nivelMinimo) {
+    return estado;
+  }
+  return {
+    ...estado,
+    acoes: estado.acoes.map((acao) =>
+      acao.acao === 'aceitar'
+        ? {
+            ...acao,
+            bloqueio: {
+              motivo: `Esta missão exige nível ${nivelMinimo}. O seu é ${nivelDoUsuario}.`,
+            },
+          }
+        : acao,
+    ),
+  };
 }

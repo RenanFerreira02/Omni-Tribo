@@ -146,6 +146,20 @@ public class Missao {
   @Column(name = "pote_tokens", nullable = false)
   private long poteTokens;
 
+  /**
+   * Nível mínimo (derivado do XP por {@code RegraNivel}) exigido para ACEITAR esta missão.
+   *
+   * <p>1 significa "sem restrição", e é o valor de toda missão criada por usuário — o DTO de
+   * criação não tem este campo, e não deve ter: quem publica não escolhe quem pode executar. Só a
+   * conversão de entrega falida grava valor maior, e o motivo é a Regra de Elegibilidade por
+   * Reputação do challenge: custódia de pacote de terceiro não fica visível para toda a base.
+   *
+   * <p>Coluna por missão, e não constante no serviço, para que a regra fique auditável junto com a
+   * missão que a aplicou — recalibrar o mínimo depois não reescreve o passado.
+   */
+  @Column(name = "nivel_minimo", nullable = false)
+  private int nivelMinimo = 1;
+
   @Version
   @Column(nullable = false)
   private int versao;
@@ -446,5 +460,23 @@ public class Missao {
 
   public int getVersao() {
     return versao;
+  }
+
+  public int getNivelMinimo() {
+    return nivelMinimo;
+  }
+
+  /**
+   * Exige reputação para aceitar.
+   *
+   * <p>Fora do construtor de propósito, e ainda assim sem virar setter genérico: nenhum DTO de
+   * entrada alcança este método, então não reabre o mass assignment que o construtor de 22
+   * parâmetros fechou. Chamado só na conversão de entrega falida, antes do primeiro {@code save}.
+   */
+  void exigirNivelMinimo(int nivel) {
+    if (nivel < 1) {
+      throw new IllegalArgumentException("Nível mínimo deve ser ao menos 1, veio " + nivel);
+    }
+    this.nivelMinimo = nivel;
   }
 }

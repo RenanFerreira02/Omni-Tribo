@@ -57,6 +57,16 @@ public record MissaoResponse(
      */
     ComplexidadeMissao complexidade,
     Integer versaoFormula,
+
+    /**
+     * Nível mínimo para aceitar. 1 = sem restrição, que é o caso de toda missão criada por usuário.
+     *
+     * <p>Vai na resposta para o app poder DESABILITAR o botão de aceitar com a explicação certa, em
+     * vez de deixar a pessoa tentar e levar 422. Um botão que só falha depois do toque é pior do
+     * que um botão desabilitado que diz o porquê — e o 422 continua existindo, porque a checagem do
+     * cliente é conveniência e a do servidor é a regra.
+     */
+    int nivelMinimo,
     int versao)
     implements RecursoAuditavel {
 
@@ -158,6 +168,7 @@ public record MissaoResponse(
         m.getConcluidaEm(),
         m.getComplexidade(),
         m.getVersaoFormula(),
+        m.getNivelMinimo(),
         m.getVersao());
   }
 }

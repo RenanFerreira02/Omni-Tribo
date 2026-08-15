@@ -313,4 +313,22 @@ describe('detalhe da missão', () => {
       'Complexidade: Média — calculada a partir de 3.5 kg e 20 L',
     );
   });
+
+  it('nível insuficiente: botão de aceitar aparece DESABILITADO, com o motivo', async () => {
+    // A trava é de UI e existe para a pessoa descobrir o requisito ANTES de gastar o toque. O 422
+    // do servidor continua sendo a regra — este teste não o substitui, cobre o que vem antes dele.
+    comMissao({ status: 'ABERTA', criadorId: OUTRO, executorId: null, nivelMinimo: 5 });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('acao-aceitar')).toBeDisabled();
+    expect(screen.getByTestId('bloqueio-aceitar')).toHaveTextContent(/nível 5/);
+  });
+
+  it('nível suficiente: aceitar continua habilitado', async () => {
+    comMissao({ status: 'ABERTA', criadorId: OUTRO, executorId: null, nivelMinimo: 1 });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('acao-aceitar')).not.toBeDisabled();
+    expect(screen.queryByTestId('bloqueio-aceitar')).toBeNull();
+  });
 });

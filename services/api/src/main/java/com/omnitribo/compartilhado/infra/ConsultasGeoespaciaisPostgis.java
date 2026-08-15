@@ -116,6 +116,56 @@ public class ConsultasGeoespaciaisPostgis implements ConsultasGeoespaciais {
        WHERE c.centro IS NOT NULL
       """;
 
+  /**
+   * Tribos com PRESENÇA dentro do raio — isto é, com pelo menos uma âncora (ponto de custódia ou
+   * origem de missão) a até {@code raio} metros do alvo.
+   *
+   * <p>É o que permite responder "quem está perto deste ponto de custódia?" sem o usuário ter
+   * coordenada: a tabela {@code usuario} não tem, e nenhuma coluna geográfica do schema descreve
+   * onde uma PESSOA está agora. Ver ADR 0020.
+   *
+   * <p><b>Distância MÍNIMA, e não distância ao centroide.</b> A primeira versão usava o mesmo
+   * centroide de {@link #SQL_CENTRO_DA_TRIBO}, e um teste a reprovou com um caso que o seed já
+   * continha: a Tribo Pinheiros possui o locker da Consolação, ~3,8 km a leste, e o centroide
+   * resultante fica a mais de 3 km da própria loja da tribo — de modo que uma encomenda no Leroy
+   * Merlin Pinheiros NÃO notificava ninguém de Pinheiros, e notificava a Vila Madalena. O centroide
+   * responde "onde é o meio da tribo", que é a pergunta certa para centralizar um mapa (e por isso
+   * {@code centroDaTribo} continua existindo) e a errada para "esta tribo alcança este lugar".
+   *
+   * <p>Bairro real é espalhado e às vezes côncavo; o centro geométrico de uma região em U pode cair
+   * fora dela. Distância mínima não tem essa patologia e ainda usa os índices GiST, porque o {@code
+   * ST_DWithin} filtra ANTES do agrupamento.
+   *
+   * <p>{@code ST_DWithin} sobre {@code geography} recebe METROS, e {@code ST_Distance} devolve
+   * METROS: nenhuma conversão de unidade acontece em Java.
+   */
+  static final String SQL_TRIBOS_NO_RAIO =
+      """
+      SELECT pontos.tribo_id AS id,
+             MIN(ST_Distance(
+                 pontos.geo,
+                 ST_SetSRID(ST_MakePoint(CAST(:lon AS double precision),
+                                         CAST(:lat AS double precision)), 4326)::geography
+             )) AS distancia_m
+        FROM (SELECT pc.tribo_id, pc.ponto AS geo
+                FROM ponto_custodia pc
+               WHERE pc.tribo_id IS NOT NULL
+                 AND pc.ativo = true
+               UNION ALL
+              SELECT u.tribo_id, m.origem AS geo
+                FROM missao m
+                JOIN usuario u ON u.id = m.criador_id
+               WHERE u.tribo_id IS NOT NULL) pontos
+       WHERE ST_DWithin(
+                 pontos.geo,
+                 ST_SetSRID(ST_MakePoint(CAST(:lon AS double precision),
+                                         CAST(:lat AS double precision)), 4326)::geography,
+                 CAST(:raio AS double precision))
+       GROUP BY pontos.tribo_id
+       ORDER BY distancia_m ASC
+       LIMIT CAST(:limite AS integer)
+      """;
+
   private static final String SQL_DISTANCIA =
       """
       SELECT ST_Distance(
@@ -152,6 +202,20 @@ public class ConsultasGeoespaciaisPostgis implements ConsultasGeoespaciais {
   public List<AlvoProximo> pontosCustodiaNoRaio(
       BigDecimal lat, BigDecimal lon, int raioMetros, int limite) {
     return jdbc.sql(SQL_PONTOS_CUSTODIA_NO_RAIO)
+        .param("lat", lat)
+        .param("lon", lon)
+        .param("raio", raioMetros)
+        .param("limite", limite)
+        .query(
+            (rs, linha) ->
+                new AlvoProximo(rs.getObject("id", UUID.class), rs.getDouble("distancia_m")))
+        .list();
+  }
+
+  @Override
+  public List<AlvoProximo> tribosNoRaio(
+      BigDecimal lat, BigDecimal lon, int raioMetros, int limite) {
+    return jdbc.sql(SQL_TRIBOS_NO_RAIO)
         .param("lat", lat)
         .param("lon", lon)
         .param("raio", raioMetros)

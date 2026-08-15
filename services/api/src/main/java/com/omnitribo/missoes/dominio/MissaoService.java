@@ -18,7 +18,10 @@ import com.omnitribo.geolocalizacao.api.RegistroCheckin;
 import com.omnitribo.geolocalizacao.api.ResultadoCheckin;
 import com.omnitribo.identidade.api.ProgressaoUsuario;
 import com.omnitribo.identidade.api.ResultadoProgressao;
+import com.omnitribo.identidade.api.UsuarioSistema;
+import com.omnitribo.logistica.api.BaixaCustodia;
 import com.omnitribo.missoes.api.AtualizarMissaoRequest;
+import com.omnitribo.missoes.api.ConversaoEntregaFalida;
 import com.omnitribo.missoes.api.CriarMissaoRequest;
 import com.omnitribo.missoes.api.MissaoFiltroRequest;
 import com.omnitribo.missoes.api.MissaoProximaFiltroRequest;
@@ -54,7 +57,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /** Orquestra o ciclo de vida de missões. Toda mudança de status passa pela máquina de estados. */
 @Service
-public class MissaoService {
+public class MissaoService implements ConversaoEntregaFalida {
 
   private static final String NAO_ENCONTRADA = "Missão não encontrada.";
 
@@ -81,6 +84,7 @@ public class MissaoService {
   private final CreditoRecompensa creditoRecompensa;
   private final ProgressaoUsuario progressaoUsuario;
   private final PublicadorEventos publicadorEventos;
+  private final BaixaCustodia baixaCustodia;
 
   // Exceção deliberada à regra acima: EstornoFinanciamentoService é do PRÓPRIO módulo missoes, e
   // por isso pode ser injetado como classe concreta.
@@ -89,6 +93,10 @@ public class MissaoService {
   // Calibração da fórmula de recompensa. Injetada como record de properties para que ajustar os
   // números não exija recompilar — a FÓRMULA é código, os NÚMEROS são configuração.
   private final ParametrosRecompensa parametrosRecompensa;
+
+  // Calibração da missão gerada por entrega falida. Separada da recompensa de propósito: mudar um
+  // prazo aqui não pode exigir subir a versao da FÓRMULA.
+  private final ParametrosEntregaFalida parametrosEntregaFalida;
 
   public MissaoService(
       MissaoRepository missaoRepository,
@@ -99,8 +107,10 @@ public class MissaoService {
       CreditoRecompensa creditoRecompensa,
       ProgressaoUsuario progressaoUsuario,
       PublicadorEventos publicadorEventos,
+      BaixaCustodia baixaCustodia,
       EstornoFinanciamentoService estornoFinanciamentoService,
-      ParametrosRecompensa parametrosRecompensa) {
+      ParametrosRecompensa parametrosRecompensa,
+      ParametrosEntregaFalida parametrosEntregaFalida) {
     this.missaoRepository = missaoRepository;
     this.missaoEventoRepository = missaoEventoRepository;
     this.consultasGeoespaciais = consultasGeoespaciais;
@@ -109,8 +119,10 @@ public class MissaoService {
     this.creditoRecompensa = creditoRecompensa;
     this.progressaoUsuario = progressaoUsuario;
     this.publicadorEventos = publicadorEventos;
+    this.baixaCustodia = baixaCustodia;
     this.estornoFinanciamentoService = estornoFinanciamentoService;
     this.parametrosRecompensa = parametrosRecompensa;
+    this.parametrosEntregaFalida = parametrosEntregaFalida;
   }
 
   // A trilha de auditoria fica no serviço, não no controller: é onde a escrita acontece e onde o
@@ -182,8 +194,173 @@ public class MissaoService {
 
     return CalculadoraDeRecompensa.calcular(
         new CalculadoraDeRecompensa.Insumos(
-            req.categoria(), req.complexidade(), req.pesoKg(), req.volumeL(), distanciaM),
+            req.categoria(),
+            req.complexidade(),
+            req.pesoKg(),
+            req.volumeL(),
+            distanciaM,
+            // Missão criada por usuário nunca tem valor ofertado: o DTO não tem o campo e não deve
+            // ter — quem cria a missão não paga (ADR 0009). Só a conversão de entrega falida
+            // preenche isto, com o valor que a TRANSPORTADORA declarou.
+            null),
         parametrosRecompensa);
+  }
+
+  /**
+   * Converte uma entrega falida em missão de retirada, já ABERTA. Implementa {@link
+   * ConversaoEntregaFalida}.
+   *
+   * <p><b>Roda na transação do webhook</b> ({@code REQUIRED}, que é o default), que já segura o
+   * {@code FOR UPDATE} do ponto de custódia. A missão e o incremento da ocupação precisam commitar
+   * juntos: separados, existe um instante em que a vaga está ocupada por uma encomenda sem missão
+   * que a retire.
+   *
+   * <p><b>Nasce ABERTA, não RASCUNHO.</b> Rascunho existe para o criador revisar antes de publicar,
+   * e aqui não há criador humano — a encomenda já está fisicamente na loja quando o webhook chega.
+   * A transição passa pela {@code MissaoStateMachine} mesmo assim, e não por um {@code
+   * StatusMissao.ABERTA} no construtor: é o que grava a linha PUBLICADA em {@code missao_evento}. A
+   * regra "status de missão muda SEMPRE pela máquina de estados" não tem exceção para código nosso.
+   *
+   * <p><b>Não exige pote.</b> {@code validarPoteSuficienteParaPublicar} devolve cedo para ENTREGA,
+   * e é deliberado: exigir pote aqui faria os vizinhos custearem a logística do varejista, que é o
+   * inverso do modelo. O token de ENTREGA é cunhado até a carteira de patrocinador existir — a
+   * lacuna documentada da Pendência #1.
+   */
+  @Override
+  @Transactional
+  public MissaoDeRetirada abrirMissaoDeRetirada(Encomenda encomenda) {
+    Double distanciaM = null;
+    if (encomenda.destinoLat() != null && encomenda.destinoLon() != null) {
+      distanciaM =
+          consultasGeoespaciais.distanciaMetros(
+              encomenda.origemLat(),
+              encomenda.origemLon(),
+              encomenda.destinoLat(),
+              encomenda.destinoLon());
+    }
+
+    // Complexidade DERIVADA de peso e volume, como em toda ENTREGA — o webhook não declara, e o
+    // verificador de criação recusaria se declarasse.
+    CalculadoraDeRecompensa.Recompensa recompensa =
+        CalculadoraDeRecompensa.calcular(
+            new CalculadoraDeRecompensa.Insumos(
+                CategoriaMissao.ENTREGA,
+                null,
+                encomenda.pesoKg(),
+                encomenda.volumeL(),
+                distanciaM,
+                encomenda.valorOfertadoBrl()),
+            parametrosRecompensa);
+
+    Instant fimDaJanela = encomenda.agora().plus(parametrosEntregaFalida.prazoRetirada());
+
+    Missao missao =
+        new Missao(
+            UUID.randomUUID(),
+            // O criador é o próprio sistema. É o que destrava a publicação sem inventar evento
+            // novo: AtorEsperado.CRIADOR compara identidade, e AtorMissao aceita usuarioId com
+            // papel SISTEMA.
+            UsuarioSistema.ID,
+            CategoriaMissao.ENTREGA,
+            tituloDaRetirada(encomenda.descricaoDoItem()),
+            descricaoDaRetirada(encomenda),
+            StatusMissao.RASCUNHO,
+            recompensa,
+            // ZERO literal. O valor ofertado pela transportadora já entrou na recompensa em TOKEN
+            // acima; copiá-lo para cá violaria ck_missao_economia e o ADR 0009.
+            BigDecimal.ZERO,
+            Coordenadas.ponto(encomenda.origemLat(), encomenda.origemLon()),
+            Coordenadas.ponto(encomenda.destinoLat(), encomenda.destinoLon()),
+            encomenda.pontoCustodiaId(),
+            encomenda.cep(),
+            encomenda.logradouro(),
+            encomenda.bairro(),
+            encomenda.cidade(),
+            encomenda.uf(),
+            parametrosEntregaFalida.raioCheckinM(),
+            encomenda.pesoKg(),
+            encomenda.volumeL(),
+            encomenda.agora(),
+            fimDaJanela,
+            encomenda.agora());
+
+    missao.exigirNivelMinimo(parametrosEntregaFalida.nivelMinimo());
+    missaoRepository.save(missao);
+
+    AtorMissao sistema = new AtorMissao(UsuarioSistema.ID, AtorMissao.PapelAtor.SISTEMA);
+    MissaoEvento trilha =
+        MissaoStateMachine.transicionar(
+            missao,
+            EventoMissao.PUBLICAR,
+            sistema,
+            serializar(
+                Map.of("origem", "ENTREGA_FALIDA", "entregaFalidaId", encomenda.entregaFalidaId())),
+            encomenda.agora());
+    missaoRepository.save(missao);
+    missaoEventoRepository.save(trilha);
+
+    // Aqui a invalidação NÃO é no-op, ao contrário da de `criar`: esta missão nasce ABERTA e o
+    // radar de proximidade devolve exatamente ABERTA. Sem isto, quem consultou a região nos últimos
+    // 30 segundos continuaria sem ver a missão até o TTL vencer.
+    cacheMissoesProximas.invalidarAposCommit();
+
+    return new MissaoDeRetirada(
+        missao.getId(), recompensa.xp(), recompensa.tokens(), missao.getNivelMinimo());
+  }
+
+  /**
+   * Regra de Elegibilidade por Reputação: missão com custódia de encomenda de TERCEIRO não é
+   * aceitável por qualquer conta recém-criada.
+   *
+   * <p>Sai cedo no caso comum ({@code nivelMinimo == 1}, que é toda missão criada por usuário) para
+   * não pagar uma consulta de XP em cada aceite do sistema inteiro por causa de uma regra que só
+   * vale para entrega falida.
+   *
+   * <p>SISTEMA e ADMIN não são isentos, e isso é deliberado: nenhum dos dois aceita missão em nome
+   * de ninguém — {@code AtorEsperado} para ACEITAR já é o executor —, então uma isenção aqui só
+   * poderia servir para contornar a regra.
+   */
+  private void validarNivelParaAceitar(Missao missao, AtorMissao ator) {
+    if (missao.getNivelMinimo() <= 1) {
+      return;
+    }
+    int nivelAtual = progressaoUsuario.nivelDe(ator.usuarioId());
+    if (nivelAtual < missao.getNivelMinimo()) {
+      throw new NivelInsuficienteException(missao.getNivelMinimo(), nivelAtual);
+    }
+  }
+
+  private static String tituloDaRetirada(String descricaoDoItem) {
+    String titulo = "Retirar e entregar: " + descricaoDoItem;
+    // O título tem limite de 120 no schema, e a descrição do item vem de terceiro. Truncar é melhor
+    // que estourar o INSERT com um 500 no webhook de um parceiro.
+    return titulo.length() <= 120 ? titulo : titulo.substring(0, 117) + "...";
+  }
+
+  /**
+   * O check-in acontece na RETIRADA, no ponto de custódia — e o texto precisa dizer isso.
+   *
+   * <p>{@code registrarCheckin} valida a proximidade contra {@code missao.getOrigem()}, que aqui é
+   * o ponto de custódia. Não é limitação: a origem é a coordenada da LOJA, que é dado nosso e
+   * conferido, enquanto o destino veio da transportadora. Usar o destino como centro do geofence
+   * seria deixar um terceiro escolher onde o nosso controle antifraude acredita que alguém esteve.
+   */
+  private static String descricaoDaRetirada(Encomenda encomenda) {
+    // Concatenação, e não String.formatted: o texto tem quebras de linha, e o SpotBugs
+    // (VA_FORMAT_STRING_USES_NEWLINE) exige %n em format string. %n emitiria o separador de linha
+    // da PLATAFORMA dentro de um texto que vai para o banco e depois para o app — CRLF no servidor
+    // Windows, LF no Linux, para a mesma missão. A descrição é dado, não saída de console.
+    return """
+           Uma entrega falhou e a encomenda está guardada num ponto de custódia do bairro.
+
+           Item: """
+        + encomenda.descricaoDoItem()
+        + """
+
+           Faça o check-in geolocalizado AO RETIRAR, no ponto de custódia, e leve a encomenda ao \
+           endereço de destino informado.
+
+           Você recebe XP e tokens — esta missão não paga em reais.""";
   }
 
   @Transactional(readOnly = true)
@@ -709,6 +886,15 @@ public class MissaoService {
     missaoRepository.save(missao);
     missaoEventoRepository.save(trilha);
 
+    // Baixa da custódia: a encomenda saiu do ponto e a vaga volta a existir. No-op para toda missão
+    // que não veio de entrega falida, que é a maioria.
+    //
+    // SÍNCRONA, dentro desta transação, e não pela outbox. A outbox é at-least-once, e um
+    // decremento de ocupação redespachado liberaria uma vaga que nunca existiu — divergência que só
+    // apareceria muito depois, quando um ponto aceitasse mais encomendas do que cabe. Aqui, ou a
+    // conclusão inteira commita, ou nada muda.
+    baixaCustodia.darBaixa(missaoId, agora);
+
     // Mesma transação do crédito: se a conclusão der rollback, o anúncio não sobrevive; se ela
     // commitar, o anúncio está durável e o drenador o entrega com retry. Ver PublicadorEventos.
     publicadorEventos.publicar(
@@ -763,6 +949,17 @@ public class MissaoService {
     if (evento == EventoMissao.PUBLICAR) {
       MissaoStateMachine.validarAutorizacao(missao, evento, ator);
       validarPoteSuficienteParaPublicar(missao);
+    }
+
+    // Trava de reputação, na mesma posição e pelo mesmo motivo da guarda de pote acima: precisa
+    // rodar sob o lock, com a missão carregada, e ANTES da transição — depois de transicionar,
+    // recusar exigiria desfazer.
+    //
+    // Depois de validarAutorizacao e antes de validar(): a ordem 403 → 422 do projeto. Quem nem
+    // podia agir sobre esta missão recebe 403 sem descobrir o nível exigido dela.
+    if (evento == EventoMissao.ACEITAR) {
+      MissaoStateMachine.validarAutorizacao(missao, evento, ator);
+      validarNivelParaAceitar(missao, ator);
     }
 
     Instant agora = Instant.now();

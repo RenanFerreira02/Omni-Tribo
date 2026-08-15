@@ -55,8 +55,35 @@ public interface ConsultasGeoespaciais {
       BigDecimal lat, BigDecimal lon, int raioMetros, int limite);
 
   /**
+   * Tribos com PRESENÇA dentro do raio, da mais próxima para a mais distante.
+   *
+   * <p>É como o sistema responde "quem está perto deste lugar?" sem que o usuário tenha coordenada
+   * — {@code usuario} não tem coluna geográfica, e não vai ter. A granularidade é de bairro, não de
+   * pessoa, e isso é a decisão, não uma limitação a corrigir depois: notificar por tribo não exige
+   * armazenar onde ninguém está. Ver ADR 0020.
+   *
+   * <p><b>"Perto" é a MENOR distância entre o alvo e as âncoras da tribo</b> (pontos de custódia
+   * ativos e origens de missão), não a distância até o centro dela. {@link #centroDaTribo} responde
+   * outra pergunta — onde apontar o mapa — e usá-lo aqui produzia um resultado errado que o seed já
+   * exibia: a Tribo Pinheiros, dona de um locker na Consolação, tinha centro a mais de 3 km da
+   * própria loja em Pinheiros. Uma encomenda ali não notificava ninguém de Pinheiros.
+   *
+   * <p>A distância devolvida é essa mínima, então uma tribo pode aparecer "a 200 m" mesmo com a
+   * maior parte dos membros longe. É intencional: o que a decisão precisa saber é se a tribo
+   * alcança o lugar.
+   *
+   * <p>Devolve {@code AlvoProximo}, o par neutro id+distância, pelo mesmo motivo dos outros
+   * métodos: esta interface não pode importar tipo de módulo nenhum, e quem chamou reidrata o que
+   * precisa.
+   */
+  List<AlvoProximo> tribosNoRaio(BigDecimal lat, BigDecimal lon, int raioMetros, int limite);
+
+  /**
    * Centro geográfico DERIVADO de uma tribo. Vazio quando ela ainda não tem missão nem ponto de
    * custódia — inventar um centro seria pior do que o chamador cair no default configurado.
+   *
+   * <p>Serve para CENTRALIZAR um mapa, não para decidir proximidade: ver a nota em {@link
+   * #tribosNoRaio} sobre por que o centroide de um bairro pode cair longe do próprio bairro.
    */
   Optional<Centro> centroDaTribo(UUID triboId);
 

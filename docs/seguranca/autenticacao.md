@@ -191,7 +191,15 @@ Pendente, por fase:
 
 - [ ] Credencial em `expo-secure-store` no mobile (nunca `AsyncStorage`) — F9 (o app ainda não existe: `apps/mobile/` só tem documentação)
 - [ ] Deep links validados (esquema + host + formato) antes de navegar — F9
-- [ ] Webhooks verificados por HMAC sobre corpo bruto em tempo constante — F10. Atenção: `/api/v1/webhooks/**` já está em `permitAll()` no `SecurityConfig` e ainda não tem controller; um controller criado nesse prefixo antes do HMAC nasce público
+- [x] Webhooks verificados por HMAC sobre corpo bruto em tempo constante — `HmacWebhookFilter`, ADR 0021, testado em `WebhookEntregaFalidaTest`
+
+  A advertência que estava aqui — "`/api/v1/webhooks/**` já está em `permitAll()` e ainda não tem
+  controller; um controller criado nesse prefixo antes do HMAC nasce público" — foi levada a sério
+  duas vezes. Primeiro o matcher foi REMOVIDO do `permitAll`, fechando a rota enquanto a proteção
+  não existisse. Agora ele voltou, **na mesma mudança** que trouxe o filtro. `permitAll` aqui
+  significa "a autenticação desta rota não é o JWT", e não "rota aberta": quem autentica é o HMAC
+  sobre o corpo bruto, e ele recusa com 401 antes de qualquer controller. Remover o filtro sem
+  remover a linha reabre o buraco.
 - [ ] Transferências entre carteiras com lock em ordem determinística — F5
 - [ ] Auditar tentativas de escrita negadas (`@AfterThrowing`) — F12
 - [ ] Rate limit e bloqueio distribuídos (hoje `ConcurrentHashMap` em memória, single-instance) — F12
