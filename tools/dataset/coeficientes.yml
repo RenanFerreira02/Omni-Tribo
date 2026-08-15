@@ -1,0 +1,28 @@
+# Gerado por tools/dataset/gerar.sh — NÃO edite à mão.
+# Cole em app.logistica.risco no application.yml, e SUBA a versão junto.
+      intercepto: -1.839341
+      coeficientes:
+        JANELA_MADRUGADA:           0.230863
+        JANELA_TARDE:               0.313348
+        JANELA_NOITE:               0.645797
+        ENDERECO_COMERCIAL:         0.449118
+        ENDERECO_CONDOMINIO:        0.592997
+        ENDERECO_RURAL:             0.645820
+        FIM_DE_SEMANA:              -0.304030
+        COMERCIAL_EM_FIM_DE_SEMANA: 0.977445
+        TAXA_HISTORICA_CEP:         0.350997
+        PESO_KG:                    0.152186
+        VOLUME_L:                   0.000854
+        CHUVA_MM:                   0.144731
+        TEMPERATURA_C:              0.158474
+        TENTATIVAS_ANTERIORES:      0.695670
+      padronizacao:
+        TAXA_HISTORICA_CEP:     { media: 0.164030, desvio: 0.085876 }
+        PESO_KG:                { media: 3.729150, desvio: 3.422221 }
+        VOLUME_L:               { media: 48.279303, desvio: 35.463261 }
+        CHUVA_MM:               { media: 1.911100, desvio: 4.198148 }
+        TEMPERATURA_C:          { media: 22.039900, desvio: 4.618493 }
+        TENTATIVAS_ANTERIORES:  { media: 0.423333, desvio: 0.730837 }
+      limiar-alto: 0.19
+      limiar-medio: 0.10
+

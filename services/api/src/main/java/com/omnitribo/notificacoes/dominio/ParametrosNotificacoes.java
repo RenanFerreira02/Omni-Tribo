@@ -28,7 +28,17 @@ public record ParametrosNotificacoes(
      * que processa até 100 eventos por vez; sem teto, um ponto numa região densa expandiria um
      * evento em milhares de inserts e seguraria a transação do lote inteiro.
      */
-    int tribosPorEvento) {
+    int tribosPorEvento,
+
+    /**
+     * Teto por hora para alertas de risco ALTO.
+     *
+     * <p>Maior que {@code alertasPorHora}, e é essa folga que resolve o problema: sem ela, cinco
+     * entregas triviais chegando primeiro silenciariam a difícil pela hora seguinte — justamente a
+     * que mais precisa de alguém e a que paga melhor. É folga, não isenção: uma rajada de entregas
+     * de alto risco no mesmo ponto continua limitada.
+     */
+    int alertasAltaPrioridadePorHora) {
 
   public ParametrosNotificacoes {
     if (raioAlertaMetros <= 0) {
@@ -39,6 +49,13 @@ public record ParametrosNotificacoes(
     }
     if (tribosPorEvento <= 0) {
       throw new IllegalArgumentException("app.notificacoes.tribos-por-evento deve ser positivo");
+    }
+    if (alertasAltaPrioridadePorHora < alertasPorHora) {
+      // Menor que o teto normal inverteria o sentido do carve-out: o alerta mais urgente seria o
+      // primeiro a ser descartado, e nada no comportamento denunciaria a inversão.
+      throw new IllegalArgumentException(
+          "app.notificacoes.alertas-alta-prioridade-por-hora não pode ser menor que"
+              + " alertas-por-hora");
     }
   }
 }

@@ -122,6 +122,13 @@ public class DespachanteAlertaService implements DespachoAlerta {
     String apelidoPonto = String.valueOf(payload.get("apelidoPonto"));
     long tokens = ((Number) payload.getOrDefault("tokensRecompensa", 0)).longValue();
 
+    // A faixa vem no payload do evento, e não de uma consulta a `logistica`: a outbox existe
+    // justamente para o despachante não depender do módulo que publicou o fato. Ausente é NORMAL —
+    // eventos gravados antes desta fase continuam drenáveis, e um evento antigo não pode fazer o
+    // job explodir.
+    String faixaRisco = String.valueOf(payload.getOrDefault("faixaRisco", "BAIXO"));
+    short prioridade = prioridadeDe(faixaRisco);
+
     List<UUID> tribos =
         consultasGeoespaciais
             .tribosNoRaio(lat, lon, parametros.raioAlertaMetros(), parametros.tribosPorEvento())
@@ -164,8 +171,18 @@ public class DespachanteAlertaService implements DespachoAlerta {
           destinatario, TIPO_ENTREGA_FALIDA, missaoId)) {
         continue;
       }
+      // Teto por hora COM carve-out para risco ALTO, e a assimetria é o ponto.
+      //
+      // Sem ele, cinco entregas triviais chegando primeiro silenciariam a difícil pela hora
+      // seguinte — exatamente a que mais precisa de alguém e a que paga melhor. O carve-out é
+      // limitado por um teto próprio, não é isenção: uma rajada de entregas de alto risco no mesmo
+      // ponto continua sem virar assédio de notificação.
+      int tetoAplicavel =
+          prioridade == Alerta.PRIORIDADE_ALTA
+              ? parametros.alertasAltaPrioridadePorHora()
+              : parametros.alertasPorHora();
       if (alertaRepository.countByUsuarioIdAndCriadoEmAfter(destinatario, umaHoraAtras)
-          >= parametros.alertasPorHora()) {
+          >= tetoAplicavel) {
         continue;
       }
 
@@ -174,14 +191,16 @@ public class DespachanteAlertaService implements DespachoAlerta {
               UUID.randomUUID(),
               destinatario,
               TIPO_ENTREGA_FALIDA,
-              "Encomenda esperando na sua região",
+              tituloDe(prioridade),
               "Uma entrega falhou e o pacote está em "
                   + apelidoPonto
                   + ". Leve ao destinatário e receba "
                   + tokens
-                  + " tokens mais XP.",
+                  + " tokens mais XP."
+                  + complementoDeRisco(prioridade),
               missaoId,
-              agora));
+              agora,
+              prioridade));
       enviados++;
     }
 
@@ -201,6 +220,41 @@ public class DespachanteAlertaService implements DespachoAlerta {
    * dado que justifica negociar mais capacidade ou abrir outro ponto no bairro. Sem isto, a recusa
    * ficaria só na linha de {@code entrega_falida}, visível apenas para quem for procurá-la.
    */
+  /**
+   * Faixa de risco → prioridade do alerta.
+   *
+   * <p>Faixa desconhecida vira NORMAL em vez de lançar: o drenador da outbox tem cinco tentativas e
+   * backoff, então uma exceção aqui reprocessaria o mesmo evento cinco vezes antes de desistir — e
+   * o defeito seria um rótulo de prioridade, não algo que justifique reter uma notificação.
+   */
+  private static short prioridadeDe(String faixaRisco) {
+    return switch (faixaRisco) {
+      case "ALTO" -> Alerta.PRIORIDADE_ALTA;
+      case "MEDIO" -> Alerta.PRIORIDADE_MEDIA;
+      default -> Alerta.PRIORIDADE_NORMAL;
+    };
+  }
+
+  private static String tituloDe(short prioridade) {
+    return prioridade == Alerta.PRIORIDADE_ALTA
+        ? "Entrega difícil esperando na sua região"
+        : "Encomenda esperando na sua região";
+  }
+
+  /**
+   * Complemento do corpo para risco alto.
+   *
+   * <p>Sem endereço, sem CEP e sem contagem por logradouro — de propósito. O alerta vai para quem
+   * ainda NÃO aceitou a missão, e {@code MissaoResponse} recorta endereço a bairro para quem não
+   * participa. Uma notificação dizendo "a rua X falhou três vezes" devolveria por outra porta
+   * exatamente o que aquele recorte protege.
+   */
+  private static String complementoDeRisco(short prioridade) {
+    return prioridade == Alerta.PRIORIDADE_ALTA
+        ? " Entregas nesse endereço costumam falhar — combine o horário antes de ir."
+        : "";
+  }
+
   private void gravarPontoLotado(UUID entregaFalidaId, Map<String, Object> payload) {
     alertaRepository.save(
         new Alerta(

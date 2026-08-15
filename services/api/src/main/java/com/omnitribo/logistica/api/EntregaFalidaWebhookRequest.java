@@ -1,8 +1,11 @@
 package com.omnitribo.logistica.api;
 
+import com.omnitribo.logistica.dominio.TipoEndereco;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -58,11 +61,39 @@ public record EntregaFalidaWebhookRequest(
     @NotBlank @Size(max = 200) String logradouro,
     @NotBlank @Size(max = 100) String bairro,
     @NotBlank @Size(max = 100) String cidade,
-    @NotBlank @Pattern(regexp = "[A-Z]{2}", message = "UF deve ter 2 letras maiúsculas")
-        String uf) {
+    @NotBlank @Pattern(regexp = "[A-Z]{2}", message = "UF deve ter 2 letras maiúsculas") String uf,
+
+    /**
+     * Contexto da tentativa que falhou, para o modelo de previsão de risco.
+     *
+     * <p><b>Os três são OPCIONAIS, e isso é compatibilidade e não descuido.</b> O webhook já está
+     * integrado com transportadoras que enviam o corpo anterior a esta fase; torná-los obrigatórios
+     * quebraria essas integrações e faria o pacote ficar preso no ponto de custódia por causa de um
+     * campo novo. O que faltar é imputado: hora e dia da semana caem para o instante do
+     * recebimento, tipo de endereço para {@code RESIDENCIAL} (a categoria de referência do modelo,
+     * contribuição zero), e tentativas para 0 — a leitura conservadora, porque assumir tentativas
+     * que não sabemos ter havido inflaria o risco e, com ele, a recompensa.
+     */
+    @Min(value = 0, message = "Hora deve estar entre 0 e 23")
+        @Max(value = 23, message = "Hora deve estar entre 0 e 23")
+        Integer janelaHoraInicio,
+    TipoEndereco tipoEndereco,
+    @Min(value = 0, message = "Tentativas anteriores não pode ser negativo")
+        @Max(value = 20, message = "Mais de 20 tentativas indica erro de integração")
+        Integer tentativasAnteriores) {
 
   /** As duas coordenadas andam juntas ou nenhuma vem. */
   public boolean destinoConsistente() {
     return (destinoLat == null) == (destinoLon == null);
+  }
+
+  /** {@code RESIDENCIAL} quando ausente: é a referência do modelo, ou seja, contribuição zero. */
+  public TipoEndereco tipoEnderecoOuPadrao() {
+    return tipoEndereco == null ? TipoEndereco.RESIDENCIAL : tipoEndereco;
+  }
+
+  /** Zero quando ausente. Ver o javadoc dos campos para por que a leitura é conservadora. */
+  public int tentativasAnterioresOuZero() {
+    return tentativasAnteriores == null ? 0 : tentativasAnteriores;
   }
 }

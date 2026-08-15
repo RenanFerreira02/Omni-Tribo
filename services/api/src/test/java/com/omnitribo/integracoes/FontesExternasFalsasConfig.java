@@ -44,8 +44,16 @@ public class FontesExternasFalsasConfig {
         throw new ServicoExternoIndisponivelException(
             "Não foi possível consultar a previsão do tempo agora.");
       }
+      // 61 é "chuva leve" no catálogo WMO, então a precipitação precisa ser coerente com o código —
+      // um par (código=chuva, mm=0) faria o teste do modelo de risco medir uma combinação que o
+      // provedor real nunca produz.
       return new ClimaResponse(
-          new BigDecimal("21.3"), new BigDecimal("20.1"), 61, "Chuva", Instant.EPOCH);
+          new BigDecimal("21.3"),
+          new BigDecimal("20.1"),
+          61,
+          "Chuva",
+          new BigDecimal("2.4"),
+          Instant.EPOCH);
     };
   }
 

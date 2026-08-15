@@ -277,7 +277,7 @@ class WebhookEntregaFalidaTest extends TesteIntegracaoMvcBase {
         .isEqualTo(2);
     assertThat((Long) missao.get("tokens_recompensa")).isPositive();
     assertThat((Integer) missao.get("xp_recompensa")).isPositive();
-    assertThat(missao.get("versao_formula")).as("recompensa congelada com a versão").isEqualTo(2);
+    assertThat(missao.get("versao_formula")).as("recompensa congelada com a versão").isEqualTo(3);
     assertThat(missao.get("ponto_custodia_id")).isEqualTo(PONTO_COM_VAGA);
     assertThat((Long) missao.get("pote_tokens"))
         .as("ENTREGA não exige pote da comunidade — Pendência #1")
@@ -297,6 +297,91 @@ class WebhookEntregaFalidaTest extends TesteIntegracaoMvcBase {
     // O criador é o usuário-sistema da V21 — não há humano no caminho.
     assertThat(missao.get("criador_id"))
         .isEqualTo(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+  }
+
+  @Test
+  @DisplayName("risco alto congela multiplicador maior e paga mais")
+  void riscoAltoCongelaMultiplicadorEPagaMais() throws Exception {
+    String comum = rastreioUnico();
+    String arriscado = rastreioUnico();
+
+    enviarValido(PONTO_COM_VAGA, comum).andExpect(status().isOk());
+    enviar(SLUG, SEGREDO, corpoDeAltoRisco(PONTO_COM_VAGA, arriscado)).andExpect(status().isOk());
+
+    var missaoComum = missaoDe(comum);
+    var missaoArriscada = missaoDe(arriscado);
+
+    java.math.BigDecimal multComum = (java.math.BigDecimal) missaoComum.get("multiplicador_risco");
+    java.math.BigDecimal multArriscada =
+        (java.math.BigDecimal) missaoArriscada.get("multiplicador_risco");
+
+    // O multiplicador é CONGELADO na missão junto com versao_formula — sem ele, este crédito
+    // deixaria de ser explicável assim que o modelo fosse re-treinado.
+    assertThat(multArriscada)
+        .as("sábado à noite, comercial, terceira tentativa: o pior cenário do modelo")
+        .isGreaterThan(multComum);
+    assertThat(multArriscada)
+        .isBetween(new java.math.BigDecimal("1.00"), new java.math.BigDecimal("1.50"));
+
+    assertThat(missaoArriscada.get("faixa_risco"))
+        .as("faixa congelada para o app montar o aviso do detalhe")
+        .isIn("MEDIO", "ALTO");
+
+    assertThat((Long) missaoArriscada.get("tokens_recompensa"))
+        .as("risco maior paga mais — é a tese do produto")
+        .isGreaterThan((Long) missaoComum.get("tokens_recompensa"));
+  }
+
+  @Test
+  @DisplayName(
+      "previsão de risco é gravada na entrega falida, com as características que a geraram")
+  void previsaoEhGravadaNaEntregaFalida() throws Exception {
+    String rastreio = rastreioUnico();
+    enviar(SLUG, SEGREDO, corpoDeAltoRisco(PONTO_COM_VAGA, rastreio)).andExpect(status().isOk());
+
+    var linha =
+        jdbcTemplate.queryForMap(
+            "SELECT risco_probabilidade, risco_faixa, risco_multiplicador, risco_versao_modelo,"
+                + " janela_hora_inicio, tipo_endereco, tentativas_anteriores"
+                + " FROM entrega_falida WHERE codigo_rastreio = ?",
+            rastreio);
+
+    // Gravar a previsão É a honestidade do modelo: sem isto, a validação futura contra dados reais
+    // — o próximo passo declarado no ADR 0022 — não teria contra o que comparar.
+    assertThat((java.math.BigDecimal) linha.get("risco_probabilidade"))
+        .isBetween(java.math.BigDecimal.ZERO, java.math.BigDecimal.ONE);
+    assertThat(linha.get("risco_faixa")).isIn("BAIXO", "MEDIO", "ALTO");
+    assertThat(linha.get("risco_versao_modelo")).isNotNull();
+
+    // E as características que o modelo viu ficam ao lado do que ele disse.
+    assertThat(((Number) linha.get("janela_hora_inicio")).intValue()).isEqualTo(19);
+    assertThat(linha.get("tipo_endereco")).isEqualTo("COMERCIAL");
+    assertThat(((Number) linha.get("tentativas_anteriores")).intValue()).isEqualTo(3);
+  }
+
+  @Test
+  @DisplayName("webhook sem contexto de risco continua funcionando — compatibilidade")
+  void corpoAntigoSemContextoDeRiscoContinuaAceito() throws Exception {
+    String rastreio = rastreioUnico();
+
+    // O corpo de `corpo(...)` não tem janelaHoraInicio, tipoEndereco nem tentativasAnteriores.
+    // Transportadora já integrada não pode quebrar porque acrescentamos características ao modelo.
+    enviarValido(PONTO_COM_VAGA, rastreio).andExpect(status().isOk());
+
+    var linha =
+        jdbcTemplate.queryForMap(
+            "SELECT risco_faixa, janela_hora_inicio, tipo_endereco, tentativas_anteriores"
+                + " FROM entrega_falida WHERE codigo_rastreio = ?",
+            rastreio);
+
+    assertThat(linha.get("risco_faixa"))
+        .as("risco é avaliado mesmo assim, com imputação")
+        .isNotNull();
+    assertThat(linha.get("janela_hora_inicio")).as("não informado, não inventado").isNull();
+    assertThat(linha.get("tipo_endereco")).isNull();
+    assertThat(((Number) linha.get("tentativas_anteriores")).intValue())
+        .as("ausente vira 0, a leitura conservadora")
+        .isZero();
   }
 
   @Test
@@ -450,6 +535,25 @@ class WebhookEntregaFalidaTest extends TesteIntegracaoMvcBase {
         .formatted(rastreio, pontoCustodiaId, valor);
   }
 
+  /**
+   * Corpo com o contexto de risco que a transportadora pode informar.
+   *
+   * <p>Sábado às 19h, endereço COMERCIAL, terceira tentativa: a combinação que o modelo aprendeu a
+   * pontuar mais alto — a interação comércio × fim de semana somada ao histórico de tentativas.
+   */
+  private static String corpoDeAltoRisco(UUID pontoCustodiaId, String rastreio) {
+    return """
+           {"codigoRastreio":"%s","motivo":"Estabelecimento fechado",
+            "pontoCustodiaId":"%s","descricaoDoItem":"Caixa de porcelanato 60x60",
+            "pesoKg":18.50,"volumeL":42.00,
+            "destinoLat":-23.5695,"destinoLon":-46.6870,
+            "cep":"08010000","logradouro":"Rua Teodoro Sampaio","bairro":"Pinheiros",
+            "cidade":"São Paulo","uf":"SP",
+            "janelaHoraInicio":19,"tipoEndereco":"COMERCIAL","tentativasAnteriores":3}
+           """
+        .formatted(rastreio, pontoCustodiaId);
+  }
+
   private static String agora() {
     return String.valueOf(Instant.now().getEpochSecond());
   }
@@ -489,6 +593,16 @@ class WebhookEntregaFalidaTest extends TesteIntegracaoMvcBase {
             + " JOIN entrega_falida ef ON ef.missao_id = m.id"
             + " WHERE ef.codigo_rastreio = ?",
         Long.class,
+        rastreio);
+  }
+
+  /** A missão criada a partir de um código de rastreio, com os campos de risco. */
+  private java.util.Map<String, Object> missaoDe(String rastreio) {
+    return jdbcTemplate.queryForMap(
+        "SELECT m.tokens_recompensa, m.xp_recompensa, m.multiplicador_risco, m.faixa_risco,"
+            + " m.versao_formula FROM missao m"
+            + " JOIN entrega_falida ef ON ef.missao_id = m.id"
+            + " WHERE ef.codigo_rastreio = ?",
         rastreio);
   }
 }

@@ -67,6 +67,32 @@ public record MissaoResponse(
      * cliente é conveniência e a do servidor é a regra.
      */
     int nivelMinimo,
+
+    /**
+     * Risco de falha avaliado na criação, CONGELADO junto com {@code versaoFormula}.
+     *
+     * <p>Nulos em toda missão que não veio do webhook de entrega falida, que é a maioria — o app
+     * precisa tratar ausência como "sem avaliação", nunca como risco baixo.
+     *
+     * <p>{@code multiplicadorRisco} sai na resposta porque é o que EXPLICA a recompensa: sem ele,
+     * duas entregas de mesmo peso e distância pagariam valores diferentes sem justificativa
+     * visível, e a economia pareceria arbitrária.
+     */
+    BigDecimal multiplicadorRisco,
+    String faixaRisco,
+
+    /**
+     * Texto pronto do aviso, ou nulo quando não há o que avisar.
+     *
+     * <p>Montado no SERVIDOR de propósito, pela mesma razão que a recompensa é: se o app compusesse
+     * a frase a partir da faixa, cada versão instalada teria a sua, e mudar a orientação exigiria
+     * publicar na loja. Aqui, muda com um deploy.
+     *
+     * <p><b>Nunca contém logradouro nem CEP.</b> Esta resposta tem recorte por participação —
+     * {@code montar(m, participa)} reduz o endereço a bairro para quem não participa — e um aviso
+     * citando a rua devolveria pela porta de trás exatamente o que aquele recorte protege.
+     */
+    String avisoRisco,
     int versao)
     implements RecursoAuditavel {
 
@@ -169,6 +195,34 @@ public record MissaoResponse(
         m.getComplexidade(),
         m.getVersaoFormula(),
         m.getNivelMinimo(),
+        m.getMultiplicadorRisco(),
+        m.getFaixaRisco(),
+        avisoDe(m.getFaixaRisco()),
         m.getVersao());
+  }
+
+  /**
+   * Orientação acionável para a faixa de risco, ou nulo quando não há o que dizer.
+   *
+   * <p>Só ALTO e MEDIO produzem aviso. BAIXO não gera texto porque um aviso que aparece sempre
+   * deixa de ser lido — e uma missão sem avaliação (a maioria) não tem nada a declarar.
+   *
+   * <p>O texto diz o que FAZER, não só o que temer. "Risco alto" sozinho deixa a pessoa sem ação;
+   * "combine o horário antes de ir" é o comportamento que efetivamente reduz a chance de a segunda
+   * tentativa também falhar.
+   */
+  private static String avisoDe(String faixaRisco) {
+    if (faixaRisco == null) {
+      return null;
+    }
+    return switch (faixaRisco) {
+      case "ALTO" ->
+          "Entregas neste endereço costumam falhar. Combine o horário com o destinatário antes de"
+              + " ir — é o que mais aumenta a chance de dar certo desta vez.";
+      case "MEDIO" ->
+          "Esta entrega tem histórico irregular. Vale confirmar se há alguém para receber antes de"
+              + " sair.";
+      default -> null;
+    };
   }
 }

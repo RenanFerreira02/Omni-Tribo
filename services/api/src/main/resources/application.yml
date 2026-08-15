@@ -113,12 +113,17 @@ app:
     # certo quando foi feito?". CalculadoraDeRecompensaTest.douradoV1 falha de propósito para forçar
     # essa decisão.
     recompensa:
+      # versao 3: a fórmula passou a aceitar um MULTIPLICADOR DE RISCO, que multiplica a base junto
+      # da complexidade. Missões criadas por usuário recebem 1,00 (neutro) e continuam valendo
+      # exatamente o que valiam na v2 — CalculadoraDeRecompensaTest.semRiscoAV3ReproduzAV2 prova
+      # isso. Só o caminho do webhook de entrega falida produz multiplicador diferente de 1.
+      #
       # versao 2: a fórmula passou a considerar `tokens-por-real-ofertado`, o valor que a
       # transportadora declara no webhook de entrega falida. Toda missão criada antes desta mudança
       # tem versao_formula = 1 gravada e continua explicada pela calibração que a produziu — é
       # exatamente para isso que a coluna existe. CalculadoraDeRecompensaTest tem um dourado por
       # versão; mexer nos números abaixo sem subir este campo faz o dourado falhar de propósito.
-      versao: 2
+      versao: 3
       base-tokens:                 # piso por categoria, antes de multiplicador e adicionais
         ENTREGA: 20
         COLETA: 20
@@ -146,6 +151,14 @@ app:
       volume-leve-ate-l: 20
       peso-media-ate-kg: 25
       volume-media-ate-l: 80
+      # Faixa do multiplicador de risco que a ECONOMIA aceita honrar. Precisa concordar com
+      # app.logistica.risco.multiplicador-* — CoerenciaTetoRiscoTest falha se divergirem.
+      #
+      # Duplicado de propósito: lá o teto define como o MODELO mapeia probabilidade em multiplicador;
+      # aqui define quanto a economia se dispõe a CUNHAR. Recalibrar o modelo não deve conseguir,
+      # sozinho, ampliar a emissão de token.
+      multiplicador-risco-minimo: 1.00
+      multiplicador-risco-maximo: 1.50
 
     # Missão gerada automaticamente a partir de uma entrega falida. Estes números NÃO entram na
     # fórmula de recompensa — não confundir com `recompensa.*` acima, que tem `versao` justamente
@@ -215,6 +228,10 @@ app:
     # ponto numa região densa expandiria um evento em milhares de inserts dentro da transação do
     # lote da outbox.
     tribos-por-evento: 50
+    # Teto por hora só para alertas de risco ALTO. A folga sobre `alertas-por-hora` existe para que
+    # cinco entregas triviais chegando antes não silenciem a difícil pela hora seguinte — que é a que
+    # mais precisa de alguém e a que paga melhor. Folga, não isenção.
+    alertas-alta-prioridade-por-hora: 8
 
   identidade:
     # Conquistas DERIVADAS de xp/nivel/streak — não há tabela. A FÓRMULA é código
@@ -255,3 +272,93 @@ app:
       chamadas-simultaneas: 8
       # Sem TTL de propósito: logradouro de um CEP muda uma vez por década. Só o teto de entradas
       # do Caffeine governa o despejo. Ver EnderecoService.
+  logistica:
+    # Modelo de previsão de risco de falha de entrega. O MODELO é código (PrevisorDeRisco,
+    # CodificadorEntrega, CaracteristicaRisco); os números abaixo são o ARTEFATO TREINADO.
+    #
+    # NÃO EDITE À MÃO. Saíram de TreinadorRegressaoLogistica sobre o dataset sintético de semente
+    # 20260814, e ModeloRiscoTreinoTest re-treina no `verify` e confere cada valor contra o que está
+    # aqui. Mexer num número sem re-treinar quebra o build — de propósito, no mesmo espírito de
+    # CalculadoraDeRecompensaTest.douradoV1. Para republicar: bash tools/dataset/gerar.sh
+    #
+    # HONESTIDADE: estes coeficientes foram aprendidos de dados SINTÉTICOS, com correlações que nós
+    # mesmos injetamos e documentamos em docs/qualidade/modelo-previsao.md. Isto demonstra um
+    # mecanismo; não é um modelo validado contra a operação real. Ver ADR 0022.
+    risco:
+      # MUDOU QUALQUER NÚMERO ABAIXO? SUBA A VERSÃO. O multiplicador derivado daqui é CONGELADO em
+      # missao.multiplicador_risco e a probabilidade em entrega_falida.risco_probabilidade — sem a
+      # versão, some a resposta para "este multiplicador estava certo quando foi aplicado?".
+      versao: 1
+
+      # Log-odds da entrega MÉDIA nas categorias de referência: manhã (06h–11h), dia útil, endereço
+      # RESIDENCIAL, e todas as numéricas na média da partição de treino.
+      intercepto: -1.839341
+
+      # Numéricas: log-odds por 1 DESVIO-PADRÃO. Indicadores: log-odds pela presença, relativo à
+      # categoria de referência. Falta alguma? O boot falha, em vez de virar coeficiente zero.
+      coeficientes:
+        JANELA_MADRUGADA:           0.230863
+        JANELA_TARDE:               0.313348
+        JANELA_NOITE:               0.645797
+        ENDERECO_COMERCIAL:         0.449118
+        ENDERECO_CONDOMINIO:        0.592997
+        ENDERECO_RURAL:             0.645820
+        FIM_DE_SEMANA:              -0.304030
+        COMERCIAL_EM_FIM_DE_SEMANA: 0.977445
+        TAXA_HISTORICA_CEP:         0.350997
+        PESO_KG:                    0.152186
+        VOLUME_L:                   0.000854
+        CHUVA_MM:                   0.144731
+        TEMPERATURA_C:              0.158474
+        TENTATIVAS_ANTERIORES:      0.695670
+
+      # μ e σ da partição de TREINO apenas — calcular sobre o dataset inteiro vazaria informação do
+      # conjunto de teste para dentro do modelo e inflaria as métricas publicadas. A média também é
+      # o valor de IMPUTAÇÃO: característica ausente entra com z-score 0, contribuição nula.
+      padronizacao:
+        TAXA_HISTORICA_CEP:     { media: 0.164030, desvio: 0.085876 }
+        PESO_KG:                { media: 3.729150, desvio: 3.422221 }
+        VOLUME_L:               { media: 48.279303, desvio: 35.463261 }
+        CHUVA_MM:               { media: 1.911100, desvio: 4.198148 }
+        TEMPERATURA_C:          { media: 22.039900, desvio: 4.618493 }
+        TENTATIVAS_ANTERIORES:  { media: 0.423333, desvio: 0.730837 }
+
+      # Escolhido por varredura de 99 limiares na partição de VALIDAÇÃO — nunca na de teste, que
+      # reportaria um recall otimista. Regra: maior recall sujeito a precisão >= 0,35.
+      #
+      # Bem abaixo de 0,50 porque o custo do erro é assimétrico: falso negativo (entrega que vai
+      # falhar e passa despercebida) gera missão subvalorizada, sem prioridade e sem aviso; falso
+      # positivo custa um prêmio limitado em token e uma notificação. Ver SeletorDeLimiar.
+      limiar-alto: 0.19
+      # Metade do limiar de decisão. ALTO coincide com "classificado como falha", para a interface
+      # nunca dizer ALTO num caso que o modelo classificou como sucesso.
+      limiar-medio: 0.10
+
+      # Taxa histórica de falha por prefixo de CEP (3 dígitos), Grande São Paulo. FABRICADAS, não
+      # medidas — precisam ser idênticas a GeradorDatasetEntregas.TAXA_POR_FAIXA_CEP, senão o runtime
+      # resolveria uma taxa diferente da que o treino viu e o coeficiente deixaria de valer.
+      taxa-por-faixa-cep:
+        "010": 0.06
+        "013": 0.09
+        "020": 0.12
+        "031": 0.28
+        "035": 0.22
+        "040": 0.08
+        "043": 0.15
+        "050": 0.11
+        "054": 0.05
+        "055": 0.19
+        "080": 0.31
+        "087": 0.25
+      # CEP fora da tabela cai aqui: a média do treino, ou seja, z-score 0 e contribuição nula. Sem
+      # histórico daquela faixa o modelo não deve ter opinião, nem para mais nem para menos.
+      taxa-cep-padrao: 0.164030
+
+      # Teto do multiplicador de recompensa em TOKEN, aplicado linearmente na probabilidade.
+      #
+      # ESTREITO DE PROPÓSITO. Missões de ENTREGA hoje CUNHAM token — não pagam de pote —, porque o
+      # financiador correto delas é o patrocinador, que ainda não existe (Pendência #1). Sem teto, o
+      # multiplicador multiplicaria essa cunhagem pelo risco. Com ele, a ampliação é limitada,
+      # conhecida e documentada. Mínimo 1,0: risco nunca REDUZ recompensa.
+      multiplicador-minimo: 1.00
+      multiplicador-maximo: 1.50

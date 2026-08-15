@@ -16,9 +16,18 @@ public interface AlertaRepository extends JpaRepository<Alerta, UUID> {
    * <p>O {@code usuarioId} nunca vem do cliente — o controller o tira do JWT. Um filtro vindo da
    * query string transformaria este método na caixa de entrada alheia.
    */
-  Page<Alerta> findByUsuarioIdOrderByCriadoEmDesc(UUID usuarioId, Pageable pageable);
+  /**
+   * Caixa de entrada: MAIS URGENTE primeiro, depois mais recente.
+   *
+   * <p>Prioridade antes da data porque a lista é o que o usuário lê de cima para baixo, e uma
+   * entrega difícil que chegou há três horas continua precisando de alguém mais que uma trivial de
+   * dez minutos atrás. Suportada por {@code idx_alerta_usuario_prioridade} (V22) — sem o índice
+   * casando com esta ordenação, a paginação viraria sort em memória sobre a caixa inteira.
+   */
+  Page<Alerta> findByUsuarioIdOrderByPrioridadeDescCriadoEmDesc(UUID usuarioId, Pageable pageable);
 
-  Page<Alerta> findByUsuarioIdAndLidoFalseOrderByCriadoEmDesc(UUID usuarioId, Pageable pageable);
+  Page<Alerta> findByUsuarioIdAndLidoFalseOrderByPrioridadeDescCriadoEmDesc(
+      UUID usuarioId, Pageable pageable);
 
   long countByUsuarioIdAndLidoFalse(UUID usuarioId);
 

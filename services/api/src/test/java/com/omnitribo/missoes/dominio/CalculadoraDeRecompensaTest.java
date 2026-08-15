@@ -49,10 +49,14 @@ class CalculadoraDeRecompensaTest {
           new BigDecimal("5"),
           new BigDecimal("20"),
           new BigDecimal("25"),
-          new BigDecimal("80"));
+          new BigDecimal("80"),
+          // v1 e v2 não tinham multiplicador de risco. Faixa degenerada [1,1] reproduz exatamente o
+          // comportamento anterior: o fator é sempre 1 e a fórmula é a de antes.
+          BigDecimal.ONE,
+          BigDecimal.ONE);
 
   /**
-   * Espelha o bloco {@code app.missoes.recompensa} ATUAL do application.yml.
+   * A calibração da v2, mantida para provar que a v3 não reprecificou o que já existia.
    *
    * <p>A v2 acrescentou {@code tokens-por-real-ofertado}, para que o valor que a transportadora
    * declara no webhook de entrega falida influencie a recompensa em TOKEN. Todo o resto é idêntico
@@ -82,7 +86,47 @@ class CalculadoraDeRecompensaTest {
           new BigDecimal("5"),
           new BigDecimal("20"),
           new BigDecimal("25"),
-          new BigDecimal("80"));
+          new BigDecimal("80"),
+          BigDecimal.ONE,
+          BigDecimal.ONE);
+
+  /**
+   * Espelha o bloco {@code app.missoes.recompensa} ATUAL do application.yml.
+   *
+   * <p>A v3 acrescentou o MULTIPLICADOR DE RISCO, que multiplica a base junto da complexidade. Todo
+   * o resto é idêntico à v2 de propósito, para que {@code semRiscoAV3ReproduzAV2} prove que missão
+   * criada por usuário — que nunca passa por avaliação de risco — continua valendo exatamente o que
+   * valia. Uma mudança de fórmula que reprecificasse silenciosamente o que já existia seria
+   * indefensável.
+   *
+   * <p>O teto de 1,50 é estreito porque ENTREGA ainda CUNHA token (Pendência #1): sem financiador,
+   * cada ponto de multiplicador vira emissão nova. Ver ADR 0022.
+   */
+  private static final ParametrosRecompensa V3 =
+      new ParametrosRecompensa(
+          3,
+          Map.of(
+              CategoriaMissao.ENTREGA, 20L,
+              CategoriaMissao.COLETA, 20L,
+              CategoriaMissao.TRIBO, 25L,
+              CategoriaMissao.AJUDA, 20L),
+          Map.of(
+              ComplexidadeMissao.LEVE, new BigDecimal("1.0"),
+              ComplexidadeMissao.MEDIA, new BigDecimal("1.5"),
+              ComplexidadeMissao.PESADA, new BigDecimal("2.0")),
+          new BigDecimal("2"),
+          new BigDecimal("0.5"),
+          new BigDecimal("5"),
+          new BigDecimal("0.5"),
+          1000L,
+          3,
+          5000,
+          new BigDecimal("5"),
+          new BigDecimal("20"),
+          new BigDecimal("25"),
+          new BigDecimal("80"),
+          new BigDecimal("1.00"),
+          new BigDecimal("1.50"));
 
   private static Insumos insumos(
       CategoriaMissao categoria, String peso, String volume, Double distanciaM) {
@@ -102,6 +146,23 @@ class CalculadoraDeRecompensaTest {
         volume == null ? null : new BigDecimal(volume),
         distanciaM,
         valorOfertado == null ? null : new BigDecimal(valorOfertado));
+  }
+
+  private static Insumos insumosComRisco(
+      CategoriaMissao categoria,
+      String peso,
+      String volume,
+      Double distanciaM,
+      String valorOfertado,
+      String multiplicadorRisco) {
+    return new Insumos(
+        categoria,
+        null,
+        peso == null ? null : new BigDecimal(peso),
+        volume == null ? null : new BigDecimal(volume),
+        distanciaM,
+        valorOfertado == null ? null : new BigDecimal(valorOfertado),
+        multiplicadorRisco == null ? null : new BigDecimal(multiplicadorRisco));
   }
 
   // ─── Dourado ────────────────────────────────────────────────────────────────────────────────
@@ -164,6 +225,110 @@ class CalculadoraDeRecompensaTest {
     assertThat(v2.tokens()).isEqualTo(v1.tokens());
     assertThat(v2.xp()).isEqualTo(v1.xp());
     assertThat(v2.complexidade()).isEqualTo(v1.complexidade());
+  }
+
+  /**
+   * Dourado da v3, com risco máximo.
+   *
+   * <p>O multiplicador entra na BASE, junto da complexidade — nunca no total. Multiplicar o total
+   * escalaria também distância, peso e volume, e a recompensa explodiria de forma não linear
+   * justamente no caso extremo.
+   */
+  @Test
+  void douradoV3() {
+    // ENTREGA · 10 kg · 40 L · 3 km · R$ 30 ofertados · risco 1,50  →  MEDIA
+    //   base 20 × 1.5 × 1.5 = 45 · +3 km × 2 = 6 · +10 kg × 0.5 = 5 · +0.4 × 5 = 2 · +30 × 0.5 = 15
+    //   → 73
+    Recompensa r =
+        CalculadoraDeRecompensa.calcular(
+            insumosComRisco(CategoriaMissao.ENTREGA, "10", "40", 3000.0, "30.00", "1.50"), V3);
+
+    assertThat(r.complexidade()).isEqualTo(ComplexidadeMissao.MEDIA);
+    assertThat(r.tokens()).isEqualTo(73L);
+    assertThat(r.xp()).isEqualTo(219); // 73 × 3
+    assertThat(r.versaoFormula()).isEqualTo(3);
+    assertThat(r.multiplicadorRisco()).isEqualByComparingTo("1.50");
+  }
+
+  /**
+   * A v3 não mexeu no que já existia.
+   *
+   * <p>Missão criada por usuário nunca passa por avaliação de risco, então recebe o multiplicador
+   * neutro e tem de valer EXATAMENTE o que valia na v2. Sem esta garantia, subir a versão da
+   * fórmula teria reprecificado silenciosamente todo o app — que é o defeito que {@code
+   * versao_formula} existe para tornar impossível.
+   */
+  @Test
+  void semRiscoAV3ReproduzAV2() {
+    Insumos i = insumos(CategoriaMissao.ENTREGA, "10", "40", 3000.0, "30.00");
+
+    Recompensa v2 = CalculadoraDeRecompensa.calcular(i, V2);
+    Recompensa v3 = CalculadoraDeRecompensa.calcular(i, V3);
+
+    assertThat(v3.tokens()).isEqualTo(v2.tokens());
+    assertThat(v3.xp()).isEqualTo(v2.xp());
+    assertThat(v3.complexidade()).isEqualTo(v2.complexidade());
+    assertThat(v3.multiplicadorRisco()).isEqualByComparingTo("1.00");
+  }
+
+  @Test
+  void riscoMaiorNuncaPagaMenos() {
+    long semRisco =
+        CalculadoraDeRecompensa.calcular(
+                insumosComRisco(CategoriaMissao.ENTREGA, "10", "40", 3000.0, null, "1.00"), V3)
+            .tokens();
+    long comRisco =
+        CalculadoraDeRecompensa.calcular(
+                insumosComRisco(CategoriaMissao.ENTREGA, "10", "40", 3000.0, null, "1.50"), V3)
+            .tokens();
+
+    assertThat(comRisco).isGreaterThan(semRisco);
+  }
+
+  /**
+   * Multiplicador fora da faixa é LIMITADO, não aceito.
+   *
+   * <p>{@code PrevisorDeRisco} já limita na origem; repetir aqui é deliberado, porque esta é a
+   * última função pura antes do congelamento em banco e não pode confiar em quem a chamou. Um
+   * multiplicador absurdo vindo de um chamador futuro cunharia token além do previsto, e cunhagem
+   * não se desfaz depois de creditada.
+   */
+  @Test
+  void multiplicadorAcimaDoTetoEhLimitado() {
+    Recompensa exagerado =
+        CalculadoraDeRecompensa.calcular(
+            insumosComRisco(CategoriaMissao.ENTREGA, "10", "40", 3000.0, "30.00", "9.99"), V3);
+    Recompensa noTeto =
+        CalculadoraDeRecompensa.calcular(
+            insumosComRisco(CategoriaMissao.ENTREGA, "10", "40", 3000.0, "30.00", "1.50"), V3);
+
+    assertThat(exagerado.tokens()).isEqualTo(noTeto.tokens());
+    assertThat(exagerado.multiplicadorRisco()).isEqualByComparingTo("1.50");
+  }
+
+  @Test
+  void multiplicadorAbaixoDeUmEhElevadoAoPiso() {
+    // Risco NUNCA reduz recompensa: um fator abaixo de 1 inverteria a tese do produto, fazendo a
+    // entrega difícil pagar menos que a fácil.
+    Recompensa r =
+        CalculadoraDeRecompensa.calcular(
+            insumosComRisco(CategoriaMissao.ENTREGA, "10", "40", 3000.0, "30.00", "0.20"), V3);
+
+    assertThat(r.multiplicadorRisco()).isEqualByComparingTo("1.00");
+    assertThat(r.tokens())
+        .isEqualTo(
+            CalculadoraDeRecompensa.calcular(
+                    insumos(CategoriaMissao.ENTREGA, "10", "40", 3000.0, "30.00"), V3)
+                .tokens());
+  }
+
+  @Test
+  void multiplicadorNuloEhTratadoComoNeutro() {
+    Recompensa r =
+        CalculadoraDeRecompensa.calcular(
+            insumosComRisco(CategoriaMissao.ENTREGA, "10", "40", 3000.0, "30.00", null), V3);
+
+    assertThat(r.multiplicadorRisco()).isEqualByComparingTo("1.00");
   }
 
   /**
@@ -398,7 +563,9 @@ class CalculadoraDeRecompensaTest {
             V1.pesoLeveAteKg(),
             V1.volumeLeveAteL(),
             V1.pesoMediaAteKg(),
-            V1.volumeMediaAteL());
+            V1.volumeMediaAteL(),
+            V1.multiplicadorRiscoMinimo(),
+            V1.multiplicadorRiscoMaximo());
 
     assertThatThrownBy(
             () ->

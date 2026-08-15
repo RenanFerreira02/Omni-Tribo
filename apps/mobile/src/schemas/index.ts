@@ -8,6 +8,8 @@ import { z } from 'zod';
  */
 export const complexidadeSchema = z.enum(['LEVE', 'MEDIA', 'PESADA']);
 
+export const faixaRiscoSchema = z.enum(['BAIXO', 'MEDIO', 'ALTO']);
+
 export const loginSchema = z.object({
   email: z.email('Informe um e-mail válido.'),
   senha: z.string().min(1, 'Informe sua senha.'),
@@ -185,6 +187,12 @@ export const missaoResponseSchema = z.object({
   complexidade: complexidadeSchema,
   versaoFormula: z.number(),
   nivelMinimo: z.number(),
+  // Risco congelado na criação. Nulos na maioria das missões — só o webhook de entrega falida
+  // avalia risco. `nullable`, e não `optional`: o servidor SEMPRE manda as chaves, com valor nulo
+  // quando não houve avaliação. Aceitar ausência esconderia uma mudança de contrato.
+  multiplicadorRisco: z.number().nullable(),
+  faixaRisco: faixaRiscoSchema.nullable(),
+  avisoRisco: z.string().nullable(),
   versao: z.number(),
 });
 
@@ -306,6 +314,9 @@ export const previaRecompensaResponseSchema = z.object({
   tokensRecompensa: z.number(),
   complexidade: complexidadeSchema,
   versaoFormula: z.number(),
+  // Sempre 1,00 nesta rota: a prévia serve missão criada por usuário, que não passa por avaliação
+  // de risco. Não é nullable — aqui o servidor manda o neutro, não a ausência.
+  multiplicadorRisco: z.number(),
 });
 
 export const transferenciaResponseSchema = z.object({

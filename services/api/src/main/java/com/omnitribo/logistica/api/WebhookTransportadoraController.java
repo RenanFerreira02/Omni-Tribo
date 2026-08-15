@@ -3,14 +3,21 @@ package com.omnitribo.logistica.api;
 import com.omnitribo.compartilhado.api.AtributosWebhook;
 import com.omnitribo.compartilhado.dominio.Coordenadas;
 import com.omnitribo.compartilhado.dominio.RegraNegocioVioladaException;
+import com.omnitribo.integracoes.api.ConsultaClima;
 import com.omnitribo.logistica.dominio.DadosEntregaFalida;
+import com.omnitribo.logistica.dominio.DadosParaPrevisao;
 import com.omnitribo.logistica.dominio.EntregaFalidaService;
+import com.omnitribo.logistica.dominio.PrevisaoRiscoService;
+import com.omnitribo.logistica.dominio.ResultadoRisco;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.Optional;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -36,9 +43,22 @@ import org.springframework.web.bind.annotation.RestController;
 public class WebhookTransportadoraController {
 
   private final EntregaFalidaService entregaFalidaService;
+  private final PrevisaoRiscoService previsaoRiscoService;
 
-  public WebhookTransportadoraController(EntregaFalidaService entregaFalidaService) {
+  /**
+   * {@code ConsultaClima} é injetado pela INTERFACE, e o tipo declarado no campo é o que o ArchUnit
+   * inspeciona: nomear {@code ClimaService} aqui compilaria e reprovaria o teste de arquitetura,
+   * porque {@code logistica} não pode alcançar {@code integracoes.dominio}.
+   */
+  private final ConsultaClima consultaClima;
+
+  public WebhookTransportadoraController(
+      EntregaFalidaService entregaFalidaService,
+      PrevisaoRiscoService previsaoRiscoService,
+      ConsultaClima consultaClima) {
     this.entregaFalidaService = entregaFalidaService;
+    this.previsaoRiscoService = previsaoRiscoService;
+    this.consultaClima = consultaClima;
   }
 
   @Operation(
@@ -119,8 +139,53 @@ public class WebhookTransportadoraController {
             request.logradouro(),
             request.bairro(),
             request.cidade(),
-            request.uf());
+            request.uf(),
+            request.janelaHoraInicio() == null ? null : request.janelaHoraInicio().shortValue(),
+            request.tipoEndereco(),
+            (short) request.tentativasAnterioresOuZero());
 
-    return EntregaFalidaWebhookResponse.de(entregaFalidaService.registrar(dados));
+    return EntregaFalidaWebhookResponse.de(
+        entregaFalidaService.registrar(dados, avaliarRisco(request)));
+  }
+
+  /**
+   * Calcula o risco ANTES de qualquer transação ser aberta. A ordem é obrigatória.
+   *
+   * <p>{@code EntregaFalidaService.registrar} é {@code @Transactional} e a primeira coisa que faz é
+   * {@code SELECT ... FOR UPDATE} no ponto de custódia. Consultar um provedor externo lá dentro
+   * seguraria esse lock durante uma chamada de rede — e sob rajada de webhooks no mesmo ponto, as
+   * transações enfileirariam atrás de um lock preso por I/O externo. É o mesmo desenho que derrubou
+   * o check-in da F6 e levou o projeto a proibir {@code REQUIRES_NEW} no caminho de valor.
+   *
+   * <p>Fora da transação, o pior caso de um provedor lento é a latência do webhook — limitada pelo
+   * {@code app.integracoes.timeout} de 2 s e pelo bulkhead — e nenhum lock fica esperando.
+   *
+   * <p>Provedor fora do ar não interrompe nada: {@code ConsultaClima} devolve vazio, as duas
+   * características climáticas são imputadas, e a resposta registra isso. Recusar a entrega falida
+   * porque o Open-Meteo caiu faria a transportadora reenviar em laço enquanto a encomenda continua
+   * no ponto de custódia sem missão.
+   */
+  private ResultadoRisco avaliarRisco(EntregaFalidaWebhookRequest request) {
+    Optional<ConsultaClima.CondicaoClimatica> clima =
+        request.destinoLat() == null
+            ? Optional.empty()
+            : consultaClima.consultarParaRisco(request.destinoLat(), request.destinoLon());
+
+    ZonedDateTime agora = ZonedDateTime.now(ZoneId.of("America/Sao_Paulo"));
+
+    return previsaoRiscoService.prever(
+        new DadosParaPrevisao(
+            // A janela informada pela transportadora é o dado certo — é o horário em que a entrega
+            // foi tentada. Sem ela, o instante do webhook é a melhor aproximação disponível: o
+            // registro costuma chegar logo após a tentativa frustrada.
+            request.janelaHoraInicio() == null ? agora.getHour() : request.janelaHoraInicio(),
+            agora.getDayOfWeek(),
+            request.tipoEnderecoOuPadrao(),
+            request.cep(),
+            request.pesoKg().doubleValue(),
+            request.volumeL().doubleValue(),
+            clima.map(c -> c.chuvaMm().doubleValue()).orElse(null),
+            clima.map(c -> c.temperaturaC().doubleValue()).orElse(null),
+            request.tentativasAnterioresOuZero()));
   }
 }

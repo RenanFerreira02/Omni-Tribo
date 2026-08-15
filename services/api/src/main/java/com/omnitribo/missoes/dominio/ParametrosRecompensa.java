@@ -101,7 +101,30 @@ public record ParametrosRecompensa(
     BigDecimal pesoMediaAteKg,
 
     /** Fronteira MEDIA→PESADA: volume, em litros. */
-    BigDecimal volumeMediaAteL) {
+    BigDecimal volumeMediaAteL,
+
+    /**
+     * Piso do multiplicador de risco que a ECONOMIA aceita honrar.
+     *
+     * <p>1,00: risco nunca REDUZ recompensa. Um piso abaixo de 1 inverteria a tese do produto —
+     * entrega difícil pagaria menos.
+     */
+    BigDecimal multiplicadorRiscoMinimo,
+
+    /**
+     * Teto do multiplicador de risco que a ECONOMIA aceita honrar.
+     *
+     * <p><b>Existe além do teto de {@code app.logistica.risco}, e a duplicação é deliberada.</b>
+     * Lá, o teto define como o modelo MAPEIA probabilidade em multiplicador; aqui, define quanto a
+     * economia está disposta a CUNHAR. São decisões de donos diferentes: um cientista de dados
+     * recalibrando o modelo não deveria conseguir ampliar a emissão de token sozinho, e esta é a
+     * barreira que garante isso.
+     *
+     * <p>Os dois valores precisam concordar hoje, e {@code CoerenciaTetoRiscoTest} falha se
+     * divergirem — um teto de economia menor que o do modelo faria a calibração do modelo mentir
+     * sobre o que efetivamente se paga.
+     */
+    BigDecimal multiplicadorRiscoMaximo) {
 
   /**
    * Cópia defensiva dos mapas.

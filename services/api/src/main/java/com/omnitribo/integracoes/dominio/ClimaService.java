@@ -3,9 +3,13 @@ package com.omnitribo.integracoes.dominio;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.omnitribo.integracoes.api.ClimaResponse;
+import com.omnitribo.integracoes.api.ConsultaClima;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
+import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -25,7 +29,9 @@ import org.springframework.stereotype.Service;
  * CacheMissoesProximas} — e porque um cache observável num teste vale mais que a indireção.
  */
 @Service
-public class ClimaService {
+public class ClimaService implements ConsultaClima {
+
+  private static final Logger log = LoggerFactory.getLogger(ClimaService.class);
 
   private static final int MAXIMO_ENTRADAS = 5_000;
   private static final int CASAS_DA_CHAVE = 2;
@@ -46,5 +52,31 @@ public class ClimaService {
     // queremos — cachear indisponibilidade prolongaria uma interrupção de segundos pelo TTL
     // inteiro.
     return cache.get(latChave + "," + lonChave, chave -> fonte.consultar(latChave, lonChave));
+  }
+
+  /**
+   * Mesma consulta, mas indisponibilidade vira VALOR em vez de exceção.
+   *
+   * <p>Serve o modelo de risco, cujo consumidor principal é o webhook de transportadora. Ali,
+   * deixar a exceção subir transformaria em 5xx o registro de uma entrega falida — e a
+   * transportadora reenviaria em laço enquanto a encomenda continua no ponto de custódia sem
+   * missão. O clima é uma das oito características do modelo; perdê-la degrada o score (a
+   * característica é imputada), e degradar o score é infinitamente melhor que recusar o fato.
+   *
+   * <p>Reaproveita o MESMO cache da consulta normal: uma rajada de webhooks na mesma região consome
+   * uma única chamada externa.
+   */
+  @Override
+  public Optional<CondicaoClimatica> consultarParaRisco(BigDecimal lat, BigDecimal lon) {
+    try {
+      ClimaResponse clima = consultar(lat, lon);
+      return Optional.of(new CondicaoClimatica(clima.chuvaMm(), clima.temperaturaC()));
+    } catch (RuntimeException e) {
+      // Captura larga de propósito: provedor fora do ar, tempo esgotado e recusa do bulkhead têm
+      // tipos diferentes e a MESMA reação correta aqui. Log em debug porque, ao contrário do card
+      // de clima, esta falha é esperada e já tem tratamento — não é sintoma de nada.
+      log.debug("Clima indisponível para o modelo de risco, será imputado: {}", e.toString());
+      return Optional.empty();
+    }
   }
 }

@@ -331,4 +331,92 @@ describe('detalhe da missão', () => {
     expect(await screen.findByTestId('acao-aceitar')).not.toBeDisabled();
     expect(screen.queryByTestId('bloqueio-aceitar')).toBeNull();
   });
+
+  // ─── Aviso de risco de falha na entrega ───────────────────────────────────────────────────
+
+  it('risco ALTO: exibe o aviso com a orientação do servidor', async () => {
+    comMissao({
+      status: 'ABERTA',
+      criadorId: OUTRO,
+      executorId: null,
+      faixaRisco: 'ALTO',
+      multiplicadorRisco: 1.42,
+      avisoRisco:
+        'Entregas neste endereço costumam falhar. Combine o horário com o destinatário antes de ir.',
+    });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('aviso-risco')).toBeTruthy();
+    // O texto vem PRONTO do servidor. Se o app compusesse a frase, cada versão instalada teria a
+    // sua e mudar a orientação exigiria publicar na loja.
+    expect(screen.getByText(/Combine o horário com o destinatário/)).toBeTruthy();
+  });
+
+  it('risco ALTO: o aviso NÃO revela logradouro nem CEP', async () => {
+    comMissao({
+      status: 'ABERTA',
+      criadorId: OUTRO,
+      logradouro: null,
+      cep: null,
+      faixaRisco: 'ALTO',
+      multiplicadorRisco: 1.42,
+      avisoRisco:
+        'Entregas neste endereço costumam falhar. Combine o horário com o destinatário antes de ir.',
+    });
+    await render(<DetalheMissao />);
+    await screen.findByTestId('aviso-risco');
+
+    // A resposta da missão recorta endereço a bairro para quem não participa. Um aviso citando a
+    // rua devolveria pela porta de trás exatamente o que aquele recorte protege — e este teste é o
+    // que impede alguém de "melhorar" o texto do servidor incluindo o endereço.
+    expect(screen.queryByText(/Rua dos Pinheiros, 500/)).toBeNull();
+    expect(screen.getByTestId('endereco-oculto')).toBeTruthy();
+  });
+
+  it('risco BAIXO: nenhum aviso — alerta que aparece sempre deixa de ser lido', async () => {
+    comMissao({
+      status: 'ABERTA',
+      criadorId: OUTRO,
+      faixaRisco: 'BAIXO',
+      multiplicadorRisco: 1.02,
+      avisoRisco: null,
+    });
+    await render(<DetalheMissao />);
+    await screen.findByTestId('chip-status');
+
+    expect(screen.queryByTestId('aviso-risco')).toBeNull();
+  });
+
+  it('missão sem avaliação de risco: nada de aviso e nada de multiplicador', async () => {
+    // O caso da MAIORIA das missões: só o webhook de entrega falida avalia risco. Ausência tem de
+    // ser tratada como "sem avaliação", nunca como risco baixo.
+    comMissao({ status: 'ABERTA', criadorId: OUTRO });
+    await render(<DetalheMissao />);
+    await screen.findByTestId('chip-status');
+
+    expect(screen.queryByTestId('aviso-risco')).toBeNull();
+    expect(screen.queryByTestId('multiplicador-risco')).toBeNull();
+  });
+
+  it('multiplicador acima de 1 é exibido junto da recompensa, explicando por que paga mais', async () => {
+    comMissao({
+      status: 'ABERTA',
+      criadorId: OUTRO,
+      faixaRisco: 'ALTO',
+      multiplicadorRisco: 1.42,
+      avisoRisco: 'Entregas neste endereço costumam falhar.',
+    });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('multiplicador-risco')).toHaveTextContent(/1\.42×/);
+  });
+
+  it('multiplicador neutro não vira ruído na tela', async () => {
+    comMissao({ status: 'ABERTA', criadorId: OUTRO, multiplicadorRisco: 1.0, faixaRisco: 'BAIXO' });
+    await render(<DetalheMissao />);
+    await screen.findByTestId('chip-status');
+
+    // Exibir "1.00× por risco" em toda missão comum seria informação sem conteúdo.
+    expect(screen.queryByTestId('multiplicador-risco')).toBeNull();
+  });
 });

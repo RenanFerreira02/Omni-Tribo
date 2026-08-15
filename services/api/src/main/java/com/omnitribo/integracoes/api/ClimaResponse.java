@@ -17,4 +17,6 @@ public record ClimaResponse(
     BigDecimal sensacaoC,
     @Schema(description = "Código WMO da condição, para escolha de ícone") int codigo,
     String descricao,
+    @Schema(description = "Precipitação na hora corrente, em milímetros", example = "3.4")
+        BigDecimal chuvaMm,
     @Schema(description = "Instante da medição informado pelo provedor") Instant medidoEm) {}
