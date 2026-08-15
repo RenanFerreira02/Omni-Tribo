@@ -25,7 +25,12 @@ class CacheIntegracoesTest {
 
   private static final ClimaResponse CLIMA =
       new ClimaResponse(
-          new BigDecimal("21.3"), new BigDecimal("20.1"), 0, "Céu limpo", Instant.EPOCH);
+          new BigDecimal("21.3"),
+          new BigDecimal("20.1"),
+          0,
+          "Céu limpo",
+          BigDecimal.ZERO,
+          Instant.EPOCH);
 
   private static final EnderecoResponse ENDERECO =
       new EnderecoResponse("01001000", "Praça da Sé", "Sé", "São Paulo", "SP");

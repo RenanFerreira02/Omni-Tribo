@@ -64,6 +64,11 @@ export function missao(sobrescrever: Partial<MissaoResponse> = {}): MissaoRespon
     complexidade: 'MEDIA',
     versaoFormula: 1,
     nivelMinimo: 1,
+    // Sem avaliação de risco — o padrão da fixture, porque é o padrão das missões: só o webhook de
+    // entrega falida avalia. Os testes de aviso sobrescrevem estes três explicitamente.
+    multiplicadorRisco: null,
+    faixaRisco: null,
+    avisoRisco: null,
     versao: 0,
     ...sobrescrever,
   };
@@ -260,6 +265,7 @@ export const PREVIA: PreviaRecompensaResponse = {
   tokensRecompensa: 23,
   complexidade: 'MEDIA',
   versaoFormula: 1,
+  multiplicadorRisco: 1.0,
 };
 
 /** Corpo RFC 9457 como o backend o emite, incluindo `traceId`. */

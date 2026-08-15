@@ -27,6 +27,17 @@ public interface ConversaoEntregaFalida {
    * <p>{@code valorOfertadoBrl} é INSUMO do cálculo em TOKEN e nada mais. Ele nunca chega a {@code
    * missao.valor_brl}, que {@code ck_missao_economia} trava em zero — quem cria a missão não paga,
    * e o executor recebe XP e token. Ver ADR 0009.
+   *
+   * <p>{@code multiplicadorRisco} e {@code faixaRisco} chegam CALCULADOS de {@code logistica}, e
+   * como tipos JDK: a regra do ArchUnit é direcional, e esta porta não pode expor {@code
+   * ResultadoRisco} nem {@code FaixaRisco} sem forçar {@code missoes} a importar {@code
+   * logistica.dominio}. É a mesma razão pela qual {@code ConsultasGeoespaciais} recebe status como
+   * String — ver ADR 0018.
+   *
+   * @param multiplicadorRisco multiplica a recompensa em TOKEN e é CONGELADO na missão junto com
+   *     {@code versao_formula}. Nulo é tratado como 1,00 (neutro).
+   * @param faixaRisco {@code BAIXO}, {@code MEDIO} ou {@code ALTO} — o {@code name()} do enum,
+   *     nunca texto livre. Alimenta o aviso exibido no detalhe da missão.
    */
   record Encomenda(
       UUID entregaFalidaId,
@@ -44,6 +55,8 @@ public interface ConversaoEntregaFalida {
       BigDecimal pesoKg,
       BigDecimal volumeL,
       BigDecimal valorOfertadoBrl,
+      BigDecimal multiplicadorRisco,
+      String faixaRisco,
       Instant agora) {}
 
   /** O que a logística precisa saber de volta para fechar o registro e notificar. */

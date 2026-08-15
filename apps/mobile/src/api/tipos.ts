@@ -21,6 +21,16 @@ export type StatusMissao =
 
 export type ComplexidadeMissao = 'LEVE' | 'MEDIA' | 'PESADA';
 
+/**
+ * Faixa de risco de falha da entrega, estimada pelo modelo do servidor.
+ *
+ * Três faixas e não a probabilidade crua: "62%" convida a uma precisão que o modelo não tem — ele
+ * foi treinado em dados sintéticos (ver docs/qualidade/modelo-previsao.md) e a incerteza da
+ * estimativa é da ordem de pontos percentuais. A faixa comunica a ordem de grandeza sem prometer
+ * exatidão que não existe.
+ */
+export type FaixaRisco = 'BAIXO' | 'MEDIO' | 'ALTO';
+
 export type PapelUsuario = 'USUARIO' | 'ADMIN';
 
 export type SinalLancamento = 'CREDITO' | 'DEBITO';
@@ -220,6 +230,31 @@ export interface MissaoResponse {
    */
   nivelMinimo: number;
 
+  /**
+   * Risco de falha avaliado na criação, CONGELADO junto com `versaoFormula`.
+   *
+   * `null` em toda missão que não veio do webhook de entrega falida — que é a MAIORIA. Trate
+   * ausência como "sem avaliação", nunca como risco baixo: são coisas diferentes, e mostrar
+   * "risco baixo" para uma missão que ninguém avaliou seria inventar uma garantia.
+   *
+   * `multiplicadorRisco` é o que EXPLICA a recompensa: sem ele, duas entregas de mesmo peso e
+   * distância pagariam valores diferentes sem justificativa visível.
+   */
+  multiplicadorRisco: number | null;
+  faixaRisco: FaixaRisco | null;
+
+  /**
+   * Texto pronto do aviso, montado no SERVIDOR, ou `null` quando não há o que avisar.
+   *
+   * Vem pronto de propósito: se o app compusesse a frase a partir da faixa, cada versão instalada
+   * teria a sua, e mudar a orientação exigiria publicar na loja. Só ALTO e MEDIO produzem texto —
+   * um aviso que aparece sempre deixa de ser lido.
+   *
+   * Nunca contém logradouro nem CEP. A resposta da missão recorta endereço a bairro para quem não
+   * participa, e um aviso citando a rua devolveria pela porta de trás o que aquele recorte protege.
+   */
+  avisoRisco: string | null;
+
   versao: number;
 }
 
@@ -259,6 +294,12 @@ export interface PreviaRecompensaResponse {
   tokensRecompensa: number;
   complexidade: ComplexidadeMissao;
   versaoFormula: number;
+  /**
+   * Sempre `1.00` nesta rota: a prévia serve missão criada por usuário, que não passa por avaliação
+   * de risco. Vem mesmo assim para deixar explícito no contrato que o fator existe na fórmula e que
+   * aqui ele não está agindo.
+   */
+  multiplicadorRisco: number;
 }
 
 /**

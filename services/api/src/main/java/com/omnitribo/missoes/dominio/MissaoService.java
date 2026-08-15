@@ -249,7 +249,11 @@ public class MissaoService implements ConversaoEntregaFalida {
                 encomenda.pesoKg(),
                 encomenda.volumeL(),
                 distanciaM,
-                encomenda.valorOfertadoBrl()),
+                encomenda.valorOfertadoBrl(),
+                // Único caminho do sistema que produz multiplicador diferente de 1: só a entrega
+                // falida passa por avaliação de risco. Missão criada por usuário usa o construtor
+                // curto de Insumos e recebe o neutro.
+                encomenda.multiplicadorRisco()),
             parametrosRecompensa);
 
     Instant fimDaJanela = encomenda.agora().plus(parametrosEntregaFalida.prazoRetirada());
@@ -285,6 +289,7 @@ public class MissaoService implements ConversaoEntregaFalida {
             encomenda.agora());
 
     missao.exigirNivelMinimo(parametrosEntregaFalida.nivelMinimo());
+    missao.registrarFaixaRisco(encomenda.faixaRisco());
     missaoRepository.save(missao);
 
     AtorMissao sistema = new AtorMissao(UsuarioSistema.ID, AtorMissao.PapelAtor.SISTEMA);

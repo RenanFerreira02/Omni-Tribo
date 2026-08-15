@@ -16,6 +16,7 @@
 | F11  | App mobile — carteira e perfil        | ✅ Concluído | [fundação](auditoria/mobile-fundacao.md) | 2026-08-08 |
 | F12  | App mobile completo (7 telas) + leituras que faltavam | ✅ Concluído | [completo](auditoria/mobile-completo.md) | 2026-08-09 |
 | F12b | Testes de carga e endurecimento       | ⬜ Pendente  | —         | —          |
+| F12c | Previsão de risco de falha de entrega | ✅ Concluído | [modelo](qualidade/modelo-previsao.md) | 2026-08-15 |
 | F13  | Entrega final                         | ⬜ Pendente  | —         | —          |
 
 > **A numeração acima é a dos COMMITS e das auditorias, e foi corrigida em 2026-08-08.** A tabela
@@ -45,6 +46,45 @@ contra o sistema em execução. Quatro defeitos; dois corrigidos no mesmo dia, d
 Pendências do CLAUDE.md.
 
 ## Notas de manutenção
+
+- **2026-08-15** — **Modelo de previsão de risco de falha de entrega (F12c).** Quatro coisas que só
+  apareceram ao construir, e que valem mais registradas do que o resumo da feature.
+
+  - **`Math.exp` teria tornado o modelo irreprodutível entre máquinas.** A especificação de
+    `java.lang.Math` garante erro ≤ 1 ulp e permite intrínsecos diferentes por arquitetura de CPU e
+    versão de JVM. O treino faz ~6 milhões de chamadas a `exp` acumuladas em somas, então 1 ulp na
+    primeira época se amplifica pelas 2.000 seguintes. O sintoma seria o pior possível: o teste que
+    confere os coeficientes publicados passaria na máquina de quem treinou e falharia no CI, sem
+    nada ter mudado. `StrictMath` é especificado bit a bit (fdlibm) e resolve por construção. Vale
+    para qualquer cálculo futuro cujo resultado seja comparado entre execuções.
+
+  - **`Map.of`/`Map.copyOf` randomizam a ordem de iteração A CADA EXECUÇÃO DA JVM.** Não é "ordem não
+    garantida" no sentido teórico: `ImmutableCollections` sorteia um `SALT` na inicialização da
+    classe, a partir do relógio, e duas execuções do mesmo comando na mesma máquina iteram em ordens
+    diferentes. Se o cálculo do log-odds iterasse o mapa de coeficientes, a soma em ponto flutuante
+    mudaria no último bit entre execuções — e um caso na fronteira exata do limiar trocaria de
+    classe, produzindo um teste que falha 1 vez em 50 no CI. A regra adotada: o vetor é montado pela
+    ordem de `CaracteristicaRisco.values()`, mapas de configuração são lidos por chave e nunca
+    iterados, e toda ordenação carrega desempate explícito por `ordinal()`.
+
+  - **O codificador precisou ficar em `src/main` embora só o treino o exercite por completo.** O
+    treinador vive em `src/test`; se ele tivesse a própria cópia da codificação, o dia em que alguém
+    trocasse a ordem de duas dummies faria o modelo somar o coeficiente de "condomínio" sobre o valor
+    de "rural" — os números continuariam plausíveis, o build continuaria verde, e as previsões
+    estariam erradas. Com um único `CodificadorEntrega` compartilhado isso é impossível, e
+    `ModeloRiscoTreinoTest` ainda compara a inferência de runtime com a do treinador em toda a
+    partição de teste, que é a garantia que igualdade de coeficiente não daria.
+
+  - **O limiar de decisão exigiu uma TERCEIRA partição.** A especificação pedia treino/teste e
+    otimização de recall. Mas o limiar é um parâmetro ajustado a partir dos dados, igual a qualquer
+    coeficiente: varrer 99 candidatos no conjunto de teste e depois reportar o recall desse mesmo
+    conjunto é seleção sobre o conjunto de avaliação, e o número publicado sairia otimista. A
+    correção custou uma linha (60/20/20 em vez de 80/20) e é o tipo de detalhe que uma banca cobra.
+
+  Efeito colateral registrado: `app.missoes.recompensa.versao` subiu para **3**, porque a fórmula
+  passou a aceitar multiplicador de risco. `CalculadoraDeRecompensaTest.semRiscoAV3ReproduzAV2`
+  prova que missão criada por usuário continua valendo exatamente o que valia — sem isso, subir a
+  versão teria reprecificado o app inteiro em silêncio.
 
 - **2026-08-14** — **Módulo "Fim da Entrega Falida" (F8).** Três coisas que só apareceram porque a
   suíte foi escrita antes de declarar pronto, e que valem mais registradas do que o resumo da

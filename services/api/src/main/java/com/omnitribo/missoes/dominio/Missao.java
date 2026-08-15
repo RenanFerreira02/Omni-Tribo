@@ -76,6 +76,17 @@ public class Missao {
   @Column(name = "multiplicador_risco", precision = 4, scale = 2)
   private BigDecimal multiplicadorRisco;
 
+  /**
+   * Faixa de risco congelada na criação. Nula em toda missão que não veio de entrega falida.
+   *
+   * <p>{@code String} e não enum, deliberadamente: o enum {@code FaixaRisco} vive em {@code
+   * logistica.dominio}, e a regra do ArchUnit proíbe {@code missoes} de importá-lo. É a mesma razão
+   * pela qual a porta {@code ConversaoEntregaFalida} recebe a faixa como {@code String} — sempre o
+   * {@code name()} de um enum já validado do outro lado, nunca texto livre.
+   */
+  @Column(name = "faixa_risco", length = 5)
+  private String faixaRisco;
+
   @Column(nullable = false, columnDefinition = "geography(POINT,4326)")
   private Point origem;
 
@@ -210,6 +221,10 @@ public class Missao {
     this.tokensRecompensa = recompensa.tokens();
     this.complexidade = recompensa.complexidade();
     this.versaoFormula = recompensa.versaoFormula();
+    // Congelado junto com versao_formula, e pela mesma razão: sem ele, um crédito antigo deixa de
+    // ser explicável assim que o modelo de risco for re-treinado. A coluna existe desde a V16,
+    // reservada exatamente para este momento.
+    this.multiplicadorRisco = recompensa.multiplicadorRisco();
     this.valorBrl = valorBrl;
     this.origem = origem;
     this.destino = destino;
@@ -342,6 +357,22 @@ public class Missao {
 
   public BigDecimal getMultiplicadorRisco() {
     return multiplicadorRisco;
+  }
+
+  public String getFaixaRisco() {
+    return faixaRisco;
+  }
+
+  /**
+   * Registra a faixa de risco avaliada na criação.
+   *
+   * <p>Separado do construtor porque a faixa não faz parte de {@code CalculadoraDeRecompensa
+   * .Recompensa}: a calculadora conhece o multiplicador (que é insumo da fórmula) e não a faixa
+   * (que é rótulo de apresentação). Chamado uma única vez, na conversão de entrega falida, antes de
+   * publicar.
+   */
+  public void registrarFaixaRisco(String faixa) {
+    this.faixaRisco = faixa;
   }
 
   @SuppressFBWarnings(

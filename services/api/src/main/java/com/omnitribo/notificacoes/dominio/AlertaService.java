@@ -30,8 +30,9 @@ public class AlertaService {
 
     Page<Alerta> resultado =
         filtro.apenasNaoLidos()
-            ? alertaRepository.findByUsuarioIdAndLidoFalseOrderByCriadoEmDesc(usuarioId, pagina)
-            : alertaRepository.findByUsuarioIdOrderByCriadoEmDesc(usuarioId, pagina);
+            ? alertaRepository.findByUsuarioIdAndLidoFalseOrderByPrioridadeDescCriadoEmDesc(
+                usuarioId, pagina)
+            : alertaRepository.findByUsuarioIdOrderByPrioridadeDescCriadoEmDesc(usuarioId, pagina);
 
     return PaginaResponse.de(resultado.map(AlertaService::responseDe));
   }

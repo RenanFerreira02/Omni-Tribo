@@ -3,6 +3,8 @@ package com.omnitribo.logistica.dominio;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
@@ -100,6 +102,42 @@ public class EntregaFalida {
   @Column(name = "destino_uf", length = 2)
   private String destinoUf;
 
+  // ─────────────────────── Características que a transportadora informa ───────────────────────
+  //
+  // Opcionais no webhook: transportadora já integrada continua enviando o corpo antigo. O que
+  // faltar é imputado no cálculo do risco — hora e dia da semana caem para o derivado de
+  // recebido_em, clima para a média do treino.
+
+  @Column(name = "janela_hora_inicio")
+  private Short janelaHoraInicio;
+
+  @Column(name = "tipo_endereco", length = 12)
+  @Enumerated(EnumType.STRING)
+  private TipoEndereco tipoEndereco;
+
+  @Column(name = "tentativas_anteriores")
+  private Short tentativasAnteriores;
+
+  // ─────────────────────────────── O que o modelo previu ───────────────────────────────
+  //
+  // Gravado para que a validação futura contra dados reais — o próximo passo declarado no ADR 0022
+  // —
+  // tenha contra o que comparar. Sem isto, cada score seria calculado, usado para creditar token, e
+  // descartado.
+
+  @Column(name = "risco_probabilidade", precision = 5, scale = 4)
+  private BigDecimal riscoProbabilidade;
+
+  @Column(name = "risco_faixa", length = 5)
+  @Enumerated(EnumType.STRING)
+  private FaixaRisco riscoFaixa;
+
+  @Column(name = "risco_multiplicador", precision = 4, scale = 2)
+  private BigDecimal riscoMultiplicador;
+
+  @Column(name = "risco_versao_modelo")
+  private Integer riscoVersaoModelo;
+
   protected EntregaFalida() {}
 
   public EntregaFalida(UUID id, DadosEntregaFalida dados, Instant recebidoEm) {
@@ -121,6 +159,53 @@ public class EntregaFalida {
     this.destinoBairro = dados.bairro();
     this.destinoCidade = dados.cidade();
     this.destinoUf = dados.uf();
+    this.janelaHoraInicio = dados.janelaHoraInicio();
+    this.tipoEndereco = dados.tipoEndereco();
+    this.tentativasAnteriores = dados.tentativasAnteriores();
+  }
+
+  /**
+   * Congela o que o modelo previu para esta entrega.
+   *
+   * <p>Chamado UMA vez, na conversão, antes de a missão nascer — o mesmo multiplicador gravado aqui
+   * é o que vai para {@code missao.multiplicador_risco}. Guardar nos dois lugares não é duplicação
+   * ociosa: a missão precisa dele para explicar o crédito, e a entrega precisa dele junto das
+   * características que o produziram, que é o que permitirá auditar o modelo depois.
+   */
+  public void congelarRisco(
+      BigDecimal probabilidade, FaixaRisco faixa, BigDecimal multiplicador, int versaoModelo) {
+    this.riscoProbabilidade = probabilidade;
+    this.riscoFaixa = faixa;
+    this.riscoMultiplicador = multiplicador;
+    this.riscoVersaoModelo = versaoModelo;
+  }
+
+  public Short getJanelaHoraInicio() {
+    return janelaHoraInicio;
+  }
+
+  public TipoEndereco getTipoEndereco() {
+    return tipoEndereco;
+  }
+
+  public Short getTentativasAnteriores() {
+    return tentativasAnteriores;
+  }
+
+  public BigDecimal getRiscoProbabilidade() {
+    return riscoProbabilidade;
+  }
+
+  public FaixaRisco getRiscoFaixa() {
+    return riscoFaixa;
+  }
+
+  public BigDecimal getRiscoMultiplicador() {
+    return riscoMultiplicador;
+  }
+
+  public Integer getRiscoVersaoModelo() {
+    return riscoVersaoModelo;
   }
 
   /** Vincula a missão criada. Chamado só na conversão, sob o lock do ponto. */

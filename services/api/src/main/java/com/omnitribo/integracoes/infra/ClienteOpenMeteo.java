@@ -53,7 +53,9 @@ public class ClienteOpenMeteo implements FonteClima {
                                   .queryParam("latitude", lat)
                                   .queryParam("longitude", lon)
                                   .queryParam(
-                                      "current", "temperature_2m,apparent_temperature,weather_code")
+                                      "current",
+                                      "temperature_2m,apparent_temperature,weather_code,"
+                                          + "precipitation")
                                   .queryParam("timezone", "UTC")
                                   .build())
                       .retrieve()
@@ -81,6 +83,10 @@ public class ClienteOpenMeteo implements FonteClima {
         atual.apparentTemperature(),
         codigo,
         CodigosWmo.descricao(codigo),
+        // Ausente vira ZERO e não null: "o provedor não informou precipitação" e "não está
+        // chovendo" produzem a mesma leitura no card, e o modelo de risco precisa de um número. A
+        // distinção que importa — provedor mudo por completo — já é tratada acima, com exceção.
+        atual.precipitation() == null ? BigDecimal.ZERO : atual.precipitation(),
         instanteDe(atual.time()));
   }
 
@@ -122,5 +128,6 @@ public class ClienteOpenMeteo implements FonteClima {
       @JsonProperty("time") String time,
       @JsonProperty("temperature_2m") BigDecimal temperature2m,
       @JsonProperty("apparent_temperature") BigDecimal apparentTemperature,
-      @JsonProperty("weather_code") Integer weatherCode) {}
+      @JsonProperty("weather_code") Integer weatherCode,
+      @JsonProperty("precipitation") BigDecimal precipitation) {}
 }

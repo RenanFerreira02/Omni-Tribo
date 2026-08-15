@@ -103,15 +103,25 @@ class RecompensaCalculadaTest extends TesteIntegracaoMvcBase {
 
     var linha =
         jdbcTemplate.queryForMap(
-            "SELECT complexidade, versao_formula, multiplicador_risco FROM missao WHERE id = ?",
+            "SELECT complexidade, versao_formula, multiplicador_risco, faixa_risco"
+                + " FROM missao WHERE id = ?",
             id);
 
     assertThat(linha.get("complexidade")).isEqualTo("PESADA");
     // Sem a versão, mudar um parâmetro amanhã reinterpretaria esta missão retroativamente.
     assertThat(linha.get("versao_formula")).isNotNull();
-    // Reservado para a F11: entrou na V16 para o congelamento nascer completo, e ninguém escreve
-    // nele hoje. Se deixar de ser nulo sem que a F11 tenha chegado, alguém o preencheu por engano.
-    assertThat(linha.get("multiplicador_risco")).isNull();
+
+    // NEUTRO, e não nulo: desde a v3 a coluna é sempre escrita, e missão criada por usuário recebe
+    // 1,00 porque não passa por avaliação de risco. Gravar o neutro em vez de deixar nulo é o que
+    // torna a coluna legível sem ambiguidade — nulo teria dois significados ("não avaliada" e
+    // "avaliada como neutra") e nenhum jeito de distingui-los.
+    assertThat((java.math.BigDecimal) linha.get("multiplicador_risco"))
+        .isEqualByComparingTo("1.00");
+
+    // A FAIXA continua nula aqui, e a assimetria é a informação: só o webhook de entrega falida
+    // avalia risco. Faixa preenchida numa missão criada por usuário significaria que alguém ligou o
+    // modelo num caminho que não tem as características para alimentá-lo.
+    assertThat(linha.get("faixa_risco")).isNull();
   }
 
   @Test

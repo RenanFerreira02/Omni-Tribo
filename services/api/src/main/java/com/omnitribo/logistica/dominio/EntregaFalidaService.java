@@ -105,9 +105,15 @@ public class EntregaFalidaService {
    * AuditoriaAspecto.extrairAtorId} devolve nulo fora de contexto de segurança. Quem agiu está no
    * payload do evento e no campo {@code transportadora} da própria linha.
    */
+  /**
+   * @param risco já calculado pelo chamador, <b>fora desta transação</b>. Recebê-lo pronto não é
+   *     detalhe de estilo: calcular aqui exigiria consultar o provedor de clima com o {@code FOR
+   *     UPDATE} do ponto de custódia já adquirido logo abaixo, prendendo o lock durante uma chamada
+   *     de rede. Ver {@code WebhookTransportadoraController.avaliarRisco}.
+   */
   @Auditavel(acao = "ENTREGA_FALIDA_REGISTRADA", entidade = "entrega_falida")
   @Transactional
-  public ResultadoRegistro registrar(DadosEntregaFalida dados) {
+  public ResultadoRegistro registrar(DadosEntregaFalida dados, ResultadoRisco risco) {
     Instant agora = Instant.now();
 
     // 1. LOCK. Primeira leitura da transação, obrigatoriamente: se o ponto já estivesse no
@@ -175,6 +181,16 @@ public class EntregaFalidaService {
     // na conclusão não achava nada para dar baixa. Nada falha em tempo de compilação.
     EntregaFalida gerenciada = entregaFalidaRepository.save(entrega);
 
+    // Congela na entrega ANTES de abrir a missão: as características que produziram o score estão
+    // nesta linha, e é a partir dela que a validação futura contra dados reais vai medir se o
+    // modelo
+    // acertou. O mesmo multiplicador vai adiante e é congelado também na missão.
+    gerenciada.congelarRisco(
+        risco.probabilidadeFalha(),
+        risco.faixaRisco(),
+        risco.multiplicadorRecompensa(),
+        risco.versaoModelo());
+
     ConversaoEntregaFalida.MissaoDeRetirada missao =
         conversaoEntregaFalida.abrirMissaoDeRetirada(
             new ConversaoEntregaFalida.Encomenda(
@@ -193,6 +209,10 @@ public class EntregaFalidaService {
                 dados.pesoKg(),
                 dados.volumeL(),
                 dados.valorOfertadoBrl(),
+                // Só tipos JDK atravessam a porta: `missoes` não pode importar `logistica.dominio`,
+                // então a faixa viaja como String e o multiplicador como BigDecimal.
+                risco.multiplicadorRecompensa(),
+                risco.faixaRisco().name(),
                 agora));
 
     gerenciada.vincularMissao(missao.missaoId());
@@ -208,6 +228,9 @@ public class EntregaFalidaService {
     payload.put("lon", Coordenadas.longitude(ponto.getPonto()));
     payload.put("nivelMinimo", missao.nivelMinimo());
     payload.put("tokensRecompensa", missao.tokensRecompensa());
+    // A faixa viaja no evento para o fan-out poder priorizar. Sem ela, o despachante teria de
+    // consultar `logistica` — que é justamente a dependência que a outbox existe para evitar.
+    payload.put("faixaRisco", risco.faixaRisco().name());
     publicadorEventos.publicar(EVENTO_CONVERTIDA, entrega.getId(), payload);
 
     return new ResultadoRegistro(gerenciada.getId(), Desfecho.CONVERTIDA, missao.missaoId(), false);

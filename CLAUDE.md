@@ -45,6 +45,9 @@ Módulo só fala com módulo por porta em `api/`. As de hoje:
 - `logistica/api/` — `BaixaCustodia` (a contraparte: a conclusão da missão libera a vaga). São DUAS
   classes de serviço em `logistica/dominio` de propósito — juntas fechariam o ciclo de beans
   `MissaoService → EntregaFalidaService → MissaoService`
+- `integracoes/api/` — `ConsultaClima` (o webhook alimenta o modelo de risco; devolve `Optional` e
+  NUNCA lança, porque provedor externo fora do ar não pode transformar em 5xx o registro de uma
+  entrega falida — a transportadora reenviaria em laço. Ver ADR 0022)
 - `identidade/api/` — `ProgressaoUsuario` (concede XP, deriva nível e filtra por nível em lote),
   `ConsultaAfiliacao`, `ConsultaConsentimento` (quem pode ser notificado — consulta em MASSA, porque
   `ConsentimentoService.listar` resolve o estado atual em Java e não escala para o fan-out),
@@ -70,8 +73,9 @@ F6 e derrubava até o login (ver Notas de manutenção de 2026-08-07).
 
 O schema de TODOS já existe desde V4–V7: o banco está à frente do código. Encontrar tabela sem
 código correspondente é o estado esperado, não resíduo. Mesma coisa fora de `services/api/`:
-`tools/carrier-mock/` (logística), `tools/seed/` (`make seed`) e `tools/dataset/` são diretórios
-reservados, hoje vazios.
+`tools/seed/` (`make seed`) é diretório reservado, hoje vazio. `tools/carrier-mock/` tem
+`enviar.sh`, que exercita o webhook contra o servidor de pé, e `tools/dataset/` tem `gerar.sh` mais
+os artefatos do modelo de risco (CSV, coeficientes, relatório de métricas).
 
 `RegrasArquiteturaTest` aplica a regra aos 7 módulos de negócio; `compartilhado` fica fora do array
 `MODULOS` porque é shared por design. Mas **`compartilhado/infra` tem regra própria** e é fechado a
@@ -98,8 +102,15 @@ ela ter sido violada em silêncio pelo ADR 0004. A recompensa é XP + TOKEN, **c
 e congelada na criação** — o DTO de criação NÃO tem `xpRecompensa` nem `tokensRecompensa`.
 
 `CalculadoraDeRecompensa` (`missoes/dominio`) é função pura: recebe categoria, complexidade,
-distância, peso e volume, e devolve XP + tokens + complexidade efetiva + `versaoFormula`. Calibração
-em `app.missoes.recompensa.*` — a FÓRMULA é código, os NÚMEROS são configuração.
+distância, peso, volume e **multiplicador de risco**, e devolve XP + tokens + complexidade efetiva +
+`versaoFormula` + multiplicador aplicado. Calibração em `app.missoes.recompensa.*` — a FÓRMULA é
+código, os NÚMEROS são configuração.
+
+**O multiplicador de risco entra na BASE, junto da complexidade — nunca sobre o total.** Multiplicar
+o total escalaria também distância, peso e volume, e a recompensa explodiria de forma não linear no
+caso extremo. Vem de `PrevisorDeRisco` (`logistica/dominio`), é limitado a **[1,00; 1,50]** e é
+CONGELADO em `missao.multiplicador_risco` junto com `versao_formula`. Missão criada por usuário
+recebe 1,00 — só o webhook de entrega falida avalia risco. Ver ADR 0022.
 
 **Mudou parâmetro no YAML? Suba `versao` junto.** `CalculadoraDeRecompensaTest.douradoV1` falha de
 propósito para forçar a decisão: sem isso, missões antigas passam a ser explicadas por uma calibração
@@ -240,6 +251,12 @@ essa checagem por uma consulta com joins em toda abertura do app.
 
 `/api/v1/pontos-custodia` — `GET /{id}` · `GET ?lat&lon&raioMetros` (ativos, por distância).
 
+`POST /api/v1/logistica/previsao-falha` — probabilidade de uma entrega falhar, faixa de risco e
+`fatoresPrincipais` (os termos que mais pesaram). Regressão logística interpretável, coeficientes em
+`app.logistica.risco`. É POST sem escrita: o contexto tem nove campos e espremê-los em query string
+poria CEP e peso do destinatário no log de acesso de todo proxy. **Coeficientes treinados em dados
+SINTÉTICOS** — ver ADR 0022 e `docs/qualidade/modelo-previsao.md`.
+
 `/api/v1/clima?lat&lon` e `/api/v1/enderecos/{cep}` — provedores EXTERNOS (Open-Meteo, ViaCEP)
 atrás da nossa fronteira. Falha do provedor responde **503** com
 `type` `servico-externo-indisponivel`, e a reação de UI é ESCONDER o recurso. Ver ADR 0011.
@@ -302,11 +319,17 @@ CI (`.github/workflows/`), três workflows:
   0018 fronteira de `compartilhado` · 0019 borda HTTP e cabeçalho não confiável ·
   **0020 ponto de custódia comercial e proximidade por tribo** (por que divergimos dos 50 m do
   brief, e por que "perto" é distância MÍNIMA e não ao centroide) · **0021 verificação de webhook**
-  (corpo bruto, carimbo dentro do material assinado, 401 indistinguível, segredo em config).
-  Os seis últimos são da verificação de 2026-08-11 e cada um registra a alternativa descartada com o
+  (corpo bruto, carimbo dentro do material assinado, 401 indistinguível, segredo em config) ·
+  **0022 previsão de risco de entrega** (regressão logística em Java puro treinada no `verify`,
+  dataset sintético, limiar escolhido na validação e não no teste, teto do multiplicador).
+  0016–0021 são da verificação de 2026-08-11 e cada um registra a alternativa descartada com o
   motivo MEDIDO — vários deles são a resposta a "por que não fizemos o óbvio?".
 - `docs/qualidade/integridade-transacional.md` — evidência de concorrência da carteira (100 threads,
   deadlock, rollback) e a seção "O que esta fase NÃO garante". É o documento a defender oralmente.
+- `docs/qualidade/modelo-previsao.md` — métricas do modelo de risco, matriz de confusão, correlações
+  injetadas e a discussão falso positivo × falso negativo. **Abre declarando que os dados são
+  sintéticos** e fecha com o que a fase não garante. É o outro documento a defender oralmente, e a
+  resposta preparada para "sua acurácia é menor que a de um chute?" está nele.
 - `docs/seguranca/autenticacao.md` — modelo de ameaça e desenho do fluxo de auth.
 - `docs/seguranca/antifraude-geolocalizacao.md` — o que os controles de check-in **não** pegam.
 - `docs/evidencias/f6-explain-analyze.md` — saída real do `EXPLAIN ANALYZE` provando uso do índice
@@ -359,8 +382,8 @@ Banco
 - Flyway é a ÚNICA fonte de schema. ddl-auto é sempre validate. Nunca resolva divergência mudando
   ddl-auto — escreva migration.
 - **Versão de migration é sequência GLOBAL, não por diretório.** Duas faixas, separadas de propósito:
-  - `db/migration` — schema, **V1–V8 e V11–V21**; único location do perfil default/prod.
-    Próxima é **V22**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
+  - `db/migration` — schema, **V1–V8 e V11–V22**; único location do perfil default/prod.
+    Próxima é **V23**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
     antes da renomeação para `V900__seed_dev.sql`, então um banco de dev criado antes dela tem as
     versões 9 e 10 gravadas no `flyway_schema_history` com descrição de seed. Um `V9__*.sql` novo em
     `db/migration` passaria em clone novo e falharia em máquina antiga com erro de checksum ou
@@ -472,63 +495,46 @@ entrega é um relatório em `docs/auditoria/FN.md`, e só ele.
 
 ## Estado atual
 
-**Backend e app auditados.** Build verde, 0 falhas, SpotBugs limpo. As duas auditorias do mobile
-acharam **dois defeitos que uma revisão comum deixou passar** — a aba de missões gastando o prompt
-de permissão sem justificativa, e a conta anonimizada continuando a escrever por 15 minutos. O
-primeiro está corrigido; o segundo continua aberto (ver Pendências).
+**Backend fechado até F7 e auditado fase a fase, F8 implementada, mobile F9–F12 implementadas.**
+Build verde, 0 falhas, SpotBugs limpo. As duas auditorias do mobile acharam **dois defeitos que uma
+revisão comum deixou passar** — a aba de missões gastando o prompt de permissão sem justificativa, e
+a conta anonimizada continuando a escrever por 15 minutos. **Os dois estão corrigidos** (o segundo na
+verificação de 2026-08-11 — ver Pendências). Detalhe por fase em `docs/PROGRESSO.md`.
 
-**Backend fechado até F7, auditado fase a fase.** Os oito
-relatórios em `docs/auditoria/` são o registro do que foi verificado e do que ficou em aberto; a
-rodada corrigiu 7 defeitos, cinco deles invisíveis na leitura do código. O commit "F8 - Fundação
-Mobile" entregou, na verdade, F9–F11; `docs/PROGRESSO.md` tem a numeração correta, o histórico do git
-é que engana.
+**O histórico do git engana na numeração das fases**: o commit "F8 - Fundação Mobile" entregou, na
+verdade, F9–F11. `docs/PROGRESSO.md` tem a numeração correta — não infira fase do `git log`.
 
-**F8 — "Fim da Entrega Falida" implementado.** O webhook de transportadora existe, autenticado por
-HMAC sobre o corpo bruto (ADR 0021), e converte entrega falida em missão de retirada ABERTA no ponto
-de custódia (ADR 0020): valida vaga sob `FOR UPDATE`, incrementa ocupação, congela recompensa em
-XP+TOKEN, notifica por tribo com consentimento e teto por hora, e dá baixa na custódia quando a
-missão conclui. `tools/carrier-mock/enviar.sh` exercita o caminho feliz e os cinco negativos contra o
-servidor de pé. **De F8 falta só o patrocinador** — ver Pendência #1.
+**F8 — "Fim da Entrega Falida".** O webhook de transportadora, autenticado por HMAC sobre o corpo
+bruto (ADR 0021), converte entrega falida em missão de retirada ABERTA no ponto de custódia
+(ADR 0020): valida vaga sob `FOR UPDATE`, incrementa ocupação, congela recompensa em XP+TOKEN,
+notifica por tribo com consentimento e teto por hora, e dá baixa na custódia quando a missão conclui.
+`tools/carrier-mock/enviar.sh` exercita o caminho feliz e os cinco negativos contra o servidor de pé.
+**De F8 falta só o patrocinador** — ver Pendência #1.
 
-**Mobile: F9 a F12 implementadas** em `apps/mobile/` (Expo SDK 57) — F12 fechou as 7 telas e as
-leituras que faltavam ao backend. Design system em
-`src/theme` + `src/components`, cliente HTTP com rotação única de refresh, sessão com access token
-só em memória e refresh em `expo-secure-store`, rotas `(auth)`/`(tabs)` protegidas, lista de missões
-com radar geoespacial e paginação infinita, detalhe com o ciclo de vida e check-in, carteira com
-saldo em TOKEN e extrato. Suíte com Jest/RTL/MSW, mais um teste de integração contra o backend em
-execução (`npm run test:e2e`), fora do `npm test`.
+**Mobile: F9 a F12 implementadas** em `apps/mobile/` — 7 telas, design system, sessão com access
+token só em memória e refresh em `expo-secure-store`, rotas `(auth)`/`(tabs)` protegidas, radar
+geoespacial e carteira. O detalhe está em `apps/mobile/CLAUDE.md`, que carrega sozinho ao trabalhar
+lá. O catálogo de erro foi ampliado antes da primeira tela — ver **ADR 0010**.
 
-O catálogo de erro foi ampliado antes da primeira tela — ver **ADR 0010**. As quatro leituras que
-faltavam ao backend já existem: `GET /alertas`, `GET /tribos`, `GET /pontos-custodia/{id}` e o
-perfil completo em `GET /usuarios/me`, consumido pela tela de perfil (`src/api/perfil.ts`).
+Módulo `missoes`: 9 estados e **17** transições em `StatusMissao` + `MissaoStateMachine` (ADR 0006),
+aceite com lock pessimista, radar de proximidade com cache, expiração por `@Scheduled`.
 
-`develop` carrega o merge de duas fases (carteira e geolocalização) que chegou quebrado — construtor
-de uma branch com corpos de método da outra — e foi consertado na auditoria de 2026-08-07.
-
-Módulo `missoes`: máquina de estados em `StatusMissao` + `MissaoStateMachine` (9 estados, **17**
-transições — ver ADR 0006), endpoints em `/api/v1/missoes`, aceite com lock pessimista, radar de
-proximidade com cache, expiração por `@Scheduled`. **Recompensa derivada por
-`CalculadoraDeRecompensa` e congelada com `versao_formula`** — o cliente não a informa (V16).
-
-Módulo `geolocalizacao`: check-in geolocalizado com validação 100% servidor, idempotência por hash,
-trilha antifraude append-only (a rejeição é gravada E o 422 é devolvido). O que os controles não
-pegam está em `docs/seguranca/antifraude-geolocalizacao.md`: spoofing com root/emulador é mitigável e
-não eliminável, `mocked` é reportado pelo cliente, presença não é execução, conluio não é detectado,
-e a cinemática é cega no primeiro check-in de cada conta.
-
-Módulo `carteira`: ledger append-only, conclusão de missão creditando na mesma transação,
-transferência P2P com ordem determinística de lock, saque, extrato, financiamento com pote e
-reconciliação admin. Outbox transacional drenada por `@Scheduled`. Decisões no ADR 0008; a evidência
-de concorrência (100 threads, deadlock, rollback) está em `docs/qualidade/integridade-transacional.md`
-e é o documento a defender oralmente.
+**F12c — previsão de risco de falha de entrega.** Regressão logística interpretável em Java puro
+(`logistica/dominio`), treinada dentro do `./mvnw verify` sobre dataset sintético de 5.000 registros
+com correlações injetadas e documentadas. O score vira três coisas: multiplicador congelado da
+recompensa em TOKEN (teto 1,5×), prioridade no fan-out (`alerta.prioridade`, com carve-out no teto
+por hora para risco ALTO), e aviso acionável no detalhe da missão. `POST /logistica/previsao-falha`
+devolve probabilidade, faixa e os fatores que mais pesaram. **Os dados são sintéticos e isso está
+declarado em todo lugar** — validação com dados reais é o próximo passo (ADR 0022).
 
 `CONCLUIDA` continua sendo o ÚNICO estado que credita — a regra que o protótipo descartado violava.
 
-Módulos `logistica` e `notificacoes` já saíram do esqueleto: `PontoCustodiaService` +
-`PontoCustodiaController` (o `PontoCustodiaRepository` não é mais órfão) e `AlertaService` +
-`AlertaController`. `DespachanteAlertaService` já vive em `notificacoes/dominio`, então a regra do
-ArchUnit alcança ele — `compartilhado` o injeta pela interface `DespachoAlerta` por isso. O que
-resta de F8 é a **carteira de patrocinador** (Pendência #2).
+O que os controles de check-in **não** pegam está em `docs/seguranca/antifraude-geolocalizacao.md`:
+spoofing com root/emulador é mitigável e não eliminável, `mocked` é reportado pelo cliente, presença
+não é execução, conluio não é detectado, e a cinemática é cega no primeiro check-in de cada conta.
+
+`develop` carrega o merge de duas fases (carteira e geolocalização) que chegou quebrado — construtor
+de uma branch com corpos de método da outra — e foi consertado na auditoria de 2026-08-07.
 
 Contagem de testes e evidência de build NÃO ficam neste arquivo — envelhecem a cada PR. Fonte:
 docs/PROGRESSO.md e docs/qualidade/.
@@ -559,6 +565,12 @@ Com o webhook em pé, a lacuna ficou mais VISÍVEL e não mais grave: cada entre
 cunha tokens. O caminho de fechamento já está montado — `valor_ofertado_brl` é gravado em
 `entrega_falida` e a mecânica de pote existe em `FinanciamentoMissao`; falta a carteira do
 patrocinador debitar de fato.
+
+**O multiplicador de risco (F12c) AMPLIA essa cunhagem, de forma limitada e deliberada.** Uma entrega
+de risco alto cunha até 1,5× o que cunharia — e é exatamente por causa desta pendência que o teto é
+estreito e existe em dois blocos de configuração, com `CoerenciaTetoRiscoTest` travando a
+concordância. Sem teto, o risco multiplicaria a emissão sem financiador. Quando a carteira de
+patrocinador existir, `pagaTokensDoPote` passa a valer para ENTREGA e o teto pode ser reavaliado.
 
 **Isto não foi contornado de propósito, e a razão importa.** Exigir pote para ENTREGA hoje faria
 membros da tribo custearem a logística do varejista — o inverso do modelo. O financiador correto
