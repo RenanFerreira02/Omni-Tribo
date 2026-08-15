@@ -52,12 +52,26 @@ app:
     raio-alerta-metros: 3000
     alertas-por-hora: 5
     tribos-por-evento: 50
+  integracoes:
+    # Backoff ZERADO na suíte: a espera de 200 ms é calibrada para a produção, e aqui só somaria
+    # tempo de parede a cada teste que exercita uma falha de provedor. O que os testes medem é
+    # QUANTAS idas ao provedor acontecem, não o intervalo entre elas — e o intervalo tem teste
+    # próprio, de unidade, que não passa por Spring.
+    retry:
+      espera: PT0S
+      jitter: PT0S
 
 springdoc:
   swagger-ui:
+    # Continua desligado: é uma SPA de webjar, não acrescenta nada à suíte.
     enabled: false
   api-docs:
-    enabled: false
+    # LIGADO de propósito, e é o que permite ContratoOpenApiTest existir sem criar um quarto contexto
+    # Spring. Um @TestPropertySource daria outra chave de cache de contexto, e cada contexto custa 40
+    # conexões contra max_connections=500 — a conta que ContainerConfig documenta e que já estourou
+    # uma vez. O custo aqui é zero: o springdoc monta a especificação preguiçosamente, na primeira
+    # requisição a /v3/api-docs, e só aquele teste a faz.
+    enabled: true
 
 management:
   server:

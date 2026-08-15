@@ -29,6 +29,11 @@
     <jjwt.version>0.12.6</jjwt.version>
     <bouncycastle.version>1.80</bouncycastle.version>
     <bucket4j.version>8.10.1</bucket4j.version>
+    <!-- Só de teste. Ver a nota na dependência: traz okhttp 5.x, que convive com o 4.x do
+         Testcontainers porque este último o resolve por conta própria. -->
+    <mockwebserver.version>5.4.0</mockwebserver.version>
+    <!-- Só no profile `seguranca`; ver a nota lá embaixo sobre por que não entra no verify. -->
+    <dependency-check.version>13.0.0</dependency-check.version>
   </properties>
 
   <dependencies>
@@ -194,6 +199,20 @@
       <version>${archunit.version}</version>
       <scope>test</scope>
     </dependency>
+
+    <!--
+      Servidor HTTP de verdade, em socket local, para os testes de resiliência. MockRestServiceServer
+      (que a suíte já usa) casa expectativas e não CONTA requisições de forma utilizável para
+      "o disjuntor parou de chamar" — a asserção central aqui é a contagem estagnada.
+      Escolhido em vez do WireMock porque a última versão do WireMock é 4.0.0-beta.38, e beta não
+      entra num projeto que precisa ser defendido oralmente.
+    -->
+    <dependency>
+      <groupId>com.squareup.okhttp3</groupId>
+      <artifactId>mockwebserver3-junit5</artifactId>
+      <version>${mockwebserver.version}</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -217,6 +236,65 @@
             <id>report</id>
             <phase>verify</phase>
             <goals><goal>report</goal></goals>
+          </execution>
+          <!--
+            Gate de cobertura. Ambas as regras usam INSTRUCTION e não BRANCH, e isso é medição e não
+            preferência: a cobertura de branch está em ~74%, então um gate de branch reprovaria o
+            build no primeiro commit e a única saída seria relaxar a régua depois — exatamente o que
+            as regras do projeto proíbem. Branch continua no relatório publicado, como evidência
+            para ler, que é o papel que o CLAUDE.md já lhe atribui.
+          -->
+          <execution>
+            <id>check-global</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+            <configuration>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>INSTRUCTION</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>0.80</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+          <!--
+            `element` é BUNDLE, e não PACKAGE, de propósito: o requisito é 85% AGREGADO no domínio.
+            Uma regra por pacote reprovaria em qualquer `dominio` pequeno e menos coberto
+            (notificacoes.dominio está em ~84%) sem que a cobertura do domínio como um todo tivesse
+            caído — e o número que interessa é o do domínio como um todo. O `includes` restringe o
+            bundle às classes de domínio.
+
+            ATENÇÃO: um `includes` que não casa nada produz bundle vazio e o check passa POR VÁCUO.
+            Este padrão foi verificado subindo o mínimo para 0.99 e confirmando que o build reprova
+            citando a razão real medida.
+          -->
+          <execution>
+            <id>check-dominio</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+            <configuration>
+              <includes>
+                <include>com/omnitribo/*/dominio/**/*.class</include>
+              </includes>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>INSTRUCTION</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>0.85</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
           </execution>
         </executions>
       </plugin>
@@ -263,4 +341,62 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!--
+      Varredura de vulnerabilidades em dependências. Fica FORA do `verify` padrão de propósito.
+
+      Desde a 9.0 o plugin consulta a API da NVD em vez do feed de dados, e sem `nvdApiKey` a
+      atualização da base é lenta e sujeita a 403 por limite de taxa. Preso ao `verify`, todo
+      `./mvnw verify` local passaria a baixar base de CVE — o oposto do build rápido que a suíte
+      inteira depende para ser rodada a cada mudança.
+
+      Uso:  ./mvnw -Pseguranca verify
+      No CI: roda em security.yml, com NVD_API_KEY vindo de secret e cache do diretório de dados.
+    -->
+    <profile>
+      <id>seguranca</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.owasp</groupId>
+            <artifactId>dependency-check-maven</artifactId>
+            <version>${dependency-check.version}</version>
+            <configuration>
+              <!-- 7.0 é o piso de CVSS v3 para severidade ALTA. Reprova alta e crítica. -->
+              <failBuildOnCVSS>7</failBuildOnCVSS>
+              <suppressionFiles>
+                <suppressionFile>dependency-check-suppressions.xml</suppressionFile>
+              </suppressionFiles>
+              <!--
+                A chave da NVD NÃO é configurada aqui, e a tentativa de fazê-lo foi o que ensinou o
+                porquê: com `${env.NVD_API_KEY}` e a variável ausente, o plugin recebe string vazia e
+                aborta com "Invalid API Key, length of 0". Ele não trata vazio como "sem chave".
+                A chave entra pela propriedade de usuário que o próprio plugin expõe:
+
+                  ./mvnw -Pseguranca verify -Dnvd.api.key=$NVD_API_KEY
+              -->
+              <formats>
+                <format>HTML</format>
+                <format>JSON</format>
+              </formats>
+              <!-- Analisadores de ecossistemas que este repositório não usa no backend. Ligados,
+                   só somam tempo de varredura sobre nada. -->
+              <assemblyAnalyzerEnabled>false</assemblyAnalyzerEnabled>
+              <nodeAnalyzerEnabled>false</nodeAnalyzerEnabled>
+            </configuration>
+            <executions>
+              <execution>
+                <id>dependency-check</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>check</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

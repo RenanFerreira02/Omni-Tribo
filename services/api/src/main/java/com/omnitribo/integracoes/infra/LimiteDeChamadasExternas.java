@@ -25,9 +25,19 @@ import org.slf4j.LoggerFactory;
  * porque quem espera também está segurando uma thread.
  *
  * <p>Deliberadamente sem Resilience4j: seria uma dependência nova para 20 linhas, e o CLAUDE.md
- * corta infraestrutura que não foi pedida. Não há circuit breaker de verdade aqui — o provedor
- * continua sendo consultado durante a queda, só que por no máximo N threads de cada vez. É o que
- * protege a aplicação; não é o que protege o provedor.
+ * corta infraestrutura que não foi pedida. Ver ADR 0023 para a verificação de compatibilidade que
+ * fundamentou manter essa escolha.
+ *
+ * <p><b>Esta classe continua não sendo um circuit breaker, e agora existe um.</b> Ela sozinha deixa
+ * o provedor ser consultado durante a queda inteira, só que por no máximo N threads de cada vez —
+ * protege a aplicação, não o provedor. Quem para de chamar é {@link DisjuntorDeChamadasExternas},
+ * que fica POR FORA desta ({@link ProtecaoDeChamadasExternas} monta a ordem), de modo que uma
+ * chamada recusada pelo circuito aberto não chega a consumir permissão nenhuma.
+ *
+ * <p>Uma consequência da ordem escolhida vale ficar registrada aqui, onde o contador mora: como o
+ * retry roda POR DENTRO desta classe, a permissão fica retida pela rajada inteira. É intencional —
+ * preserva a invariante afirmada acima, de que permissão retida significa thread nossa presa neste
+ * provedor. Uma thread dormindo no backoff está presa do mesmo jeito.
  */
 final class LimiteDeChamadasExternas {
 

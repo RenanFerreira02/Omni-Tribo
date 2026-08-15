@@ -25,14 +25,15 @@ public class ClienteViaCep implements FonteEndereco {
   private static final Logger log = LoggerFactory.getLogger(ClienteViaCep.class);
 
   private final RestClient http;
-  private final LimiteDeChamadasExternas limite;
+  private final ProtecaoDeChamadasExternas protecao;
 
-  public ClienteViaCep(
+  ClienteViaCep(
       RestClient.Builder builder,
       @Value("${app.integracoes.endereco.base-url:https://viacep.com.br}") String baseUrl,
-      @Value("${app.integracoes.endereco.chamadas-simultaneas:8}") int simultaneas) {
+      @Value("${app.integracoes.endereco.chamadas-simultaneas:8}") int simultaneas,
+      ProtecoesExternas protecoes) {
     this.http = builder.baseUrl(baseUrl).build();
-    this.limite = new LimiteDeChamadasExternas("ViaCEP", simultaneas);
+    this.protecao = protecoes.para("ViaCEP", simultaneas);
   }
 
   @Override
@@ -42,16 +43,28 @@ public class ClienteViaCep implements FonteEndereco {
       // O template de URI (`{cep}`) é o que fecha SSRF e path traversal: o valor entra como
       // parâmetro codificado, nunca concatenado. A validação \d{8} no controller vem antes.
       corpo =
-          limite.executar(
+          protecao.executar(
               () -> http.get().uri("/ws/{cep}/json/", cep).retrieve().body(Resposta.class));
     } catch (ServicoExternoIndisponivelException e) {
-      throw e; // Já é o 503 certo, vindo do bulkhead — não reembrulhar nem logar de novo.
+      // Já é o 503 certo, vindo do bulkhead ou do disjuntor aberto — não reembrulhar nem logar de
+      // novo.
+      throw e;
     } catch (RuntimeException e) {
+      // Só chega aqui depois de o retry esgotar as tentativas: a conversão para 503 é a borda MAIS
+      // EXTERNA de propósito. Convertê-la antes cegaria o retry e o disjuntor, que precisam ver
+      // ResourceAccessException e HttpServerErrorException para classificar.
       log.warn("Falha ao consultar o provedor de CEP: {}", e.toString());
       throw new ServicoExternoIndisponivelException(
           "Não foi possível consultar o CEP agora. Preencha o endereço manualmente.");
     }
 
+    // ESTA CHECAGEM FICA FORA DA REGIÃO PROTEGIDA, E ISSO É ESSENCIAL. O ViaCEP responde 200 para
+    // CEP inexistente, então para o disjuntor a chamada acima foi um SUCESSO — que é a verdade: o
+    // provedor está saudável e respondeu o que sabia. Mover estas linhas para dentro do lambda
+    // faria
+    // cada CEP inexistente contar como falha, e cinco usuários digitando errado abririam o
+    // disjuntor
+    // de um provedor perfeitamente são, derrubando a busca de CEP para todo mundo.
     if (corpo == null || corpo.erro() != null) {
       return Optional.empty();
     }

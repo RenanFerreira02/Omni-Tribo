@@ -62,6 +62,11 @@ Módulo só fala com módulo por porta em `api/`. As de hoje:
   `AuditoriaPersistencia`, `ConsultasGeoespaciais`, `EmissorDeToken`, `ControleDeTentativasLogin`,
   `AtributosWebhook` (a chave do atributo onde o filtro HMAC publica a transportadora VERIFICADA —
   o controller lê de lá, nunca do cabeçalho cru),
+  `EnderecoDoCliente` (ÚNICO ponto que decide o IP de quem chamou — e **não lê `X-Forwarded-For`**:
+  quem resolve proxy é a `RemoteIpValve` do Tomcat, por `server.tomcat.remoteip.trusted-proxies`,
+  ausente em dev/test. Ler o cabeçalho direto dava chave nova a cada tentativa e o bloqueio
+  progressivo de login nunca acumulava — credential stuffing ilimitado. Ver ADR 0019),
+  `TipoProblema` (o catálogo de URIs de erro — uma por REAÇÃO DE UI, ADR 0010),
   `DadosPessoaisDoUsuario` (porta com PLUGINS: cada módulo publica a própria seção da exportação
   LGPD, e quem monta o arquivo não nomeia módulo nenhum — é o que evita o ciclo
   `identidade → missoes → identidade`)
@@ -217,9 +222,18 @@ parece build quebrado. A 8081 segue em `app.cors.origens-permitidas` justamente 
 
 O `verify` não é só teste: SpotBugs roda com effort `Max`, threshold `Medium` e `failOnError=true`,
 então achado de análise estática **quebra o build** como um teste vermelho quebraria. JaCoCo grava o
-relatório de cobertura em `services/api/target/site/jacoco/`, publicado como artefato pelo CI — mas
-**não há gate de cobertura**: o pom declara só `prepare-agent` e `report`, sem `check`, `rule` nem
-`minimum`. Cobertura é evidência para ler, não barreira; quem barra é SpotBugs, Spotless e teste.
+relatório de cobertura em `services/api/target/site/jacoco/`, publicado como artefato pelo CI, e
+**agora também barra**: duas execuções de `check` exigem **80% global** e **85% agregado nos pacotes
+`dominio`**, sempre sobre `INSTRUCTION`. **Não troque o contador para `BRANCH`** — branch está em
+~75% e o build fecharia vermelho na hora; ela segue no relatório como evidência para ler, e subi-la
+é trabalho anterior a ligar qualquer gate sobre ela. Cuidado com o `<includes>` da regra de domínio:
+um padrão que não casa nada produz bundle vazio e o check **passa por vácuo** — para conferir, suba
+o mínimo para 0,99 e veja se a reprovação cita uma razão real.
+
+A varredura de dependências (OWASP Dependency-Check) fica no profile **`seguranca`**, fora do
+`verify` padrão: `./mvnw -Pseguranca verify -Dnvd.api.key=$NVD_API_KEY`. Ela **exige** chave da NVD —
+sem ela o plugin aborta com "Invalid API Key, length of 0". Não configure a chave no pom via
+`${env.*}`: variável ausente vira string vazia e produz esse mesmo erro.
 
 ## Superfície de API hoje
 
@@ -260,6 +274,10 @@ SINTÉTICOS** — ver ADR 0022 e `docs/qualidade/modelo-previsao.md`.
 `/api/v1/clima?lat&lon` e `/api/v1/enderecos/{cep}` — provedores EXTERNOS (Open-Meteo, ViaCEP)
 atrás da nossa fronteira. Falha do provedor responde **503** com
 `type` `servico-externo-indisponivel`, e a reação de UI é ESCONDER o recurso. Ver ADR 0011.
+A proteção é composta, nesta ordem: **cache → disjuntor → bulkhead → retry → HTTP** (ADR 0023). O
+retry fica POR DENTRO do disjuntor para que uma rajada de tentativas conte como UMA falha; e a
+checagem do `{"erro":true}` do ViaCEP fica FORA da região protegida, porque o provedor respondeu 200
+— movê-la para dentro faria CEP errado digitado abrir o circuito de um provedor saudável.
 
 `POST /api/v1/webhooks/transportadora` — entrada de entregas falidas. **Único endpoint de escrita
 sem JWT**, autenticado por HMAC-SHA256 sobre o CORPO BRUTO (cabeçalhos `X-Transportadora`,
@@ -322,6 +340,9 @@ CI (`.github/workflows/`), três workflows:
   (corpo bruto, carimbo dentro do material assinado, 401 indistinguível, segredo em config) ·
   **0022 previsão de risco de entrega** (regressão logística em Java puro treinada no `verify`,
   dataset sintético, limiar escolhido na validação e não no teste, teto do multiplicador).
+  **0023 resiliência das integrações externas** (disjuntor próprio com `Clock` injetado + retry
+  nativo do Framework 7; registra a verificação que mostrou o `resilience4j-spring-boot3` 2.4.0 ser
+  ANTERIOR ao Boot 4.1, e por que o retry roda POR DENTRO do disjuntor).
   0016–0021 são da verificação de 2026-08-11 e cada um registra a alternativa descartada com o
   motivo MEDIDO — vários deles são a resposta a "por que não fizemos o óbvio?".
 - `docs/qualidade/integridade-transacional.md` — evidência de concorrência da carteira (100 threads,
@@ -336,7 +357,12 @@ CI (`.github/workflows/`), três workflows:
   GiST, gerada por `IndiceGeoespacialTest`.
 - `docs/evidencias/f12-ciclo-ponta-a-ponta.md` — ciclo completo executado ponta a ponta.
 - `docs/INFRA.md` — containers, credenciais de dev, lista completa de usuários seed com tribo.
-- `docs/qualidade/` — evidência de build por data. `docs/diagramas/` vazio.
+- `docs/qualidade/` — evidência de build por data (2026-08-05, 08-06 e 08-15; as verificações de
+  08-07 e 08-11 estão nas **Notas de manutenção** do `PROGRESSO.md`, não aqui). Também
+  `matriz-rastreabilidade.md`: requisito → endpoint/tela → teste → resultado → evidência, **com os
+  não implementados e a justificativa de cada um** (§2.3). `docs/diagramas/` vazio.
+- `documentacao/` — o PDF da entrega acadêmica. Não é fonte de verdade técnica: envelhece a cada
+  fase e não é atualizado junto com o código.
 - `CONTRIBUTING.md` — tabela de tipos de Conventional Commit aceitos e checklist pré-commit.
 
 ## Skills e agentes disponíveis
@@ -502,7 +528,9 @@ a conta anonimizada continuando a escrever por 15 minutos. **Os dois estão corr
 verificação de 2026-08-11 — ver Pendências). Detalhe por fase em `docs/PROGRESSO.md`.
 
 **O histórico do git engana na numeração das fases**: o commit "F8 - Fundação Mobile" entregou, na
-verdade, F9–F11. `docs/PROGRESSO.md` tem a numeração correta — não infira fase do `git log`.
+verdade, F9–F11, e a branch `feat/f13-previsao-risco-entrega` entregou **F12c** — F13 ("Entrega
+final") continua PENDENTE. `docs/PROGRESSO.md` tem a numeração correta — não infira fase do
+`git log`.
 
 **F8 — "Fim da Entrega Falida".** O webhook de transportadora, autenticado por HMAC sobre o corpo
 bruto (ADR 0021), converte entrega falida em missão de retirada ABERTA no ponto de custódia
@@ -511,10 +539,13 @@ notifica por tribo com consentimento e teto por hora, e dá baixa na custódia q
 `tools/carrier-mock/enviar.sh` exercita o caminho feliz e os cinco negativos contra o servidor de pé.
 **De F8 falta só o patrocinador** — ver Pendência #1.
 
-**Mobile: F9 a F12 implementadas** em `apps/mobile/` — 7 telas, design system, sessão com access
-token só em memória e refresh em `expo-secure-store`, rotas `(auth)`/`(tabs)` protegidas, radar
-geoespacial e carteira. O detalhe está em `apps/mobile/CLAUDE.md`, que carrega sozinho ao trabalhar
-lá. O catálogo de erro foi ampliado antes da primeira tela — ver **ADR 0010**.
+**Mobile: F9 a F12 implementadas** em `apps/mobile/` — 11 telas mais a rota-porta `app/index.tsx`
+(um `<Redirect>` que decide entre onboarding, `(auth)` e `(tabs)` durante a renderização, não num
+`useEffect`), design system, sessão com access token só em memória e refresh em
+`expo-secure-store`, rotas `(auth)`/`(tabs)`/`(app)` protegidas — toda tela autenticada fora das
+abas vive em `(app)/` —, radar geoespacial e carteira. O detalhe está em `apps/mobile/CLAUDE.md`,
+que carrega sozinho ao trabalhar lá. O catálogo de erro foi ampliado antes da primeira tela — ver
+**ADR 0010**.
 
 Módulo `missoes`: 9 estados e **17** transições em `StatusMissao` + `MissaoStateMachine` (ADR 0006),
 aceite com lock pessimista, radar de proximidade com cache, expiração por `@Scheduled`.

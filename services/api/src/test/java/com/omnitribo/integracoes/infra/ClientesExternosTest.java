@@ -10,6 +10,8 @@ import com.omnitribo.integracoes.api.ClimaResponse;
 import com.omnitribo.integracoes.api.EnderecoResponse;
 import com.omnitribo.integracoes.api.ServicoExternoIndisponivelException;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.Optional;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
@@ -31,6 +33,33 @@ import org.springframework.web.client.RestClient;
  */
 class ClientesExternosTest {
 
+  /**
+   * Proteção NEUTRA: sem repetição e com limiar de disjuntor inalcançável.
+   *
+   * <p>É o que mantém estes casos medindo exatamente o que mediam antes do disjuntor existir — o
+   * mapeamento de borda. Uma repetição aqui quebraria a contagem de {@link MockRestServiceServer},
+   * que espera uma requisição por expectativa declarada, e o teste falharia por um motivo que nada
+   * tem a ver com o vocabulário do provedor. Resiliência tem arquivo próprio: {@code
+   * ResilienciaClientesExternosTest}.
+   */
+  private static ProtecoesExternas semResiliencia() {
+    return new ProtecoesExternas(
+        Integer.MAX_VALUE,
+        Duration.ofSeconds(30),
+        0,
+        Duration.ZERO,
+        Duration.ZERO,
+        Clock.systemUTC());
+  }
+
+  private static ClienteOpenMeteo clima(RestClient.Builder builder) {
+    return new ClienteOpenMeteo(builder, "http://provedor.teste", 8, semResiliencia());
+  }
+
+  private static ClienteViaCep cep(RestClient.Builder builder) {
+    return new ClienteViaCep(builder, "http://provedor.teste", 8, semResiliencia());
+  }
+
   // ─── Clima ─────────────────────────────────────────────────────────────────────────────────
 
   @Test
@@ -48,8 +77,7 @@ class ClientesExternosTest {
                 MediaType.APPLICATION_JSON));
 
     ClimaResponse clima =
-        new ClienteOpenMeteo(builder, "http://provedor.teste", 8)
-            .consultar(new BigDecimal("-23.56"), new BigDecimal("-46.69"));
+        clima(builder).consultar(new BigDecimal("-23.56"), new BigDecimal("-46.69"));
 
     assertThat(clima.temperaturaC()).isEqualByComparingTo("21.3");
     assertThat(clima.sensacaoC()).isEqualByComparingTo("20.1");
@@ -75,8 +103,7 @@ class ClientesExternosTest {
                 MediaType.APPLICATION_JSON));
 
     ClimaResponse clima =
-        new ClienteOpenMeteo(builder, "http://provedor.teste", 8)
-            .consultar(new BigDecimal("-23.56"), new BigDecimal("-46.69"));
+        clima(builder).consultar(new BigDecimal("-23.56"), new BigDecimal("-46.69"));
 
     // A temperatura é o dado; a legenda é decoração. Um código novo do provedor não pode custar a
     // consulta inteira.
@@ -93,9 +120,7 @@ class ClientesExternosTest {
         .andRespond(withServerError());
 
     assertThatThrownBy(
-            () ->
-                new ClienteOpenMeteo(builder, "http://provedor.teste", 8)
-                    .consultar(new BigDecimal("-23.56"), new BigDecimal("-46.69")))
+            () -> clima(builder).consultar(new BigDecimal("-23.56"), new BigDecimal("-46.69")))
         .isInstanceOf(ServicoExternoIndisponivelException.class)
         // A mensagem não pode conter host, status nem corpo do provedor: isso descreveria a nossa
         // topologia de dependências para qualquer cliente.
@@ -111,9 +136,7 @@ class ClientesExternosTest {
         .andRespond(withSuccess("{\"latitude\":-23.5}", MediaType.APPLICATION_JSON));
 
     assertThatThrownBy(
-            () ->
-                new ClienteOpenMeteo(builder, "http://provedor.teste", 8)
-                    .consultar(new BigDecimal("-23.56"), new BigDecimal("-46.69")))
+            () -> clima(builder).consultar(new BigDecimal("-23.56"), new BigDecimal("-46.69")))
         .isInstanceOf(ServicoExternoIndisponivelException.class);
   }
 
@@ -133,8 +156,7 @@ class ClientesExternosTest {
                 """,
                 MediaType.APPLICATION_JSON));
 
-    Optional<EnderecoResponse> endereco =
-        new ClienteViaCep(builder, "http://provedor.teste", 8).buscar("01001000");
+    Optional<EnderecoResponse> endereco = cep(builder).buscar("01001000");
 
     assertThat(endereco).isPresent();
     // Sem hífen: a validação de CriarMissaoRequest é \d{8}, e devolver "01001-000" faria o
@@ -156,7 +178,7 @@ class ClientesExternosTest {
         .expect(requestTo(Matchers.containsString("/ws/99999999/json/")))
         .andRespond(withSuccess("{\"erro\":\"true\"}", MediaType.APPLICATION_JSON));
 
-    assertThat(new ClienteViaCep(builder, "http://provedor.teste", 8).buscar("99999999")).isEmpty();
+    assertThat(cep(builder).buscar("99999999")).isEmpty();
   }
 
   /** E o mesmo campo já veio como booleano do provedor — por isso ele é tipado como Object. */
@@ -168,7 +190,7 @@ class ClientesExternosTest {
         .expect(requestTo(Matchers.containsString("/ws/99999999/json/")))
         .andRespond(withSuccess("{\"erro\":true}", MediaType.APPLICATION_JSON));
 
-    assertThat(new ClienteViaCep(builder, "http://provedor.teste", 8).buscar("99999999")).isEmpty();
+    assertThat(cep(builder).buscar("99999999")).isEmpty();
   }
 
   @Test
@@ -179,8 +201,7 @@ class ClientesExternosTest {
 
     // A distinção importa na tela: "CEP não encontrado" manda o usuário reescrever um número
     // correto várias vezes, quando o problema é a internet.
-    assertThatThrownBy(
-            () -> new ClienteViaCep(builder, "http://provedor.teste", 8).buscar("01001000"))
+    assertThatThrownBy(() -> cep(builder).buscar("01001000"))
         .isInstanceOf(ServicoExternoIndisponivelException.class);
   }
 }

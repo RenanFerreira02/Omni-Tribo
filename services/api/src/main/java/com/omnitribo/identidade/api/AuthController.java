@@ -2,6 +2,7 @@ package com.omnitribo.identidade.api;
 
 import com.omnitribo.compartilhado.api.EnderecoDoCliente;
 import com.omnitribo.identidade.dominio.AutenticacaoService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.UUID;
@@ -45,6 +46,12 @@ public class AuthController {
         request.refreshToken(), EnderecoDoCliente.de(http), http.getHeader("User-Agent"));
   }
 
+  // Este controller é o único sem @SecurityRequirement na CLASSE, porque a maioria dos endpoints
+  // dele é pública de verdade (login, registrar, refresh). Estes dois não são: a cadeia principal
+  // só isenta /auth/login, /auth/registrar e /auth/refresh, então logout e me exigem JWT. Sem a
+  // anotação, o schema os descrevia como anônimos e quem integrasse pela documentação escreveria um
+  // cliente que toma 401. Achado por ContratoOpenApiTest.
+  @SecurityRequirement(name = "bearerAuth")
   @PostMapping("/logout")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void logout(
@@ -63,6 +70,7 @@ public class AuthController {
    * Retorna o perfil do usuário autenticado diretamente dos claims do JWT, sem consulta ao banco.
    * Demonstra o fluxo stateless e serve como endpoint de verificação de token nos testes.
    */
+  @SecurityRequirement(name = "bearerAuth")
   @GetMapping("/me")
   public MeResponse me(@AuthenticationPrincipal AutenticadoPrincipal principal) {
     return new MeResponse(principal.id(), principal.email(), principal.papel().name());

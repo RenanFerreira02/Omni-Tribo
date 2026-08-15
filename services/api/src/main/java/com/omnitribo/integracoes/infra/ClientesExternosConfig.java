@@ -1,5 +1,6 @@
 package com.omnitribo.integracoes.infra;
 
+import java.time.Clock;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -35,5 +36,19 @@ public class ClientesExternosConfig {
     fabrica.setConnectTimeout(timeout);
     fabrica.setReadTimeout(timeout);
     return RestClient.builder().requestFactory(fabrica);
+  }
+
+  /**
+   * O relógio do disjuntor, injetável para que o teste avance o tempo em vez de dormir.
+   *
+   * <p>É o primeiro {@code Clock} do repositório e por isso pode ser global sem qualificador. A
+   * transição "aberto → meia-abertura" é decidida comparando instantes, então ler {@code
+   * System.currentTimeMillis()} direto tornaria o teste de recuperação um {@code sleep} de 30 s —
+   * ou, pior, um teste que baixa a espera para milissegundos e passa a medir o escalonador do
+   * sistema operacional em vez da regra.
+   */
+  @Bean
+  public Clock relogio() {
+    return Clock.systemUTC();
   }
 }

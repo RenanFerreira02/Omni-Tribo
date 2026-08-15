@@ -29,14 +29,15 @@ public class ClienteOpenMeteo implements FonteClima {
   private static final Logger log = LoggerFactory.getLogger(ClienteOpenMeteo.class);
 
   private final RestClient http;
-  private final LimiteDeChamadasExternas limite;
+  private final ProtecaoDeChamadasExternas protecao;
 
-  public ClienteOpenMeteo(
+  ClienteOpenMeteo(
       RestClient.Builder builder,
       @Value("${app.integracoes.clima.base-url:https://api.open-meteo.com}") String baseUrl,
-      @Value("${app.integracoes.clima.chamadas-simultaneas:8}") int simultaneas) {
+      @Value("${app.integracoes.clima.chamadas-simultaneas:8}") int simultaneas,
+      ProtecoesExternas protecoes) {
     this.http = builder.baseUrl(baseUrl).build();
-    this.limite = new LimiteDeChamadasExternas("Open-Meteo", simultaneas);
+    this.protecao = protecoes.para("Open-Meteo", simultaneas);
   }
 
   @Override
@@ -44,7 +45,7 @@ public class ClienteOpenMeteo implements FonteClima {
     Resposta corpo;
     try {
       corpo =
-          limite.executar(
+          protecao.executar(
               () ->
                   http.get()
                       .uri(
@@ -61,8 +62,12 @@ public class ClienteOpenMeteo implements FonteClima {
                       .retrieve()
                       .body(Resposta.class));
     } catch (ServicoExternoIndisponivelException e) {
-      throw e; // Já é o 503 certo, vindo do bulkhead — não reembrulhar nem logar de novo.
+      // Já é o 503 certo, vindo do bulkhead ou do disjuntor aberto — não reembrulhar nem logar de
+      // novo.
+      throw e;
     } catch (RuntimeException e) {
+      // Só chega aqui depois de o retry esgotar as tentativas: converter antes cegaria o retry e o
+      // disjuntor, que classificam pela exceção original.
       // Log com a causa; resposta sem ela. O cliente não precisa saber qual host falhou, e contar
       // isso descreveria a nossa topologia para qualquer um.
       log.warn("Falha ao consultar o provedor de clima: {}", e.toString());
@@ -70,6 +75,9 @@ public class ClienteOpenMeteo implements FonteClima {
           "Não foi possível consultar a previsão do tempo agora.");
     }
 
+    // Fora da região protegida pela mesma razão do ViaCEP: o provedor respondeu 200, então para o
+    // disjuntor foi sucesso. Uma quebra de contrato do JSON é permanente, e contá-la como falha
+    // faria o disjuntor mascarar de "indisponibilidade temporária" algo que nenhuma espera resolve.
     if (corpo == null || corpo.current() == null) {
       log.warn("Provedor de clima respondeu sem o bloco 'current'");
       throw new ServicoExternoIndisponivelException(

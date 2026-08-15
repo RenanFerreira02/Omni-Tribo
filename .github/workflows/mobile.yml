@@ -1,29 +1,50 @@
 name: Mobile CI
 
+# Filtro de caminho no JOB, não no workflow — mesma razão de api.yml: status obrigatório cujo
+# workflow é pulado por `paths:` nunca reporta e trava o PR para sempre.
 on:
   push:
-    paths:
-      - 'apps/mobile/**'
-      - '.github/workflows/mobile.yml'
   pull_request:
-    paths:
-      - 'apps/mobile/**'
-      - '.github/workflows/mobile.yml'
-  # Permite re-rodar pela UI/CLI sem commit. O filtro `paths` acima é bom (não gasta runner em
-  # mudança de backend), mas tem o efeito colateral de tornar impossível re-testar uma correção de
-  # ambiente sem sujar o histórico com um commit que toque `apps/mobile/**`.
   workflow_dispatch:
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+permissions:
+  contents: read
 
+jobs:
+  mudou:
+    runs-on: ubuntu-latest
+    outputs:
+      mobile: ${{ steps.filtro.outputs.mobile }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detectar mudanças no mobile
+        id: filtro
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          else
+            base="${{ github.event.before }}"
+            if [ "$base" = "0000000000000000000000000000000000000000" ]; then
+              echo "mobile=true" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+          fi
+          if git diff --name-only "$base"...HEAD | grep -qE '^(apps/mobile/|\.github/workflows/mobile\.yml)'; then
+            echo "mobile=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "mobile=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: mudou
+    if: needs.mudou.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # A versão vem do `.nvmrc`, não de um literal aqui: com o número em dois lugares, a máquina do
-      # desenvolvedor e o runner derivam sem ninguém perceber, e a diferença só aparece como teste
-      # vermelho que não reproduz localmente.
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -31,9 +52,6 @@ jobs:
           cache: 'npm'
           cache-dependency-path: apps/mobile/package-lock.json
 
-      # `npm ci` e não `npm install`: respeita o package-lock à risca. É o que garante que o CI
-      # exercite exatamente as versões que o desenvolvedor testou — inclusive os pinos nativos que
-      # o `expo install` resolveu a partir do SDK 57.
       - name: Instalar dependências
         run: cd apps/mobile && npm ci
 
@@ -43,11 +61,7 @@ jobs:
       - name: Lint
         run: cd apps/mobile && npm run lint
 
-      # `--reporters=github-actions` faz cada teste que falha virar uma ANNOTATION, com arquivo e
-      # linha. Duas consequências: a falha aparece inline no diff do PR em vez de enterrada no log,
-      # e — o que motivou incluir isto — a annotation é exposta pela API pública do GitHub, enquanto
-      # o conteúdo do log exige autenticação. Diagnosticar CI vermelho deixa de depender de quem tem
-      # login no repositório.
+      # `test:e2e` fica FORA daqui de propósito: exige o backend em execução.
       - name: Testes
         run: cd apps/mobile && npm test -- --ci --coverage --reporters=default --reporters=github-actions
 

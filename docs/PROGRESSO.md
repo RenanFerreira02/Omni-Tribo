@@ -47,6 +47,44 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-08-15** — **Resiliência das integrações externas e gates bloqueantes.** Cinco coisas que só
+  apareceram ao construir.
+
+  - **O `resilience4j-spring-boot4` não existe, e o `spring-boot3` 2.4.0 é ANTERIOR ao Boot 4.1.** A
+    2.4.0 saiu em 2026-03-14 e declara "support for Spring Boot 4 / Spring Cloud 5"; o Boot 4.1.0
+    saiu em 2026-06-25. Ou seja, o suporte foi escrito contra a série 4.0.x e a combinação com a 4.1
+    não é verificada por ninguém. O Framework 7 tem `RetryTemplate` nativo mas **não** tem circuit
+    breaker — daí disjuntor próprio + retry nativo, com zero dependência de runtime nova. ADR 0023.
+
+  - **`RetryTemplate.invoke` e `execute` não são intercambiáveis, e escolher errado não quebra teste
+    nenhum.** Só o `invoke(Supplier)` desembrulha o `RetryException` e relança a exceção original
+    (verificado no bytecode). Com `execute`, o disjuntor veria `RetryException` em vez de
+    `HttpServerErrorException`, classificaria tudo como "não é falha do provedor" e **nunca
+    abriria** — em silêncio, com a suíte inteira verde.
+
+  - **O token da sonda de meia-abertura vaza se a sonda não chegar ao provedor.** Recusada pelo
+    bulkhead, ou falhando com 4xx, a sonda precisa DEVOLVER o token; senão o disjuntor fica preso em
+    meia-abertura para sempre — nunca fecha, nunca reabre, e o sintoma é o provedor voltar com o
+    recurso ainda sumido da tela, sem uma linha de erro no log. Por isso há TRÊS desfechos (sucesso,
+    falha, neutro) e não dois.
+
+  - **Um `<includes>` do `jacoco:check` que não casa nada passa POR VÁCUO.** O bundle sai vazio e o
+    gate aprova sem ter medido. Verificado subindo o mínimo do domínio para 0,99 e confirmando que
+    o build reprova citando a razão real: *"instructions covered ratio is 0.92, but expected minimum
+    is 0.99"*. O gate é sobre `INSTRUCTION` e não `BRANCH` porque branch está em 74,97%.
+
+  - **Filtro `paths:` no nível do WORKFLOW é incompatível com status obrigatório.** O workflow pulado
+    não reporta nada, e o GitHub trava o PR em *"Expected — Waiting for status to be reported"*
+    indefinidamente. Job pulado por `if:` reporta sucesso e satisfaz o check; por isso o filtro
+    virou um job `mudou` em `api.yml` e `mobile.yml`. Feito ANTES de exigir o status, porque na
+    ordem inversa o repositório trava.
+
+  - Achado colateral, corrigido: `GET /auth/me` e `POST /auth/logout` exigem JWT mas eram descritos
+    como anônimos no OpenAPI — o `AuthController` era o único sem `@SecurityRequirement`. Encontrado
+    por `ContratoOpenApiTest`, que compara a documentação contra a CADEIA DE SEGURANÇA. As
+    comparações de caminho, sozinhas, são quase tautológicas: o springdoc deriva os paths do mesmo
+    `RequestMappingHandlerMapping` que o teste consulta, então endpoint novo nasce documentado.
+
 - **2026-08-15** — **Modelo de previsão de risco de falha de entrega (F12c).** Quatro coisas que só
   apareceram ao construir, e que valem mais registradas do que o resumo da feature.
 

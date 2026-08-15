@@ -256,6 +256,28 @@ app:
     # e não responde prende a thread da requisição, e sob carga isso esgota o pool do servlet — o
     # card de clima derrubaria o login.
     timeout: PT2S
+    # Disjuntor (circuit breaker). COMPARTILHADO pelos dois provedores, ao contrário de
+    # `chamadas-simultaneas`: o detector de saúde não depende do formato do tráfego de cada um, só do
+    # que significa um provedor estar doente. Duas calibrações separadas seriam dois números que
+    # ninguém ajustaria. As INSTÂNCIAS continuam sendo uma por provedor — o CEP fora do ar não abre o
+    # circuito do clima. Ver DisjuntorDeChamadasExternas e ADR 0023.
+    disjuntor:
+      # Falhas CONSECUTIVAS. Qualquer sucesso zera. Cinco é curto o bastante para reagir em segundos
+      # a uma queda e longo o bastante para não abrir por um soluço isolado.
+      falhas-para-abrir: 5
+      # Quanto o circuito fica aberto antes de deixar UMA sonda passar. Trinta segundos é o tempo
+      # típico de um reinício do lado deles, e o custo de errar para mais é só o recurso continuar
+      # escondido por mais um ciclo.
+      espera-aberto: PT30S
+    retry:
+      # REPETIÇÕES, não tentativas: 1 aqui significa 2 idas ao provedor. Com timeout de 2 s cada,
+      # mais que isso empurraria a espera do usuário para além de 6 s antes de um 503.
+      repeticoes: 1
+      # Precisa ser declarada: o default do Framework 7 é 1 s, e herdá-lo dobraria o pior caso sem
+      # que ninguém tivesse decidido isso.
+      espera: PT0.2S
+      # Dessincroniza rajadas: sem jitter, N threads que falharam juntas repetem juntas.
+      jitter: PT0.05S
     # `chamadas-simultaneas` é o bulkhead: teto de chamadas SIMULTÂNEAS, com um contador POR
     # provedor — o CEP fora do ar não consome as permissões do clima. O timeout acima limita quanto
     # cada chamada espera; este limita QUANTAS esperam ao mesmo tempo. Sem ele, provedor lento +

@@ -1,8 +1,14 @@
 name: Security Scan
 
+# Sem filtro de caminho: segredo vaza em qualquer arquivo, e dependência vulnerável entra por
+# qualquer merge. Também é o que torna este o candidato natural a status obrigatório — ele roda em
+# todo PR, sem condicional nenhuma.
 on:
   push:
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   gitleaks:
@@ -10,9 +16,55 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # Histórico COMPLETO: um segredo commitado e removido depois continua no histórico, e é
+          # exatamente esse o caso que uma varredura só do HEAD não pega.
           fetch-depth: 0
 
       - name: Gitleaks — varre histórico completo
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependencias:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          cache-dependency-path: services/api/pom.xml
+
+      # A base de CVE é grande e a NVD limita a taxa por chave. Sem este cache, builds concorrentes
+      # com a mesma chave tomam 403 — o modo de falha documentado do plugin.
+      - name: Cache da base do Dependency-Check
+        uses: actions/cache@v4
+        with:
+          path: services/api/target/dependency-check-data
+          key: depcheck-${{ runner.os }}-${{ hashFiles('services/api/pom.xml') }}
+          restore-keys: depcheck-${{ runner.os }}-
+
+      # `nvd.api.key` é a propriedade de usuário do próprio plugin. NÃO configure a chave no pom com
+      # ${env.*}: com a variável ausente o plugin recebe string vazia e aborta com
+      # "Invalid API Key, length of 0" — verificado na prática.
+      #
+      # A chave é gratuita (https://nvd.nist.gov/developers/request-an-api-key) e precisa existir
+      # como secret NVD_API_KEY. Sem ela este job FALHA: o Dependency-Check 13 não consegue montar a
+      # base local. Falhar é melhor que passar sem ter varrido nada.
+      - name: OWASP Dependency-Check — reprova em alta e crítica
+        run: cd services/api && ./mvnw -Pseguranca verify -DskipTests -Djacoco.skip=true -Dspotbugs.skip=true -Dnvd.api.key=$NVD_API_KEY
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+
+      - name: Upload relatório de vulnerabilidades
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-check-report
+          path: |
+            services/api/target/dependency-check-report.html
+            services/api/target/dependency-check-report.json
+          retention-days: 30
