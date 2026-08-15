@@ -113,7 +113,12 @@ app:
     # certo quando foi feito?". CalculadoraDeRecompensaTest.douradoV1 falha de propósito para forçar
     # essa decisão.
     recompensa:
-      versao: 1
+      # versao 2: a fórmula passou a considerar `tokens-por-real-ofertado`, o valor que a
+      # transportadora declara no webhook de entrega falida. Toda missão criada antes desta mudança
+      # tem versao_formula = 1 gravada e continua explicada pela calibração que a produziu — é
+      # exatamente para isso que a coluna existe. CalculadoraDeRecompensaTest tem um dourado por
+      # versão; mexer nos números abaixo sem subir este campo faz o dourado falhar de propósito.
+      versao: 2
       base-tokens:                 # piso por categoria, antes de multiplicador e adicionais
         ENTREGA: 20
         COLETA: 20
@@ -126,6 +131,10 @@ app:
       tokens-por-km: 2             # deslocamento é o custo mais visível para quem executa
       tokens-por-kg: 0.5
       tokens-por-cem-litros: 5     # volume conta separado do peso: isopor grande não cabe em moto
+      # Meio token por real que um TERCEIRO oferta (transportadora, no webhook de entrega falida).
+      # Baixo de propósito: ordena missões por urgência sem virar cotação token→real, que o ADR
+      # 0009 §6 recusa fixar em qualquer ponto do produto. Zero efeito em missão criada por usuário.
+      tokens-por-real-ofertado: 0.5
       # Teto por missão. Continua existindo mesmo com a fórmula fechada, porque peso e volume ainda
       # vêm do request — é o herdeiro do @Max(1000) que antes era o ÚNICO controle.
       teto-tokens: 1000
@@ -137,6 +146,22 @@ app:
       volume-leve-ate-l: 20
       peso-media-ate-kg: 25
       volume-media-ate-l: 80
+
+    # Missão gerada automaticamente a partir de uma entrega falida. Estes números NÃO entram na
+    # fórmula de recompensa — não confundir com `recompensa.*` acima, que tem `versao` justamente
+    # porque mudá-lo reescreve o significado de missões já criadas. Aqui, mudar só afeta as
+    # próximas.
+    entrega-falida:
+      # Regra de Elegibilidade por Reputação do challenge: custódia de pacote de TERCEIRO não fica
+      # visível para toda a base. 2 exige ~100 de XP pela curva de RegraNivel, ou seja, pelo menos
+      # uma missão concluída — é a barreira mais baixa que ainda significa "já executou algo aqui".
+      nivel-minimo: 2
+      # Raio de check-in mais folgado que o padrão: o executor faz o check-in ao ENTREGAR, num
+      # endereço residencial cuja coordenada veio da transportadora e não de conferência nossa.
+      raio-checkin-m: 200
+      # Prazo para alguém aceitar e concluir. Encomenda ocupa vaga física: janela longa demais
+      # entope o ponto, e curta demais expira missão que ninguém teve tempo de ver.
+      prazo-retirada: PT72H
   carteira:
     # Os tetos não existem para limitar uso legítimo — existem para limitar o DANO de uma conta
     # comprometida. Quem rouba um access token pode transferir; o teto por transação impede
@@ -155,6 +180,41 @@ app:
     atraso-inicial: PT30S
     maximo-tentativas: 5         # depois disso o evento sai do lote e espera intervenção
     backoff-base: PT30S          # exponencial: 30s, 1min, 2min, 4min, 8min
+
+  # Webhook de transportadora — a borda do "Fim da Entrega Falida".
+  #
+  # `segredos` fica VAZIO aqui de propósito. É o único ponto da API que aceita escrita sem JWT, e um
+  # segredo padrão versionado seria uma credencial pública: quem clonasse o repositório poderia
+  # criar missões e movimentar a ocupação de pontos de custódia em qualquer instalação que não
+  # tivesse trocado o valor. Mapa vazio significa "nenhuma transportadora integrada" e todo webhook
+  # leva 401 — falha na direção segura.
+  #
+  # Em produção, uma variável de ambiente por transportadora, que a ligação relaxada do Spring mapeia
+  # para a chave do mapa:
+  #   APP_WEBHOOKS_SEGREDOS_CORREIOS=<segredo combinado com a transportadora>
+  # Os perfis dev e test trazem segredo próprio, que só vale para o carrier-mock.
+  webhooks:
+    segredos: {}
+    # Cinco minutos absorvem deriva de relógio entre servidores sem transformar uma assinatura
+    # interceptada em credencial de longa duração.
+    janela-timestamp: PT5M
+    # Teto por TRANSPORTADORA, não por IP: uma integração em laço de retry não pode consumir a cota
+    # das outras. Folgado porque o pico de entregas falidas é concentrado no fim da rota do dia.
+    requisicoes-por-minuto: 120
+
+  notificacoes:
+    # Raio do alerta de missão nova, medido do ponto de custódia até o CENTRO DA TRIBO do
+    # destinatário (usuario não tem coordenada — ver ADR 0020). 3 km é a escala de "meu bairro e o
+    # vizinho" na zona oeste de São Paulo, onde o seed vive.
+    raio-alerta-metros: 3000
+    # Teto por usuário por hora. Sem ele, uma rodada de entregas falidas num ponto movimentado
+    # notificaria a mesma pessoa dezenas de vezes em minutos — e a reação a isso é desinstalar o
+    # app, não aceitar missão.
+    alertas-por-hora: 5
+    # Quantas tribos o fan-out considera por evento. Teto de segurança, não de produto: sem ele um
+    # ponto numa região densa expandiria um evento em milhares de inserts dentro da transação do
+    # lote da outbox.
+    tribos-por-evento: 50
 
   identidade:
     # Conquistas DERIVADAS de xp/nivel/streak — não há tabela. A FÓRMULA é código

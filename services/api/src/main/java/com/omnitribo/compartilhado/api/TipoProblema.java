@@ -74,6 +74,19 @@ public final class TipoProblema {
   /** 422: check-in recusado porque a distância medida excede o raio da missão. */
   public static final URI CHECKIN_FORA_DO_RAIO = URI.create(BASE + "checkin-fora-do-raio");
 
+  /**
+   * 422: a missão exige nível maior do que o de quem tentou aceitar.
+   *
+   * <p>URI própria porque a reação de UI não é a dos outros 422. Nos demais, a tela pede para
+   * corrigir o pedido e tentar de novo; aqui não há o que corrigir — a mesma requisição volta a
+   * funcionar sozinha quando o usuário acumular XP. A tela mostra quanto falta e leva ao perfil.
+   *
+   * <p>Acompanha as extensões {@code nivelExigido} e {@code nivelAtual}, como o check-in fora do
+   * raio acompanha {@code distanciaM} e {@code raioM}: ler número de dentro do {@code detail}
+   * acoplaria a UI à revisão de copy do servidor.
+   */
+  public static final URI NIVEL_INSUFICIENTE = URI.create(BASE + "nivel-insuficiente");
+
   /** 409 de colisão de {@code @Version}: alguém alterou o recurso no meio do caminho. */
   public static final URI CONFLITO_CONCORRENCIA = URI.create(BASE + "conflito-concorrencia");
 

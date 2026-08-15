@@ -59,13 +59,23 @@ public final class CalculadoraDeRecompensa {
    *     vence, porque dado objetivo ganha de declaração.
    * @param distanciaM distância origem→destino em metros, medida pelo PostGIS. Nula quando a missão
    *     não tem destino, o que é sempre o caso em TRIBO.
+   * @param valorOfertadoBrl valor que um TERCEIRO (hoje, a transportadora no webhook de entrega
+   *     falida) declara estar disposto a custear. Nulo em toda missão criada por usuário — o app
+   *     não tem esse campo e nunca terá, porque quem cria a missão não paga (ADR 0009).
+   *     <p>Entra como INSUMO e nada mais: aumenta a recompensa em TOKEN, e jamais é gravado em
+   *     {@code missao.valor_brl}, que {@code ck_missao_economia} trava em zero. A diferença importa
+   *     — o executor continua recebendo XP e token, não reais, e a conversão do real ofertado em
+   *     patrocínio do pote acontece fora do ciclo da missão.
+   *     <p>Existe porque uma entrega difícil vale mais para quem a paga, e a transportadora é a
+   *     única parte que sabe quanto: peso, volume e distância descrevem o esforço, não a urgência.
    */
   public record Insumos(
       CategoriaMissao categoria,
       ComplexidadeMissao complexidadeDeclarada,
       BigDecimal pesoKg,
       BigDecimal volumeL,
-      Double distanciaM) {}
+      Double distanciaM,
+      BigDecimal valorOfertadoBrl) {}
 
   /**
    * Resultado, com a complexidade EFETIVA — derivada ou declarada.
@@ -97,6 +107,7 @@ public final class CalculadoraDeRecompensa {
     total = total.add(adicionalDistancia(insumos.distanciaM(), p));
     total = total.add(adicionalPeso(insumos.pesoKg(), p));
     total = total.add(adicionalVolume(insumos.volumeL(), p));
+    total = total.add(adicionalValorOfertado(insumos.valorOfertadoBrl(), p));
 
     // HALF_UP e não truncamento: truncar tornaria a fórmula não monotônica em passos pequenos —
     // dois pesos diferentes cairiam no mesmo inteiro e um aumento de insumo não aumentaria nada.
@@ -164,5 +175,24 @@ public final class CalculadoraDeRecompensa {
         : volumeL
             .divide(LITROS_POR_UNIDADE_DE_VOLUME, 4, RoundingMode.HALF_UP)
             .multiply(p.tokensPorCemLitros());
+  }
+
+  /**
+   * Converte o valor ofertado por terceiro em tokens adicionais.
+   *
+   * <p>Não é câmbio. A taxa é de CALIBRAÇÃO, deliberadamente baixa, e existe para ordenar missões
+   * por urgência — não para estabelecer quanto vale um token em reais. O ADR 0009 §6 recusa fixar
+   * essa cotação em qualquer lugar do produto, porque token conversível é dinheiro, com KYC junto.
+   *
+   * <p>Negativo é tratado como zero em vez de reduzir a recompensa: um valor ofertado negativo é
+   * dado ruim da transportadora, e deixá-lo subtrair permitiria a um parceiro rebaixar a recompensa
+   * da comunidade abaixo do que o esforço já justifica.
+   */
+  private static BigDecimal adicionalValorOfertado(
+      BigDecimal valorOfertadoBrl, ParametrosRecompensa p) {
+    if (valorOfertadoBrl == null || valorOfertadoBrl.signum() <= 0) {
+      return BigDecimal.ZERO;
+    }
+    return valorOfertadoBrl.multiply(p.tokensPorRealOfertado());
   }
 }

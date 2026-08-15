@@ -37,6 +37,21 @@ app:
     # Job de expiração desligado: se disparasse no meio de um teste, mudaria o status de missões
     # entre o arrange e o assert — flakiness intermitente e difícil de reproduzir.
     habilitado: false
+  webhooks:
+    # Duas transportadoras: a de teste e uma segunda, para provar que o segredo é POR transportadora
+    # — assinar com o segredo de uma e declarar a outra tem de dar 401. Com uma só, esse teste não
+    # existiria e a troca de segredos passaria despercebida.
+    segredos:
+      transportadora-teste: segredo-de-teste-nao-usar-em-producao
+      outra-transportadora: outro-segredo-de-teste
+    janela-timestamp: PT5M
+    # Alto pelo mesmo motivo do rate-limit acima: um teto apertado mascararia com 429 o resultado
+    # dos testes de assinatura. O teto tem teste próprio, que sobrescreve este valor.
+    requisicoes-por-minuto: 10000
+  notificacoes:
+    raio-alerta-metros: 3000
+    alertas-por-hora: 5
+    tribos-por-evento: 50
 
 springdoc:
   swagger-ui:

@@ -4,6 +4,9 @@ import com.omnitribo.compartilhado.dominio.RecursoNaoEncontradoException;
 import com.omnitribo.identidade.api.ProgressaoUsuario;
 import com.omnitribo.identidade.api.ResultadoProgressao;
 import com.omnitribo.identidade.infra.UsuarioRepository;
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -44,5 +47,38 @@ public class ProgressaoUsuarioService implements ProgressaoUsuario {
     usuarioRepository.save(usuario);
 
     return new ResultadoProgressao(usuario.getXp(), nivelAnterior, nivelAtual);
+  }
+
+  @Override
+  @Transactional(readOnly = true, propagation = Propagation.REQUIRED)
+  public int nivelDe(UUID usuarioId) {
+    // Só o XP é lido, e o nível sai de RegraNivel. Ler usuario.getNivel() aqui usaria o cache, que
+    // pode estar defasado se alguma concessão falhou — e barrar aceite por cache defasado é negar
+    // acesso a quem tem o XP, sem que a pessoa tenha o que fazer a respeito.
+    //
+    // REQUIRED e não MANDATORY, ao contrário de concederXp: aquele ESCREVE e precisa estar dentro
+    // da transação de quem chama; este é leitura e também é usado fora do caminho de valor.
+    return usuarioRepository
+        .findById(usuarioId)
+        .map(u -> RegraNivel.nivelPara(u.getXp()))
+        .orElseThrow(() -> new RecursoNaoEncontradoException("Usuário não encontrado."));
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<UUID> filtrarPorNivelMinimo(Collection<UUID> usuarioIds, int nivelMinimo) {
+    // Coleção vazia num IN gera SQL inválido no PostgreSQL. Sem a guarda, uma tribo sem candidatos
+    // derrubaria o despacho com erro de sintaxe em vez de simplesmente não notificar ninguém.
+    if (usuarioIds.isEmpty()) {
+      return List.of();
+    }
+    if (nivelMinimo <= 1) {
+      // Nível 1 é o de qualquer conta nova: não filtra nada, e a consulta seria desperdício.
+      return List.copyOf(usuarioIds);
+    }
+    // O limiar é calculado UMA vez, em Java, pela mesma RegraNivel que deriva o nível — em vez de
+    // reimplementar a curva quadrática em SQL, onde ela sairia de sincronia na primeira mudança.
+    return usuarioRepository.idsComXpMinimo(
+        Set.copyOf(usuarioIds), RegraNivel.xpParaNivel(nivelMinimo));
   }
 }

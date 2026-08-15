@@ -209,6 +209,17 @@ export interface MissaoResponse {
   complexidade: ComplexidadeMissao;
   versaoFormula: number;
 
+  /**
+   * Nível mínimo para ACEITAR. 1 = sem restrição, que é o caso de toda missão criada por usuário.
+   *
+   * Maior que 1 só em missão gerada a partir de entrega falida: custódia de encomenda de terceiro é
+   * restrita a quem tem reputação consolidada (Regra de Elegibilidade por Reputação do challenge).
+   *
+   * A UI usa isto para DESABILITAR o botão com a explicação certa em vez de deixar a pessoa tocar e
+   * levar 422. A checagem do cliente é conveniência; a do servidor é a regra, e continua lá.
+   */
+  nivelMinimo: number;
+
   versao: number;
 }
 

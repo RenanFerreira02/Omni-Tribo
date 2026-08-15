@@ -12,7 +12,13 @@ import { DialogoConfirmacao } from '@/components/DialogoConfirmacao';
 import { Esqueleto } from '@/components/Esqueleto';
 import { EstadoVazio } from '@/components/EstadoVazio';
 import { SaldoToken } from '@/components/SaldoToken';
-import { acoesDisponiveis, papelNaMissao, type AcaoDisponivel } from '@/features/missoes/acoes';
+import {
+  acoesDisponiveis,
+  comTravaDeNivel,
+  papelNaMissao,
+  type AcaoDisponivel,
+} from '@/features/missoes/acoes';
+import { usePerfil } from '@/features/perfil/hooks';
 import { useAcaoMissao, useCheckin, useMissao } from '@/features/missoes/hooks';
 import { orientacaoDe, type OrientacaoCheckin } from '@/features/missoes/mensagensCheckin';
 import { ROTULO_COMPLEXIDADE } from '@/features/missoes/rotulos';
@@ -29,6 +35,7 @@ export default function DetalheMissao() {
   const usuario = useSessao((estado) => estado.usuario);
 
   const { data: missao, isLoading, error, refetch } = useMissao(id);
+  const { data: perfil } = usePerfil();
   const acao = useAcaoMissao(id);
   const checkin = useCheckin(id);
   const { recarregar: obterLocalizacao } = useLocalizacao(false);
@@ -71,7 +78,14 @@ export default function DetalheMissao() {
   }
 
   const papel = papelNaMissao(missao, usuario?.id);
-  const estado = acoesDisponiveis(missao.status, papel);
+  // O nível vem do PERFIL, não da sessão: a sessão guarda só { id, email, papel }, e o nível é
+  // derivado do XP pelo servidor. Enquanto o perfil carrega, `comTravaDeNivel` não bloqueia nada —
+  // um botão que desabilita e habilita sozinho pareceria defeito.
+  const estado = comTravaDeNivel(
+    acoesDisponiveis(missao.status, papel),
+    missao.nivelMinimo,
+    perfil?.nivel,
+  );
   const paletaCategoria = coresCategoria[missao.categoria];
   const paletaStatus = coresStatus[missao.status];
 
@@ -235,15 +249,21 @@ export default function DetalheMissao() {
           ) : null}
 
           {estado.acoes.map((item) => (
-            <Botao
-              key={item.acao}
-              titulo={item.rotulo}
-              variante={item.variante}
-              carregando={ocupado && item.variante === 'primario'}
-              disabled={ocupado}
-              onPress={() => aoTocar(item)}
-              testID={`acao-${item.acao}`}
-            />
+            <View key={item.acao}>
+              <Botao
+                titulo={item.rotulo}
+                variante={item.variante}
+                carregando={ocupado && item.variante === 'primario'}
+                disabled={ocupado || item.bloqueio !== undefined}
+                onPress={() => aoTocar(item)}
+                testID={`acao-${item.acao}`}
+              />
+              {item.bloqueio ? (
+                <Text style={estilos.bloqueio} testID={`bloqueio-${item.acao}`}>
+                  {item.bloqueio.motivo} Conclua missões para subir de nível.
+                </Text>
+              ) : null}
+            </View>
           ))}
         </View>
       </ScrollView>
@@ -328,5 +348,11 @@ const estilos = StyleSheet.create({
   xp: { ...tipografia.subtitulo, color: textoAcessivel.ambar },
   acoes: { marginTop: 'auto', gap: espaco.sm },
   explicacao: { ...tipografia.corpo, color: cores.tinta70, textAlign: 'center' },
+  bloqueio: {
+    ...tipografia.legenda,
+    color: cores.tinta70,
+    textAlign: 'center',
+    marginTop: espaco.xs,
+  },
   voltar: { marginHorizontal: espaco.lg, marginBottom: espaco.sm },
 });

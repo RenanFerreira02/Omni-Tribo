@@ -51,6 +51,18 @@ export type ErroApi =
   | (Base & { tipo: 'checkinForaDoRaio'; distanciaM?: number; raioM?: number })
   | (Base & { tipo: 'checkinAcuraciaInsuficiente'; acuraciaM?: number; acuraciaMaximaM?: number })
   | (Base & { tipo: 'checkinLocalizacaoSimulada' })
+  /**
+   * 422: a missão exige reputação maior do que a de quem tentou aceitar.
+   *
+   * Variante própria, e não `regraNegocioViolada`, porque a reação de UI é outra: não há o que
+   * corrigir e tentar de novo — a mesma ação volta a funcionar sozinha quando o XP subir. A tela
+   * mostra quanto falta e leva ao perfil.
+   *
+   * `nivelExigido` e `nivelAtual` chegam como extensão do RFC 9457, pelo mesmo motivo de
+   * `checkinForaDoRaio`: a frase é montada aqui, e parsear o `detail` acoplaria a UI à revisão de
+   * copy do servidor. Opcionais por robustez a uma resposta antiga sem as extensões.
+   */
+  | (Base & { tipo: 'nivelInsuficiente'; nivelExigido?: number; nivelAtual?: number })
   /** 503: provedor externo (clima, CEP) fora do ar. A tela ESCONDE o recurso, não mostra erro. */
   | (Base & { tipo: 'servicoExternoIndisponivel' })
   | (Base & { tipo: 'limiteRequisicoes'; retryAfter: number | null })
@@ -80,6 +92,7 @@ const POR_SEGMENTO = {
   'checkin-fora-do-raio': 'checkinForaDoRaio',
   'checkin-acuracia-insuficiente': 'checkinAcuraciaInsuficiente',
   'checkin-localizacao-simulada': 'checkinLocalizacaoSimulada',
+  'nivel-insuficiente': 'nivelInsuficiente',
   'servico-externo-indisponivel': 'servicoExternoIndisponivel',
 } as const satisfies Record<string, TipoErroApi>;
 
@@ -108,6 +121,9 @@ interface CorpoProblema {
   raioM?: unknown;
   acuraciaM?: unknown;
   acuraciaMaximaM?: unknown;
+  /** Extensões de `NivelInsuficienteException`. Ver o backend. */
+  nivelExigido?: unknown;
+  nivelAtual?: unknown;
 }
 
 function texto(valor: unknown, padrao: string): string {
@@ -197,6 +213,13 @@ export function paraErroApi(erro: unknown): ErroApi {
         tipo,
         acuraciaM: numero(corpo.acuraciaM),
         acuraciaMaximaM: numero(corpo.acuraciaMaximaM),
+      };
+    case 'nivelInsuficiente':
+      return {
+        ...base,
+        tipo,
+        nivelExigido: numero(corpo.nivelExigido),
+        nivelAtual: numero(corpo.nivelAtual),
       };
     case null:
       return { ...base, tipo: 'desconhecido', type: texto(corpo.type, '') };

@@ -26,6 +26,18 @@ spring:
       - classpath:db/migration
       - classpath:db/seed
 
+app:
+  webhooks:
+    # Segredo de DESENVOLVIMENTO, com o mesmo default de tools/carrier-mock/enviar.sh. É versionado
+    # de propósito e só existe no perfil dev: é o que faz `make up` + `spring-boot:run` + o mock
+    # funcionarem num clone novo sem passo manual, como as chaves RSA de dev.
+    #
+    # O perfil default (application.yml) tem o mapa VAZIO, então isto NÃO vaza para produção — lá o
+    # segredo entra por APP_WEBHOOKS_SEGREDOS_<TRANSPORTADORA>. Trocar este valor exige trocar o
+    # default do mock junto.
+    segredos:
+      transportadora-dev: ${WEBHOOK_SEGREDO_DEV:segredo-de-desenvolvimento-local}
+
 logging:
   level:
     com.omnitribo: DEBUG

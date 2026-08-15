@@ -1,4 +1,4 @@
-import { acoesDisponiveis, papelNaMissao, type PapelNaMissao } from '../acoes';
+import { acoesDisponiveis, comTravaDeNivel, papelNaMissao, type PapelNaMissao } from '../acoes';
 import { STATUS_OTIMISTA } from '../hooks';
 import type { StatusMissao } from '@/api/tipos';
 
@@ -183,5 +183,45 @@ describe('consistência entre MATRIZ e STATUS_OTIMISTA', () => {
         }
       }
     }
+  });
+});
+
+/**
+ * A trava de reputação é camada SEPARADA da matriz: depende do `nivelMinimo` da missão e do nível de
+ * quem olha, dois valores que a tabela (status × papel) não conhece.
+ */
+describe('trava de nível', () => {
+  const abertaParaTerceiro = () => acoesDisponiveis('ABERTA', 'TERCEIRO');
+
+  it('bloqueia aceitar quando o nível é insuficiente, com os números na mensagem', () => {
+    const estado = comTravaDeNivel(abertaParaTerceiro(), 2, 1);
+    const aceitar = estado.acoes.find((a) => a.acao === 'aceitar');
+
+    expect(aceitar?.bloqueio?.motivo).toContain('nível 2');
+    expect(aceitar?.bloqueio?.motivo).toContain('1');
+  });
+
+  it('não bloqueia quando o nível basta', () => {
+    const estado = comTravaDeNivel(abertaParaTerceiro(), 2, 3);
+    expect(estado.acoes.find((a) => a.acao === 'aceitar')?.bloqueio).toBeUndefined();
+  });
+
+  it('nivelMinimo 1 nunca bloqueia — é toda missão criada por usuário', () => {
+    const estado = comTravaDeNivel(abertaParaTerceiro(), 1, 1);
+    expect(estado.acoes.find((a) => a.acao === 'aceitar')?.bloqueio).toBeUndefined();
+  });
+
+  it('perfil ainda carregando não bloqueia', () => {
+    // Bloquear aqui mostraria um botão desabilitado que habilita sozinho um instante depois, o que
+    // o usuário lê como defeito do app.
+    const estado = comTravaDeNivel(abertaParaTerceiro(), 5, undefined);
+    expect(estado.acoes.find((a) => a.acao === 'aceitar')?.bloqueio).toBeUndefined();
+  });
+
+  it('não mexe em ação que não seja aceitar', () => {
+    // O servidor só recusa ACEITAR por nível. Travar desistir ou check-in prenderia o executor
+    // numa missão que ele já tem.
+    const executando = comTravaDeNivel(acoesDisponiveis('ACEITA', 'EXECUTOR'), 9, 1);
+    expect(executando.acoes.every((a) => a.bloqueio === undefined)).toBe(true);
   });
 });

@@ -1,5 +1,7 @@
 package com.omnitribo.identidade.api;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -27,4 +29,32 @@ public interface ProgressaoUsuario {
    * <p>Ordem global de lock: {@code missao} → {@code carteira} → {@code usuario}. Esta é a última.
    */
   ResultadoProgressao concederXp(UUID usuarioId, long quantidade);
+
+  /**
+   * Nível atual do usuário, DERIVADO do XP por {@code RegraNivel}.
+   *
+   * <p>Derivado, e não lido da coluna {@code usuario.nivel}: aquela coluna é cache recalculado a
+   * cada concessão de XP, e uma missão só pode ser barrada por um número que seja função pura do XP
+   * — senão um cache defasado negaria acesso a quem já tem o XP necessário, e o usuário não teria
+   * nada a fazer a respeito. É a mesma correção que a exportação LGPD recebeu em 2026-08-11.
+   *
+   * @throws com.omnitribo.compartilhado.dominio.RecursoNaoEncontradoException se o usuário não
+   *     existe.
+   */
+  int nivelDe(UUID usuarioId);
+
+  /**
+   * Dos usuários dados, quais atingem o nível mínimo. Uma consulta só.
+   *
+   * <p>Existe para o fan-out de notificação, onde chamar {@link #nivelDe} por candidato daria uma
+   * ida ao banco por membro da tribo. Como o nível é função pura do XP, o filtro vira uma
+   * comparação de {@code xp} contra o limiar do nível — nenhuma linha precisa ser trazida para a
+   * memória.
+   *
+   * <p>Anunciar missão a quem não pode aceitá-la seria prometer o que o servidor recusa com 422 no
+   * toque seguinte, então este filtro é parte da regra de notificação e não otimização.
+   *
+   * @return subconjunto de {@code usuarioIds}; lista vazia se a entrada for vazia.
+   */
+  List<UUID> filtrarPorNivelMinimo(Collection<UUID> usuarioIds, int nivelMinimo);
 }

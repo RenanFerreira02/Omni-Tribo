@@ -3,6 +3,8 @@ package com.omnitribo.identidade.infra;
 import com.omnitribo.identidade.dominio.EstadoDaConta;
 import com.omnitribo.identidade.dominio.Usuario;
 import jakarta.persistence.LockModeType;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -64,4 +66,15 @@ public interface UsuarioRepository extends JpaRepository<Usuario, UUID> {
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("select u from Usuario u where u.id = :id")
   Optional<Usuario> buscarParaAtualizar(@Param("id") UUID id);
+
+  /**
+   * Ids, dentre os dados, cujo XP alcança o limiar.
+   *
+   * <p>Compara XP e não a coluna {@code nivel}: aquela é cache recalculado a cada concessão, e
+   * barrar alguém por cache defasado negaria acesso a quem já tem o XP, sem que a pessoa tenha o
+   * que fazer a respeito. O limiar vem de {@code RegraNivel.xpParaNivel}, então a fórmula continua
+   * num lugar só.
+   */
+  @Query("select u.id from Usuario u where u.id in :ids and u.xp >= :xpMinimo")
+  List<UUID> idsComXpMinimo(@Param("ids") Collection<UUID> ids, @Param("xpMinimo") long xpMinimo);
 }

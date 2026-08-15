@@ -60,6 +60,7 @@ describe('paraErroApi — uma linha por URI do catálogo', () => {
     ['checkin-fora-do-raio', 422, 'checkinForaDoRaio'],
     ['checkin-acuracia-insuficiente', 422, 'checkinAcuraciaInsuficiente'],
     ['checkin-localizacao-simulada', 422, 'checkinLocalizacaoSimulada'],
+    ['nivel-insuficiente', 422, 'nivelInsuficiente'],
   ];
 
   it.each(casos)('%s → %s', (segmento, status, esperado) => {
@@ -69,18 +70,19 @@ describe('paraErroApi — uma linha por URI do catálogo', () => {
     expect(erro.traceId).toBe('trace-123');
   });
 
-  it('os quatro 422 são distinguíveis entre si, apesar do mesmo status', () => {
+  it('os 422 são distinguíveis entre si, apesar do mesmo status', () => {
     const tipos = [
       'regra-negocio-violada',
       'saque-desabilitado',
       'checkin-fora-do-raio',
       'checkin-acuracia-insuficiente',
       'checkin-localizacao-simulada',
+      'nivel-insuficiente',
     ].map((segmento) => paraErroApi(respostaDe(problema(segmento, 422), 422)).tipo);
 
     // O ponto do ADR 0010: sem `type` próprio, este Set teria tamanho 1 e a tela não teria como
     // dar instruções diferentes sem parsear o `detail`.
-    expect(new Set(tipos).size).toBe(5);
+    expect(new Set(tipos).size).toBe(6);
   });
 });
 

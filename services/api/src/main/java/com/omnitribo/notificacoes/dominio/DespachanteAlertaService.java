@@ -1,10 +1,18 @@
 package com.omnitribo.notificacoes.dominio;
 
+import com.omnitribo.compartilhado.api.ConsultasGeoespaciais;
+import com.omnitribo.identidade.api.ConsultaConsentimento;
+import com.omnitribo.identidade.api.ProgressaoUsuario;
 import com.omnitribo.notificacoes.api.DespachoAlerta;
 import com.omnitribo.notificacoes.infra.AlertaRepository;
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -25,10 +33,33 @@ public class DespachanteAlertaService implements DespachoAlerta {
 
   private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
-  private final AlertaRepository alertaRepository;
+  private static final Logger log = LoggerFactory.getLogger(DespachanteAlertaService.class);
 
-  public DespachanteAlertaService(AlertaRepository alertaRepository) {
+  /** Discriminador do alerta de missão nova vinda de entrega falida. */
+  static final String TIPO_ENTREGA_FALIDA = "ENTREGA_FALIDA_DISPONIVEL";
+
+  /** Discriminador do aviso operacional de ponto lotado. Alerta GLOBAL: usuário nulo. */
+  static final String TIPO_PONTO_LOTADO = "PONTO_CUSTODIA_LOTADO";
+
+  private final AlertaRepository alertaRepository;
+  private final ConsultasGeoespaciais consultasGeoespaciais;
+  private final ConsultaConsentimento consultaConsentimento;
+  private final ProgressaoUsuario progressaoUsuario;
+  private final ParametrosNotificacoes parametros;
+
+  public DespachanteAlertaService(
+      AlertaRepository alertaRepository,
+      // Pela INTERFACE: as três são portas de outros módulos, e é o tipo declarado aqui que o
+      // ArchUnit inspeciona.
+      ConsultasGeoespaciais consultasGeoespaciais,
+      ConsultaConsentimento consultaConsentimento,
+      ProgressaoUsuario progressaoUsuario,
+      ParametrosNotificacoes parametros) {
     this.alertaRepository = alertaRepository;
+    this.consultasGeoespaciais = consultasGeoespaciais;
+    this.consultaConsentimento = consultaConsentimento;
+    this.progressaoUsuario = progressaoUsuario;
+    this.parametros = parametros;
   }
 
   /**
@@ -43,6 +74,8 @@ public class DespachanteAlertaService implements DespachoAlerta {
 
     switch (tipoEvento) {
       case "MissaoConcluida" -> gravarConclusao(agregadoId, payload);
+      case "EntregaFalidaConvertida" -> anunciarMissaoDeRetirada(payload);
+      case "EntregaFalidaRecusada" -> gravarPontoLotado(agregadoId, payload);
       default ->
           throw new IllegalStateException("Nenhum despachante para o evento " + tipoEvento + ".");
     }
@@ -68,5 +101,127 @@ public class DespachanteAlertaService implements DespachoAlerta {
             corpo,
             missaoId,
             Instant.now()));
+  }
+
+  /**
+   * Fan-out geográfico: avisa quem está perto que há uma encomenda esperando alguém buscar.
+   *
+   * <p><b>Quem é "perto" sem que o usuário tenha coordenada.</b> A tabela {@code usuario} não tem
+   * coluna geográfica. O raio é medido do ponto de custódia até o CENTRO DERIVADO de cada tribo, e
+   * notifica os membros dela — granularidade de bairro, não de pessoa. É a decisão do ADR 0020, não
+   * uma limitação a corrigir: notificar por tribo não exige armazenar onde ninguém está.
+   *
+   * <p><b>Três filtros, e cada um recusa por um motivo diferente.</b> Consentimento é permissão;
+   * nível mínimo é a Regra de Elegibilidade por Reputação do challenge — não adianta anunciar uma
+   * missão que a pessoa levaria 422 ao tentar aceitar; teto por hora é respeito ao canal.
+   */
+  private void anunciarMissaoDeRetirada(Map<String, Object> payload) {
+    UUID missaoId = UUID.fromString((String) payload.get("missaoId"));
+    BigDecimal lat = new BigDecimal(String.valueOf(payload.get("lat")));
+    BigDecimal lon = new BigDecimal(String.valueOf(payload.get("lon")));
+    String apelidoPonto = String.valueOf(payload.get("apelidoPonto"));
+    long tokens = ((Number) payload.getOrDefault("tokensRecompensa", 0)).longValue();
+
+    List<UUID> tribos =
+        consultasGeoespaciais
+            .tribosNoRaio(lat, lon, parametros.raioAlertaMetros(), parametros.tribosPorEvento())
+            .stream()
+            .map(ConsultasGeoespaciais.AlvoProximo::id)
+            .toList();
+
+    if (tribos.isEmpty()) {
+      // Nenhuma tribo com centro derivado no raio. Acontece de verdade — tribo sem missão nem ponto
+      // não tem centro —, e não é erro: lançar devolveria o evento à outbox para tentar de novo, e
+      // as cinco tentativas fracassariam igual.
+      log.debug("Missão {} sem tribo no raio de {} m", missaoId, parametros.raioAlertaMetros());
+      return;
+    }
+
+    // Os DOIS consentimentos: NOTIFICACAO porque é uma notificação, LOCALIZACAO porque a decisão de
+    // enviar usou a posição da tribo da pessoa. Exigir só o primeiro trataria a inferência
+    // geográfica como se não fosse uso de dado de localização.
+    List<UUID> comConsentimento =
+        consultaConsentimento.usuariosComConsentimento(
+            tribos, List.of(ConsultaConsentimento.NOTIFICACAO, ConsultaConsentimento.LOCALIZACAO));
+
+    // Segundo filtro: reputação. Anunciar a missão a quem não alcança o nível mínimo seria prometer
+    // o que o servidor recusa com 422 no toque seguinte — e a Regra de Elegibilidade por Reputação
+    // do challenge não é só sobre aceitar, é sobre VISIBILIDADE: "missões que envolvam custódia de
+    // pacotes físicos não são visíveis para toda a base".
+    int nivelMinimo = ((Number) payload.getOrDefault("nivelMinimo", 1)).intValue();
+    List<UUID> destinatarios =
+        progressaoUsuario.filtrarPorNivelMinimo(comConsentimento, nivelMinimo);
+
+    Instant agora = Instant.now();
+    Instant umaHoraAtras = agora.minus(Duration.ofHours(1));
+    int enviados = 0;
+
+    for (UUID destinatario : destinatarios) {
+      // Deduplicação antes do teto, e não depois: um redespacho da outbox não pode consumir a cota
+      // de quem já foi avisado, senão uma falha transitória de infraestrutura silencia
+      // notificações legítimas pela hora seguinte.
+      if (alertaRepository.existsByUsuarioIdAndTipoAndMissaoId(
+          destinatario, TIPO_ENTREGA_FALIDA, missaoId)) {
+        continue;
+      }
+      if (alertaRepository.countByUsuarioIdAndCriadoEmAfter(destinatario, umaHoraAtras)
+          >= parametros.alertasPorHora()) {
+        continue;
+      }
+
+      alertaRepository.save(
+          new Alerta(
+              UUID.randomUUID(),
+              destinatario,
+              TIPO_ENTREGA_FALIDA,
+              "Encomenda esperando na sua região",
+              "Uma entrega falhou e o pacote está em "
+                  + apelidoPonto
+                  + ". Leve ao destinatário e receba "
+                  + tokens
+                  + " tokens mais XP.",
+              missaoId,
+              agora));
+      enviados++;
+    }
+
+    log.info(
+        "Missão {}: {} alertas enviados de {} candidatos em {} tribos",
+        missaoId,
+        enviados,
+        destinatarios.size(),
+        tribos.size());
+  }
+
+  /**
+   * Aviso operacional de ponto lotado.
+   *
+   * <p>Alerta GLOBAL — {@code usuario_id} nulo, que a V7 permite de propósito. Não é notificação de
+   * usuário: é sinal de operação, e um ponto que recusa encomendas com frequência é exatamente o
+   * dado que justifica negociar mais capacidade ou abrir outro ponto no bairro. Sem isto, a recusa
+   * ficaria só na linha de {@code entrega_falida}, visível apenas para quem for procurá-la.
+   */
+  private void gravarPontoLotado(UUID entregaFalidaId, Map<String, Object> payload) {
+    alertaRepository.save(
+        new Alerta(
+            UUID.randomUUID(),
+            null,
+            TIPO_PONTO_LOTADO,
+            "Ponto de custódia lotado",
+            "O ponto "
+                + payload.get("apelidoPonto")
+                + " ("
+                + payload.get("codigoPonto")
+                + ") recusou uma encomenda de "
+                + payload.get("transportadora")
+                + " por falta de vaga. Capacidade: "
+                + payload.get("capacidade")
+                + ".",
+            // missao_id fica nulo: não houve missão, e é justamente essa ausência que o alerta
+            // relata. Apontar para a entrega falida aqui misturaria dois identificadores na mesma
+            // coluna, que o app usa para navegar até a missão.
+            null,
+            Instant.now()));
+    log.warn("Ponto lotado registrado para entrega falida {}", entregaFalidaId);
   }
 }

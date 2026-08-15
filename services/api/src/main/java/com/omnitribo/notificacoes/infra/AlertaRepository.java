@@ -1,6 +1,7 @@
 package com.omnitribo.notificacoes.infra;
 
 import com.omnitribo.notificacoes.dominio.Alerta;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -28,4 +29,24 @@ public interface AlertaRepository extends JpaRepository<Alerta, UUID> {
    * em vez de ser encontrado e recusado com 403 — que confirmaria a existência do id.
    */
   Optional<Alerta> findByIdAndUsuarioId(UUID id, UUID usuarioId);
+
+  /**
+   * Quantos alertas este usuário recebeu desde o instante dado. Alimenta o teto por hora.
+   *
+   * <p>Índice {@code idx_alerta_usuario_recente (usuario_id, criado_em DESC)} criado pela V21: os
+   * índices anteriores eram {@code (usuario_id)} e {@code (usuario_id, lido)} parcial, e nenhum
+   * ordena por tempo — cada notificação enviada varreria todo o histórico do destinatário.
+   */
+  long countByUsuarioIdAndCriadoEmAfter(UUID usuarioId, Instant desde);
+
+  /**
+   * Já existe este alerta para este usuário e esta missão?
+   *
+   * <p>A entrega da outbox é at-least-once: um evento redespachado depois de uma falha parcial
+   * chega de novo aqui. Sem esta checagem o usuário receberia o alerta duplicado E o duplicado
+   * consumiria o teto por hora, o que faria uma falha transitória de infraestrutura silenciar
+   * notificações legítimas. Não há UNIQUE na tabela porque {@code alerta} também guarda avisos sem
+   * missão associada.
+   */
+  boolean existsByUsuarioIdAndTipoAndMissaoId(UUID usuarioId, String tipo, UUID missaoId);
 }

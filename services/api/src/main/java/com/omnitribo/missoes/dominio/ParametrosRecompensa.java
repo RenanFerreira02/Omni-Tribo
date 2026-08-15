@@ -63,6 +63,17 @@ public record ParametrosRecompensa(
     BigDecimal tokensPorCemLitros,
 
     /**
+     * Adicional por real ofertado por um terceiro — hoje, a transportadora no webhook de entrega
+     * falida. Zero em toda missão criada por usuário, que não tem como informar valor.
+     *
+     * <p><b>Não é uma cotação token↔real.</b> É calibração de urgência: peso, volume e distância
+     * medem esforço, e o valor ofertado é a única pista de quanto a entrega importa para quem a
+     * paga. Baixo de propósito — se fosse alto, o parceiro compraria posição na lista e a economia
+     * do cuidado viraria leilão.
+     */
+    BigDecimal tokensPorRealOfertado,
+
+    /**
      * Teto absoluto por missão.
      *
      * <p>Existe mesmo com a fórmula fechada porque insumo declarado pelo criador ainda é insumo:

@@ -121,6 +121,11 @@ class MigracaoTest extends TesteIntegracaoBase {
 
     // ocupacao de cada ponto == encomendas fisicamente lá: pendentes + convertidas cuja missão
     // ainda não concluiu. Encomenda de missão CONCLUIDA já saiu da custódia.
+    //
+    // A V21 acrescentou um terceiro caso que NÃO conta: a entrega RECUSADA por falta de vaga. Ela
+    // é gravada — a transportadora precisa saber o que aconteceu com o pacote — mas nunca entrou
+    // no ponto, então somá-la exigiria ocupacao + 1 num ponto lotado justamente por não caber mais
+    // nada. Sem o filtro de recusada_em, o primeiro webhook recusado reprovaria este teste.
     long incoerentes =
         jdbcTemplate.queryForObject(
             """
@@ -128,6 +133,7 @@ class MigracaoTest extends TesteIntegracaoBase {
               SELECT pc.id
                 FROM ponto_custodia pc
                 LEFT JOIN entrega_falida ef ON ef.ponto_custodia_id = pc.id
+                                           AND ef.recusada_em IS NULL
                 LEFT JOIN missao m          ON m.id = ef.missao_id
                GROUP BY pc.id, pc.ocupacao
               HAVING pc.ocupacao <>

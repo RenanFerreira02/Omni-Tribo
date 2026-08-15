@@ -40,13 +40,25 @@ Maturidade real por módulo (o alvo é o de cima; o de hoje é este):
 Módulo só fala com módulo por porta em `api/`. As de hoje:
 - `carteira/api/` — `CreditoRecompensa`, `FinanciamentoMissao`, `EstornoPote`,
   `ProvisionamentoCarteira`
-- `identidade/api/` — `ProgressaoUsuario`, `ConsultaAfiliacao`
+- `missoes/api/` — `ConversaoEntregaFalida` (o webhook de transportadora cria a missão de retirada
+  por aqui; `logistica` não pode importar `missoes.dominio`)
+- `logistica/api/` — `BaixaCustodia` (a contraparte: a conclusão da missão libera a vaga). São DUAS
+  classes de serviço em `logistica/dominio` de propósito — juntas fechariam o ciclo de beans
+  `MissaoService → EntregaFalidaService → MissaoService`
+- `identidade/api/` — `ProgressaoUsuario` (concede XP, deriva nível e filtra por nível em lote),
+  `ConsultaAfiliacao`, `ConsultaConsentimento` (quem pode ser notificado — consulta em MASSA, porque
+  `ConsentimentoService.listar` resolve o estado atual em Java e não escala para o fan-out),
+  `UsuarioSistema` (o UUID fixo do criador das missões automáticas), `ConsultaSessao` (o `JwtAuthFilter`
+  a consulta a cada requisição — é o que faz papel e anonimização serem reconferidos; ADR 0016)
 - `geolocalizacao/api/` — `RegistroCheckin` (`missoes` injeta pela INTERFACE, porque é o tipo
   declarado no campo que o ArchUnit inspeciona — injetar a implementação passaria a compilar e
   quebraria o teste de arquitetura)
 - `notificacoes/api/` — `DespachoAlerta` (`compartilhado` injeta pela INTERFACE: é isento como
   ALVO, mas continua sendo ORIGEM, e nomear a implementação reprovaria o ArchUnit)
 - `compartilhado/api/` — `PublicadorEventos`, `PaginaResponse`, `RecursoAuditavel`,
+  `AuditoriaPersistencia`, `ConsultasGeoespaciais`, `EmissorDeToken`, `ControleDeTentativasLogin`,
+  `AtributosWebhook` (a chave do atributo onde o filtro HMAC publica a transportadora VERIFICADA —
+  o controller lê de lá, nunca do cabeçalho cru),
   `DadosPessoaisDoUsuario` (porta com PLUGINS: cada módulo publica a própria seção da exportação
   LGPD, e quem monta o arquivo não nomeia módulo nenhum — é o que evita o ciclo
   `identidade → missoes → identidade`)
@@ -205,11 +217,8 @@ relatório de cobertura em `services/api/target/site/jacoco/`, publicado como ar
 `/api/v1/missoes` — `GET` (lista paginada com filtro) · `GET /proximas` (radar geoespacial) ·
 `POST /previa-recompensa` (calcula sem criar) · `POST`
 · `GET /{id}` · `PATCH /{id}`, mais as ações `POST /{id}/{acao}`: `publicar`, `aceitar`, `iniciar`,
-`desistir`, `cancelar`, `contestar`, `checkin`, `confirmar` e `resolver` (este último só ADMIN).
-**Nenhuma ação responde 501 desde o merge de F5+F6** — o handler de `UnsupportedOperationException`
-em `GlobalExceptionHandler` virou código morto (`GlobalExceptionHandler.java:199`, nada lança a
-exceção), e há um comentário obsoleto em `MissaoController` (~linha 298) dizendo que o check-in
-"continua pendente (F6)" e "responde 501". Não responde.
+`desistir`, `cancelar`, `contestar`, `checkin`, `confirmar`, `resolver` e `destravar` (os dois
+últimos só ADMIN).
 
 `/api/v1/carteira` — `GET` (saldo) · `GET /lancamentos` (extrato paginado) · `POST /transferencias`
 · `POST /saques`. Os dois POST exigem header `Idempotency-Key`.
@@ -234,6 +243,12 @@ essa checagem por uma consulta com joins em toda abertura do app.
 `/api/v1/clima?lat&lon` e `/api/v1/enderecos/{cep}` — provedores EXTERNOS (Open-Meteo, ViaCEP)
 atrás da nossa fronteira. Falha do provedor responde **503** com
 `type` `servico-externo-indisponivel`, e a reação de UI é ESCONDER o recurso. Ver ADR 0011.
+
+`POST /api/v1/webhooks/transportadora` — entrada de entregas falidas. **Único endpoint de escrita
+sem JWT**, autenticado por HMAC-SHA256 sobre o CORPO BRUTO (cabeçalhos `X-Transportadora`,
+`X-Timestamp`, `X-Assinatura`). Idempotente por `(transportadora, codigoRastreio)`. Ponto lotado
+responde **200 com desfecho RECUSADA** — não é erro HTTP, e devolver 4xx faria a transportadora
+reenviar em laço contra um ponto que continuará lotado. Ver ADR 0021.
 
 `GET /api/v1/ping`, do `PingController` em `compartilhado`.
 
@@ -284,7 +299,10 @@ CI (`.github/workflows/`), três workflows:
   nada é gravado na web · **0014 expiração com uma transação por missão** (fecha o deadlock e o item
   envenenado) · **0015 destravamento de estados sem saída** · **0016 autorização reconferida por
   requisição** · **0017 papéis de banco separados** (a aplicação não pode alterar o ledger) ·
-  0018 fronteira de `compartilhado` · 0019 borda HTTP e cabeçalho não confiável.
+  0018 fronteira de `compartilhado` · 0019 borda HTTP e cabeçalho não confiável ·
+  **0020 ponto de custódia comercial e proximidade por tribo** (por que divergimos dos 50 m do
+  brief, e por que "perto" é distância MÍNIMA e não ao centroide) · **0021 verificação de webhook**
+  (corpo bruto, carimbo dentro do material assinado, 401 indistinguível, segredo em config).
   Os seis últimos são da verificação de 2026-08-11 e cada um registra a alternativa descartada com o
   motivo MEDIDO — vários deles são a resposta a "por que não fizemos o óbvio?".
 - `docs/qualidade/integridade-transacional.md` — evidência de concorrência da carteira (100 threads,
@@ -293,6 +311,7 @@ CI (`.github/workflows/`), três workflows:
 - `docs/seguranca/antifraude-geolocalizacao.md` — o que os controles de check-in **não** pegam.
 - `docs/evidencias/f6-explain-analyze.md` — saída real do `EXPLAIN ANALYZE` provando uso do índice
   GiST, gerada por `IndiceGeoespacialTest`.
+- `docs/evidencias/f12-ciclo-ponta-a-ponta.md` — ciclo completo executado ponta a ponta.
 - `docs/INFRA.md` — containers, credenciais de dev, lista completa de usuários seed com tribo.
 - `docs/qualidade/` — evidência de build por data. `docs/diagramas/` vazio.
 - `CONTRIBUTING.md` — tabela de tipos de Conventional Commit aceitos e checklist pré-commit.
@@ -340,16 +359,18 @@ Banco
 - Flyway é a ÚNICA fonte de schema. ddl-auto é sempre validate. Nunca resolva divergência mudando
   ddl-auto — escreva migration.
 - **Versão de migration é sequência GLOBAL, não por diretório.** Duas faixas, separadas de propósito:
-  - `db/migration` — schema, **V1–V8 e V11–V18**; único location do perfil default/prod.
-    Próxima é **V19**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
+  - `db/migration` — schema, **V1–V8 e V11–V21**; único location do perfil default/prod.
+    Próxima é **V22**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
     antes da renomeação para `V900__seed_dev.sql`, então um banco de dev criado antes dela tem as
     versões 9 e 10 gravadas no `flyway_schema_history` com descrição de seed. Um `V9__*.sql` novo em
     `db/migration` passaria em clone novo e falharia em máquina antiga com erro de checksum ou
     "detected applied migration not resolved locally" — divergência que não aparece no CI.
   - `db/seed` — só dev e test (via `application-dev.yml` / `application-test.yml`), faixa **900+**.
-    Hoje são quatro: `V900__seed_dev.sql`, `V901__seed_entregas_falidas.sql`,
-    `V902__seed_alertas_consentimentos.sql` e `V903__seed_cidade_lider.sql` (dados de demonstração
-    na zona leste — ver docs/INFRA.md). **Próximo seed é V904.**
+    Hoje são cinco: `V900__seed_dev.sql`, `V901__seed_entregas_falidas.sql`,
+    `V902__seed_alertas_consentimentos.sql`, `V903__seed_cidade_lider.sql` (dados de demonstração
+    na zona leste — ver docs/INFRA.md) e `V904__seed_entrega_falida_fixtures.sql` (ponto LOTADO e
+    os dois únicos usuários com NOTIFICACAO+LOCALIZACAO vigentes, sem os quais dois caminhos do
+    webhook não têm fixture). **Próximo seed é V905.**
   - A faixa 900+ garante por construção que o seed roda depois de todo schema. Seed novo continua na
     faixa e NUNCA usa um número que o schema possa alcançar. Ver ADR 0006, Notas de manutenção.
   - Como o seed é o último, ele grava dados em forma final: não conte com migration posterior para
@@ -458,11 +479,19 @@ primeiro está corrigido; o segundo continua aberto (ver Pendências).
 
 **Backend fechado até F7, auditado fase a fase.** Os oito
 relatórios em `docs/auditoria/` são o registro do que foi verificado e do que ficou em aberto; a
-rodada corrigiu 7 defeitos, cinco deles invisíveis na leitura do código. **De F8 falta só o
-patrocinador** — logística e notificações já estão implementadas; o commit "F8 - Fundação Mobile" entregou,
-na verdade, F9–F11; `docs/PROGRESSO.md` tem a numeração correta, o histórico do git é que engana.
+rodada corrigiu 7 defeitos, cinco deles invisíveis na leitura do código. O commit "F8 - Fundação
+Mobile" entregou, na verdade, F9–F11; `docs/PROGRESSO.md` tem a numeração correta, o histórico do git
+é que engana.
 
-**Mobile: F9, F10 e F11 implementadas** em `apps/mobile/` (Expo SDK 57). Design system em
+**F8 — "Fim da Entrega Falida" implementado.** O webhook de transportadora existe, autenticado por
+HMAC sobre o corpo bruto (ADR 0021), e converte entrega falida em missão de retirada ABERTA no ponto
+de custódia (ADR 0020): valida vaga sob `FOR UPDATE`, incrementa ocupação, congela recompensa em
+XP+TOKEN, notifica por tribo com consentimento e teto por hora, e dá baixa na custódia quando a
+missão conclui. `tools/carrier-mock/enviar.sh` exercita o caminho feliz e os cinco negativos contra o
+servidor de pé. **De F8 falta só o patrocinador** — ver Pendência #1.
+
+**Mobile: F9 a F12 implementadas** em `apps/mobile/` (Expo SDK 57) — F12 fechou as 7 telas e as
+leituras que faltavam ao backend. Design system em
 `src/theme` + `src/components`, cliente HTTP com rotação única de refresh, sessão com access token
 só em memória e refresh em `expo-secure-store`, rotas `(auth)`/`(tabs)` protegidas, lista de missões
 com radar geoespacial e paginação infinita, detalhe com o ciclo de vida e check-in, carteira com
@@ -521,10 +550,15 @@ Seção para armadilhas diagnosticadas e ainda não corrigidas. Ao resolver uma,
 > - `EM_ANDAMENTO` e `AGUARDANDO_CONFIRMACAO` sem saída — ver a máquina de estados, que agora tem
 >   **17 transições** e varredura por prazo mais porta de ADMIN.
 
-**1. ENTREGA e AJUDA ainda CUNHAM token, até a carteira de patrocinador da F8.** `pagaTokensDoPote`
+**1. ENTREGA e AJUDA ainda CUNHAM token, até a carteira de patrocinador.** `pagaTokensDoPote`
 cobre só TRIBO e COLETA, então a conservação
 `SUM(carteira.saldo_tokens) + SUM(missao.pote_tokens)` vale para essas duas, não para o sistema
 inteiro.
+
+Com o webhook em pé, a lacuna ficou mais VISÍVEL e não mais grave: cada entrega falida convertida
+cunha tokens. O caminho de fechamento já está montado — `valor_ofertado_brl` é gravado em
+`entrega_falida` e a mecânica de pote existe em `FinanciamentoMissao`; falta a carteira do
+patrocinador debitar de fato.
 
 **Isto não foi contornado de propósito, e a razão importa.** Exigir pote para ENTREGA hoje faria
 membros da tribo custearem a logística do varejista — o inverso do modelo. O financiador correto
@@ -534,8 +568,20 @@ do challenge. Preferimos uma lacuna documentada a uma regra errada codificada. F
 carteira de patrocinador financiar o pote pela mecânica que já existe (`FinanciamentoMissao`), e aí
 `pagaTokensDoPote` passa a valer para todas as categorias.
 
-**2. Transferência exige digitar um UUID.** Não existe endpoint que liste membros da tribo, então a
+**2. Missão de entrega falida só conclui pela varredura de prazo.** O criador dela é o
+usuário-sistema (`status = 'INATIVO'`, nunca autentica), e `CONFIRMAR` exige `AtorEsperado.CRIADOR`
+— que compara IDENTIDADE, não papel. Nenhum humano pode confirmar, nem um ADMIN.
+
+Na prática o desfecho é correto e já projetado: `EXPIRAR_CONFIRMACAO` conclui **pagando o executor**,
+porque o check-in geolocalizado é a evidência que o sistema aceita. Mas o executor espera
+`app.missoes.expiracao.prazo-confirmacao` para receber, em vez de ser pago ao entregar. As saídas
+plausíveis são um segundo endpoint de webhook em que a transportadora confirma o recebimento pelo
+destinatário (ela é a contraparte real), ou autoconfirmação no check-in para missões de origem
+SISTEMA. **Não decida isso sozinho** — muda quando o token é cunhado.
+
+**3. Transferência exige digitar um UUID.** Não existe endpoint que liste membros da tribo, então a
 tela pede o identificador do destinatário como texto. Funciona e é inutilizável na prática.
-**Não é esquecimento**: `TriboController.java:22` documenta a omissão como decisão de privacidade —
+**Não é esquecimento**: o javadoc de `identidade/api/TriboController` documenta a omissão como
+decisão de privacidade —
 listar membros daria a qualquer autenticado um mapa social do bairro. A saída não é expor a lista;
 é algo como busca por handle exato ou convite. Não decida isso sozinho.
