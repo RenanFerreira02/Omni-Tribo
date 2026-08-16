@@ -41,8 +41,19 @@ ps: .env ## Lista status dos containers
 psql: .env ## Abre psql conectado ao banco local
 	@docker compose exec db sh -c 'psql -U $$POSTGRES_USER $$POSTGRES_DB'
 
-seed: ## Executa tools/seed — insere dados de teste no banco
-	@echo "não implementado ainda"
+# Não há script de seed, e não é esquecimento: os dados de demonstração são
+# migrations Flyway na faixa 900+ (db/seed), que os perfis dev e test incluem em
+# `flyway.locations`. Ou seja, o seed já roda sozinho no boot da aplicação — um
+# alvo que reinserisse os mesmos dados por fora colidiria com as chaves que a
+# própria migration gravou. Recarregar é `make reset`, que destrói o volume e
+# deixa o Flyway reconstruir schema e seed na ordem correta.
+seed: ## Explica como recarregar os dados de demonstração
+	@echo "O seed não é um passo manual: db/seed/V900+ são migrations Flyway, e"
+	@echo "os perfis dev e test já as aplicam no boot (flyway.locations)."
+	@echo "Para recarregar do zero:  make reset"
 
 test: ## Roda ./mvnw verify (backend) e npm test (mobile)
-	@echo "não implementado ainda"
+	@echo "==> Backend: ./mvnw verify"
+	@cd services/api && ./mvnw verify
+	@echo "==> Mobile: npm test"
+	@cd apps/mobile && npm test

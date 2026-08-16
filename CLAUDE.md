@@ -164,7 +164,10 @@ Testes: JUnit 5 · Testcontainers · ArchUnit · Jest/RTL/MSW
 
 ## Comandos
 
-> `make seed` e `make test` ainda são stubs. Os demais targets (`up`, `down`, `reset`, `logs`, `ps`, `psql`) estão implementados.
+> `make test` roda `./mvnw verify` + `npm test`. `make seed` **não executa nada de propósito**: o
+> seed são migrations Flyway na faixa V900+, já aplicadas no boot dos perfis dev e test — o alvo só
+> explica isso e aponta `make reset`. Os demais (`up`, `down`, `reset`, `logs`, `ps`, `psql`) estão
+> implementados.
 
 Clone novo exige UM passo antes de qualquer `./mvnw verify` ou `spring-boot:run`:
 
@@ -289,7 +292,7 @@ reenviar em laço contra um ponto que continuará lotado. Ver ADR 0021.
 
 ## Automação
 
-São **três** hooks em `.claude/hooks/`, declarados em `.claude/settings.json`. Dois deles NEGAM a
+São **quatro** hooks em `.claude/hooks/`, declarados em `.claude/settings.json`. Dois deles NEGAM a
 operação, e quem não souber que existem vai apanhar de um bloqueio sem entender a causa:
 
 - `checar-segredo.sh` — `PreToolUse`/`Bash`. Só age se o comando contém `git commit`: faz grep no
@@ -303,8 +306,13 @@ operação, e quem não souber que existem vai apanhar de um bloqueio sem entend
 - `formatar-java.sh` — `Stop`. Se há `.java` pendente em `services/api`, resolve `JAVA_HOME`
   (SDKMAN, ou `/usr/lib/jvm/java-21-openjdk` — o `java` do PATH no Fedora é JRE-only) e roda
   `./mvnw -q spotless:apply` ao fim do turno. Ou seja: formatação de Java já não é passo manual
-  antes do `verify`. O mobile **não** tem equivalente — lá o Prettier entra pelo ESLint, e
-  formatação errada aparece como lint vermelho.
+  antes do `verify`.
+- `formatar-mobile.sh` — `PostToolUse`/`Write|Edit`. Roda o Prettier local no arquivo do mobile que
+  acabou de ser escrito (`.ts/.tsx/.js/.jsx/.json` dentro de `apps/mobile`, fora de `node_modules`).
+  É por ARQUIVO, e não por turno como o de Java, porque o Prettier num arquivo custa milissegundos e
+  `prettier --write .` reformataria arquivo que a tarefa não tocou. Fecha a assimetria antiga: no
+  mobile o Prettier entra pelo ESLint, então formatação errada só aparecia como lint vermelho
+  depois, longe da edição que a causou.
 
 CI (`.github/workflows/`), três workflows:
 - `api.yml` — push/PR que toque `services/api/**`. Gera as chaves RSA (`tools/gerar-chaves-dev.sh`)
@@ -325,26 +333,16 @@ CI (`.github/workflows/`), três workflows:
   evidência EXECUTADA (SQL, `curl`, `EXPLAIN ANALYZE`). Classificam cada item como DEFEITO, LACUNA,
   DIVERGÊNCIA ACEITÁVEL, EXCEDENTE ou CONFORME. É onde está o raciocínio por trás de decisões que
   parecem estranhas — inclusive duas premissas de especificação que foram refutadas com medição.
-- `docs/adr/` — decisões com alternativas descartadas. 0001 monólito · 0002 PostGIS · 0003 Expo ·
-  0004 três moedas (**tabela de moedas substituída pelo 0009**) · 0005 JWT+Argon2 · 0006 máquina de
-  estados · 0007 consultas geoespaciais centralizadas · 0008 ledger append-only e idempotência ·
-  **0009 economia do cuidado: TOKEN como recompensa, BRL fora do ciclo** · **0010 granularidade do
-  catálogo de tipos de problema: uma URI por REAÇÃO DE UI** · 0011 dependências externas e
-  anonimização · **0012 mapa por WebView e Leaflet** · 0013 persistência de segredo por plataforma:
-  nada é gravado na web · **0014 expiração com uma transação por missão** (fecha o deadlock e o item
-  envenenado) · **0015 destravamento de estados sem saída** · **0016 autorização reconferida por
-  requisição** · **0017 papéis de banco separados** (a aplicação não pode alterar o ledger) ·
-  0018 fronteira de `compartilhado` · 0019 borda HTTP e cabeçalho não confiável ·
-  **0020 ponto de custódia comercial e proximidade por tribo** (por que divergimos dos 50 m do
-  brief, e por que "perto" é distância MÍNIMA e não ao centroide) · **0021 verificação de webhook**
-  (corpo bruto, carimbo dentro do material assinado, 401 indistinguível, segredo em config) ·
-  **0022 previsão de risco de entrega** (regressão logística em Java puro treinada no `verify`,
-  dataset sintético, limiar escolhido na validação e não no teste, teto do multiplicador).
-  **0023 resiliência das integrações externas** (disjuntor próprio com `Clock` injetado + retry
-  nativo do Framework 7; registra a verificação que mostrou o `resilience4j-spring-boot3` 2.4.0 ser
-  ANTERIOR ao Boot 4.1, e por que o retry roda POR DENTRO do disjuntor).
-  0016–0021 são da verificação de 2026-08-11 e cada um registra a alternativa descartada com o
-  motivo MEDIDO — vários deles são a resposta a "por que não fizemos o óbvio?".
+- `docs/adr/` — decisões com alternativas descartadas. O nome do arquivo é o título, então
+  `ls docs/adr/` é o índice — não mantenha cópia da lista aqui. O que os nomes NÃO dizem:
+  - **A tabela de moedas do 0004 foi substituída pelo 0009.** Ler o 0004 sozinho faz reimplementar
+    BRL dentro do ciclo de missões.
+  - **0016–0021 são da verificação de 2026-08-11**: cada um registra a alternativa descartada com o
+    motivo MEDIDO — vários deles são a resposta a "por que não fizemos o óbvio?".
+  - Os que mudam como se escreve código aqui: 0006 (máquina de estados) · 0007 (geoespacial
+    centralizado) · 0008 (ledger e idempotência) · 0009 (economia) · 0010 (uma URI de erro por
+    REAÇÃO DE UI) · 0018 (fronteira de `compartilhado`) · 0020 (proximidade é distância MÍNIMA, não
+    ao centroide) · 0022 (risco entra na BASE, teto 1,5×) · 0023 (retry POR DENTRO do disjuntor).
 - `docs/qualidade/integridade-transacional.md` — evidência de concorrência da carteira (100 threads,
   deadlock, rollback) e a seção "O que esta fase NÃO garante". É o documento a defender oralmente.
 - `docs/qualidade/modelo-previsao.md` — métricas do modelo de risco, matriz de confusão, correlações
@@ -357,29 +355,23 @@ CI (`.github/workflows/`), três workflows:
   GiST, gerada por `IndiceGeoespacialTest`.
 - `docs/evidencias/f12-ciclo-ponta-a-ponta.md` — ciclo completo executado ponta a ponta.
 - `docs/INFRA.md` — containers, credenciais de dev, lista completa de usuários seed com tribo.
-- `docs/qualidade/` — evidência de build por data (2026-08-05, 08-06 e 08-15; as verificações de
-  08-07 e 08-11 estão nas **Notas de manutenção** do `PROGRESSO.md`, não aqui). Também
+- `docs/evidencias/` — tem **índice próprio** (`README.md`), com o comando que gerou cada evidência
+  e uma seção do que elas NÃO provam. As da F13 medem a execução do zero e a conservação por
+  categoria.
+- `docs/qualidade/` — evidência de build por data (2026-08-05, 08-06, 08-15 e 08-16; as verificações
+  de 08-07 e 08-11 estão nas **Notas de manutenção** do `PROGRESSO.md`, não aqui). Também
   `matriz-rastreabilidade.md`: requisito → endpoint/tela → teste → resultado → evidência, **com os
-  não implementados e a justificativa de cada um** (§2.3). `docs/diagramas/` vazio.
+  não implementados e a justificativa de cada um** (§2.3).
+- `docs/diagramas/` — sete diagramas Mermaid, validados por RENDERIZAÇÃO e não por leitura. A
+  `arquitetura-alvo.md` é a única que descreve o que NÃO existe, e está marcada como tal.
+- `docs/EVOLUCAO-ARQUITETURAL.md` — a linha do tempo das decisões e a história completa do defeito
+  econômico: como foi detectado, por que a reconciliação não o pegou, e a distinção entre as
+  invariantes de reconciliação e conservação. É o documento a defender oralmente.
+- `docs/COMPARATIVO-TECNOLOGIAS.md` · `docs/DIVERGENCIAS-DOCUMENTACAO.md` · `docs/ROTEIRO-DEMO.md` ·
+  `CHANGELOG.md` — entrega acadêmica da F13.
 - `documentacao/` — o PDF da entrega acadêmica. Não é fonte de verdade técnica: envelhece a cada
   fase e não é atualizado junto com o código.
 - `CONTRIBUTING.md` — tabela de tipos de Conventional Commit aceitos e checklist pré-commit.
-
-## Skills e agentes disponíveis
-
-- `/verificar` — roda verificação completa (mvnw verify + typecheck + lint + test + docker compose ps) e reporta verde/vermelho. Use antes de abrir PR. **Nunca declare sucesso sem rodar isso.**
-  O passo 0 é condicional: se o diff tocou `db/migration` ou `db/seed`, `make reset` vem ANTES do
-  resto — ver a seção Banco para o porquê.
-- `/adr <assunto>` — cria `docs/adr/NNNN-<slug>.md` com o próximo número. Template exige Alternativas descartadas com motivo real.
-- `/migration <assunto>` — cria a migration Flyway já com o número certo da sequência GLOBAL,
-  conferindo faixas queimadas, faixa de seed e branches abertas. É o caminho sancionado; escrever o
-  arquivo à mão esbarra no hook `guardar-migration.sh`.
-- `/commit` — aplica o checklist pré-commit do `CONTRIBUTING.md` e monta a mensagem Conventional
-  Commit. Só o usuário dispara (`disable-model-invocation: true`) — não é invocável por mim.
-- Agente `auditor` — audita uma fase contra a especificação e entrega relatório em
-  `docs/auditoria/FN.md`. **Não altera arquivo do projeto.** Regra central: medir antes de afirmar.
-- Agente `revisor-seguranca` — revisa autenticação, autorização, endpoints de valor, webhooks, dados pessoais. Checar após implementar qualquer um desses.
-- Agente `revisor-testes` — avalia se a suíte realmente garante comportamento (não conta testes, avalia o que cobrem). Rodar ao fechar fase.
 
 ## Convenções por camada
 
@@ -521,16 +513,18 @@ entrega é um relatório em `docs/auditoria/FN.md`, e só ele.
 
 ## Estado atual
 
-**Backend fechado até F7 e auditado fase a fase, F8 implementada, mobile F9–F12 implementadas.**
-Build verde, 0 falhas, SpotBugs limpo. As duas auditorias do mobile acharam **dois defeitos que uma
+**Backend fechado até F7 e auditado fase a fase, F8 implementada, mobile F9–F12 implementadas,
+F13 (entrega final) concluída em 2026-08-16.** Build verde, 0 falhas, SpotBugs limpo, os dois gates
+JaCoCo passando. As duas auditorias do mobile acharam **dois defeitos que uma
 revisão comum deixou passar** — a aba de missões gastando o prompt de permissão sem justificativa, e
 a conta anonimizada continuando a escrever por 15 minutos. **Os dois estão corrigidos** (o segundo na
 verificação de 2026-08-11 — ver Pendências). Detalhe por fase em `docs/PROGRESSO.md`.
 
 **O histórico do git engana na numeração das fases**: o commit "F8 - Fundação Mobile" entregou, na
-verdade, F9–F11, e a branch `feat/f13-previsao-risco-entrega` entregou **F12c** — F13 ("Entrega
-final") continua PENDENTE. `docs/PROGRESSO.md` tem a numeração correta — não infira fase do
-`git log`.
+verdade, F9–F11, e a branch `feat/f13-previsao-risco-entrega` entregou **F12c** — a F13 de verdade
+saiu depois, na branch `docs/f13-entrega-final`. **F12b (testes de carga e endurecimento) continua
+PENDENTE e é a única fase em aberto.** `docs/PROGRESSO.md` tem a numeração correta — não infira fase
+do `git log`.
 
 **F8 — "Fim da Entrega Falida".** O webhook de transportadora, autenticado por HMAC sobre o corpo
 bruto (ADR 0021), converte entrega falida em missão de retirada ABERTA no ponto de custódia

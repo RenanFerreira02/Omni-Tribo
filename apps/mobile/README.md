@@ -124,6 +124,53 @@ src/
   testes/            MSW, fixtures e helper de render
 ```
 
+## Build de APK com EAS
+
+> ⚠️ **O `eas.json` está configurado, mas nenhum build foi executado neste ciclo.** Rodar um build
+> exige conta Expo, autenticação e rede — nada disso é pré-requisito do projeto, e a demonstração
+> acontece pelo Expo Go. O que está aqui é o procedimento pronto, não um artefato produzido.
+
+Para a demonstração, **você não precisa de APK**: `npm start` e o QR code no Expo Go bastam, porque
+todos os módulos nativos usados já vêm no Expo Go do SDK 57. O APK só é necessário para distribuir
+o app a quem não vai instalar o Expo Go.
+
+### Perfis definidos em `eas.json`
+
+| Perfil | Saída | Para quê |
+|---|---|---|
+| `development` | APK com *dev client* | depurar módulo nativo que não existe no Expo Go |
+| `preview` | **APK**, distribuição interna | é este que se manda por link ou WhatsApp para alguém instalar |
+| `production` | AAB (*app bundle*) | formato exigido pela Play Store; **não instala direto no aparelho** |
+
+### Procedimento
+
+```bash
+npm install -g eas-cli          # ou: npx eas-cli@latest
+eas login                       # exige conta Expo (gratuita)
+
+cd apps/mobile
+eas init                        # cria o projeto na conta e grava o projectId em app.config.ts
+eas build --platform android --profile preview
+```
+
+O build roda **na infraestrutura da Expo**, não na sua máquina — no fim, a CLI imprime uma URL de
+download do `.apk`. Fila e duração variam com o plano da conta.
+
+### Três coisas que vão morder
+
+1. **`appVersionSource` está como `local`**: a versão vem do `version: '1.0.0'` de `app.config.ts`.
+   Suba-a a cada build que for distribuído, ou os artefatos ficam indistinguíveis.
+2. **`production` gera AAB e não instala no aparelho.** Para instalar direto, é `preview`.
+3. **A URL da API precisa ser alcançável pelo aparelho.** O padrão deriva do host do Metro, que não
+   existe num APK autônomo — passe `EXPO_PUBLIC_API_URL` no build, apontando para um endereço que o
+   aparelho enxergue. `localhost` aponta para o próprio telefone e vai falhar em silêncio:
+
+   ```bash
+   EXPO_PUBLIC_API_URL=http://192.168.15.6:8080 eas build -p android --profile preview
+   ```
+
+   Um backend rodando na sua máquina só é alcançável enquanto o aparelho estiver na mesma rede.
+
 ## Decisões que valem conhecer antes de mexer
 
 - **Erro é discriminado pelo `type` do ProblemDetail, NUNCA pelo `detail`.** O catálogo vive em
