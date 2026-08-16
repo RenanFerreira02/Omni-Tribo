@@ -164,7 +164,10 @@ Testes: JUnit 5 · Testcontainers · ArchUnit · Jest/RTL/MSW
 
 ## Comandos
 
-> `make seed` e `make test` ainda são stubs. Os demais targets (`up`, `down`, `reset`, `logs`, `ps`, `psql`) estão implementados.
+> `make test` roda `./mvnw verify` + `npm test`. `make seed` **não executa nada de propósito**: o
+> seed são migrations Flyway na faixa V900+, já aplicadas no boot dos perfis dev e test — o alvo só
+> explica isso e aponta `make reset`. Os demais (`up`, `down`, `reset`, `logs`, `ps`, `psql`) estão
+> implementados.
 
 Clone novo exige UM passo antes de qualquer `./mvnw verify` ou `spring-boot:run`:
 
@@ -352,10 +355,20 @@ CI (`.github/workflows/`), três workflows:
   GiST, gerada por `IndiceGeoespacialTest`.
 - `docs/evidencias/f12-ciclo-ponta-a-ponta.md` — ciclo completo executado ponta a ponta.
 - `docs/INFRA.md` — containers, credenciais de dev, lista completa de usuários seed com tribo.
-- `docs/qualidade/` — evidência de build por data (2026-08-05, 08-06 e 08-15; as verificações de
-  08-07 e 08-11 estão nas **Notas de manutenção** do `PROGRESSO.md`, não aqui). Também
+- `docs/evidencias/` — tem **índice próprio** (`README.md`), com o comando que gerou cada evidência
+  e uma seção do que elas NÃO provam. As da F13 medem a execução do zero e a conservação por
+  categoria.
+- `docs/qualidade/` — evidência de build por data (2026-08-05, 08-06, 08-15 e 08-16; as verificações
+  de 08-07 e 08-11 estão nas **Notas de manutenção** do `PROGRESSO.md`, não aqui). Também
   `matriz-rastreabilidade.md`: requisito → endpoint/tela → teste → resultado → evidência, **com os
-  não implementados e a justificativa de cada um** (§2.3). `docs/diagramas/` vazio.
+  não implementados e a justificativa de cada um** (§2.3).
+- `docs/diagramas/` — sete diagramas Mermaid, validados por RENDERIZAÇÃO e não por leitura. A
+  `arquitetura-alvo.md` é a única que descreve o que NÃO existe, e está marcada como tal.
+- `docs/EVOLUCAO-ARQUITETURAL.md` — a linha do tempo das decisões e a história completa do defeito
+  econômico: como foi detectado, por que a reconciliação não o pegou, e a distinção entre as
+  invariantes de reconciliação e conservação. É o documento a defender oralmente.
+- `docs/COMPARATIVO-TECNOLOGIAS.md` · `docs/DIVERGENCIAS-DOCUMENTACAO.md` · `docs/ROTEIRO-DEMO.md` ·
+  `CHANGELOG.md` — entrega acadêmica da F13.
 - `documentacao/` — o PDF da entrega acadêmica. Não é fonte de verdade técnica: envelhece a cada
   fase e não é atualizado junto com o código.
 - `CONTRIBUTING.md` — tabela de tipos de Conventional Commit aceitos e checklist pré-commit.
@@ -500,16 +513,18 @@ entrega é um relatório em `docs/auditoria/FN.md`, e só ele.
 
 ## Estado atual
 
-**Backend fechado até F7 e auditado fase a fase, F8 implementada, mobile F9–F12 implementadas.**
-Build verde, 0 falhas, SpotBugs limpo. As duas auditorias do mobile acharam **dois defeitos que uma
+**Backend fechado até F7 e auditado fase a fase, F8 implementada, mobile F9–F12 implementadas,
+F13 (entrega final) concluída em 2026-08-16.** Build verde, 0 falhas, SpotBugs limpo, os dois gates
+JaCoCo passando. As duas auditorias do mobile acharam **dois defeitos que uma
 revisão comum deixou passar** — a aba de missões gastando o prompt de permissão sem justificativa, e
 a conta anonimizada continuando a escrever por 15 minutos. **Os dois estão corrigidos** (o segundo na
 verificação de 2026-08-11 — ver Pendências). Detalhe por fase em `docs/PROGRESSO.md`.
 
 **O histórico do git engana na numeração das fases**: o commit "F8 - Fundação Mobile" entregou, na
-verdade, F9–F11, e a branch `feat/f13-previsao-risco-entrega` entregou **F12c** — **F12b (testes de
-carga e endurecimento) e F13 ("Entrega final") continuam PENDENTES.** `docs/PROGRESSO.md` tem a
-numeração correta — não infira fase do `git log`.
+verdade, F9–F11, e a branch `feat/f13-previsao-risco-entrega` entregou **F12c** — a F13 de verdade
+saiu depois, na branch `docs/f13-entrega-final`. **F12b (testes de carga e endurecimento) continua
+PENDENTE e é a única fase em aberto.** `docs/PROGRESSO.md` tem a numeração correta — não infira fase
+do `git log`.
 
 **F8 — "Fim da Entrega Falida".** O webhook de transportadora, autenticado por HMAC sobre o corpo
 bruto (ADR 0021), converte entrega falida em missão de retirada ABERTA no ponto de custódia
