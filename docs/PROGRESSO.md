@@ -17,7 +17,7 @@
 | F12  | App mobile completo (7 telas) + leituras que faltavam | ✅ Concluído | [completo](auditoria/mobile-completo.md) | 2026-08-09 |
 | F12b | Testes de carga e endurecimento       | ⬜ Pendente  | —         | —          |
 | F12c | Previsão de risco de falha de entrega | ✅ Concluído | [modelo](qualidade/modelo-previsao.md) | 2026-08-15 |
-| F13  | Entrega final                         | ⬜ Pendente  | —         | —          |
+| F13  | Entrega final                         | ✅ Concluído | [evidências](evidencias/) | 2026-08-16 |
 
 > **A numeração acima é a dos COMMITS e das auditorias, e foi corrigida em 2026-08-08.** A tabela
 > anterior estava deslocada a partir da F2 (chamava a fase de API de "Identidade e Autenticação") e
@@ -25,9 +25,14 @@
 > formas diferentes — o commit da carteira se chama "F7" e a tabela a chamava de "F5". Agora tabela,
 > commits e `docs/auditoria/FN.md` usam a mesma numeração.
 
-**Backend verde com 457 testes**, 0 falhas, SpotBugs limpo. **Mobile com 128 testes** Jest/RTL/MSW,
-typecheck e lint sem erro, mais **19 testes de integração** contra a API em execução — destes, 12
-são o ciclo ponta a ponta com dois usuários reais (`docs/evidencias/f12-ciclo-ponta-a-ponta.md`).
+**Backend verde com 637 testes** (0 falhas, 0 erros, 2 pulados), SpotBugs limpo e os dois gates
+JaCoCo passando. **Mobile com 179 testes** Jest/RTL/MSW em 14 suítes, typecheck e lint sem erro.
+Medido em 2026-08-16 por `make test` — saída em
+[`evidencias/f13-make-test.md`](evidencias/f13-make-test.md).
+
+Os testes de integração contra a API em execução ficam **fora** do `npm test`, de propósito
+(`jest.e2e.config.js`); o ciclo ponta a ponta com dois usuários reais está em
+[`evidencias/f12-ciclo-ponta-a-ponta.md`](evidencias/f12-ciclo-ponta-a-ponta.md).
 
 **F8 está PARCIAL, e a distinção importa.** O que era a parte grande foi entregue em 2026-08-14: o
 módulo **"Fim da Entrega Falida"**, que é a tese do produto. Webhook de transportadora autenticado
@@ -46,6 +51,36 @@ contra o sistema em execução. Quatro defeitos; dois corrigidos no mesmo dia, d
 Pendências do CLAUDE.md.
 
 ## Notas de manutenção
+
+- **2026-08-16** — **F13, entrega final: a documentação passa a ser verificável.** Quatro coisas
+  saíram desta fase e três delas são correções, não adições.
+
+  **O README foi executado, não revisado.** Com o volume do banco e as chaves RSA destruídos antes,
+  segui o próprio README ao pé da letra. Uma instrução não sobreviveu: ele mandava confirmar
+  *"healthy"* na saída de `make ps`, e o compose desta máquina imprime apenas `Up 50 seconds` — o
+  estado de saúde só aparece pedindo o campo explicitamente. Quem seguisse a instrução concluiria
+  que o banco não subiu. Corrigido. O log está em
+  [`evidencias/f13-execucao-do-zero.md`](evidencias/f13-execucao-do-zero.md).
+
+  **A contagem de testes estava errada há uma fase.** Este arquivo e o README diziam 457 no backend
+  e 128 no mobile; a medição real deu **637 e 179**. Os números não foram atualizados depois da
+  rodada de resiliência de 08-15, o que é exatamente o tipo de afirmação sem evidência que a
+  varredura final desta fase existia para achar. Agora ambos apontam para o arquivo de saída.
+
+  **A conservação foi remedida do zero, e o resultado é a melhor peça de defesa do projeto.** Dois
+  ciclos completos por HTTP: AJUDA cunhou exatamente o valor da recompensa (Δ=+30) e TRIBO financiada
+  conservou (Δ=0) — **com a reconciliação respondendo `integro=true` nos dois casos**. É a
+  demonstração executada de que reconciliação e conservação são invariantes diferentes e só uma tem
+  endpoint. Script versionado em `tools/evidencias/`.
+
+  **Os diagramas foram validados por renderização, não por leitura.** Os sete arquivos Mermaid
+  passaram pelo `mermaid-cli` 11.16, e um erro real apareceu aí: `∈ [1,00; 1,50]` dentro de uma
+  mensagem de `sequenceDiagram` abre um token que o parser não espera, e o bloco inteiro deixa de
+  renderizar. Num documento de entrega, isso apareceria como um espaço em branco na frente da banca.
+
+  Fecham a fase: `CHANGELOG.md`, o índice de `evidencias/`, o comparativo de tecnologia mobile, o
+  documento de divergências contra o PETI, o roteiro de demonstração e o `eas.json` — este último
+  **configurado e não executado**, o que está declarado onde ele é citado.
 
 - **2026-08-15** — **Resiliência das integrações externas e gates bloqueantes.** Cinco coisas que só
   apareceram ao construir.

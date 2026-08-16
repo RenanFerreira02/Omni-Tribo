@@ -90,7 +90,7 @@ Saída completa e colada em [`verificacao-2026-08-15.md`](verificacao-2026-08-15
 
 | Área | Comando | Resultado |
 |---|---|---|
-| Backend | `./mvnw verify` | ✅ **636 testes**, 0 falhas, 0 erros, 2 pulados |
+| Backend | `./mvnw verify` | ✅ **637 testes**, 0 falhas, 0 erros, 2 pulados |
 | Cobertura | `jacoco:check` ×2 | ✅ *All coverage checks have been met* |
 | Análise estática | `spotbugs:check` | ✅ *BugInstance size is 0* |
 | Formatação | `spotless:check` | ✅ 328 arquivos limpos |
