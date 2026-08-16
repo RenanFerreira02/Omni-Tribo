@@ -42,6 +42,19 @@
 				]
 			}
 		],
+		"PostToolUse": [
+			{
+				"matcher": "Write|Edit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": ".claude/hooks/formatar-mobile.sh",
+						"timeout": 30,
+						"statusMessage": "Aplicando Prettier..."
+					}
+				]
+			}
+		],
 		"Stop": [
 			{
 				"hooks": [

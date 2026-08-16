@@ -53,3 +53,6 @@ services/api/keys/
 # existe na máquina de quem criou. Foi o que aconteceu em da1ed70: o GitHub recebeu um ponteiro
 # pendurado, sem `.gitmodules`, apontando para um objeto que o servidor não tem.
 .claude/worktrees/
+
+# ── Claude Code (pessoal, não versionado) ─────────────────────────────────────
+CLAUDE.local.md
