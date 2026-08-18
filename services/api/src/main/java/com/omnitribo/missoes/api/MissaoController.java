@@ -1,0 +1,454 @@
+package com.omnitribo.missoes.api;
+
+import com.omnitribo.compartilhado.api.PaginaResponse;
+import com.omnitribo.geolocalizacao.api.CheckinRejeitadoException;
+import com.omnitribo.identidade.api.AutenticadoPrincipal;
+import com.omnitribo.missoes.dominio.AtorMissao;
+import com.omnitribo.missoes.dominio.MissaoService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/v1/missoes")
+@Tag(name = "Missões", description = "Cadastro e ciclo de vida de missões")
+@SecurityRequirement(name = "bearerAuth")
+public class MissaoController {
+
+  private final MissaoService missaoService;
+
+  public MissaoController(MissaoService missaoService) {
+    this.missaoService = missaoService;
+  }
+
+  @GetMapping
+  @Operation(
+      summary = "Listar missões",
+      description =
+          "Paginado, com filtros opcionais. Rascunhos só aparecem para o próprio criador — a "
+              + "regra roda dentro da consulta, então nem o totalElementos vaza rascunho alheio.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Página de missões"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public PaginaResponse<MissaoResponse> listar(
+      @Valid @ModelAttribute MissaoFiltroRequest filtro,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    return missaoService.listar(filtro, ator(principal, autenticacao));
+  }
+
+  // Segmento literal antes de /{id}: o PathPattern do Spring MVC ordena literal acima de variável,
+  // então /proximas nunca é capturado pelo handler de /{id} — independe da ordem de declaração.
+  @GetMapping("/proximas")
+  @Operation(
+      summary = "Buscar missões próximas (radar)",
+      description =
+          "Missões ABERTA dentro do raio, da mais próxima para a mais distante. A distância é "
+              + "medida no servidor por PostGIS (ST_DWithin + ST_Distance) sobre a coordenada "
+              + "informada; valor calculado no cliente é ignorado. Raio default 2000 m, máximo "
+              + "20000 m. O resultado é cacheado por 30 s por célula de ~150 m.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Missões ordenadas por distância crescente"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public List<MissaoProximaResponse> proximas(
+      @Valid @ModelAttribute MissaoProximaFiltroRequest filtro) {
+    // Sem AtorMissao: a busca só devolve missões ABERTA, que são visíveis a qualquer autenticado.
+    // Nada aqui depende de quem pergunta — é o que permite o cache compartilhado entre usuários.
+    return missaoService.buscarProximas(filtro);
+  }
+
+  @PostMapping("/previa-recompensa")
+  @Operation(
+      summary = "Prévia da recompensa",
+      description =
+          "Calcula quanto a missão valeria, sem criar nada. Existe para que o app mostre o valor "
+              + "antes de publicar SEM duplicar a fórmula no cliente — duplicá-la reabriria por "
+              + "outro caminho a divergência entre o que a tela promete e o que o servidor paga. "
+              + "Aceita o mesmo corpo da criação e aplica as mesmas regras de insumo.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Recompensa calculada"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public PreviaRecompensaResponse previaRecompensa(@Valid @RequestBody CriarMissaoRequest request) {
+    return PreviaRecompensaResponse.de(missaoService.calcularRecompensa(request));
+  }
+
+  @PostMapping
+  @ResponseStatus(HttpStatus.CREATED)
+  @Operation(
+      summary = "Criar missão",
+      description =
+          "A missão nasce em RASCUNHO e pertence ao usuário do token. NENHUMA categoria remunera "
+              + "em BRL (ADR 0009): a recompensa é XP + tokens, CALCULADA PELO SERVIDOR a partir "
+              + "de categoria, complexidade, distância, peso e volume, e congelada com a versão da "
+              + "fórmula. Use /previa-recompensa para exibir o valor antes de criar.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "201", description = "Missão criada em RASCUNHO"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public MissaoResponse criar(
+      @Valid @RequestBody CriarMissaoRequest request,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    return missaoService.criar(request, ator(principal, autenticacao));
+  }
+
+  @GetMapping("/{id}")
+  @Operation(
+      summary = "Buscar missão por id",
+      description =
+          "Rascunho de outro usuário responde 404, nunca 403 — 403 confirmaria que existe.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Missão encontrada"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public MissaoResponse buscar(
+      @PathVariable UUID id,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    return missaoService.buscarPorId(id, ator(principal, autenticacao));
+  }
+
+  @PatchMapping("/{id}")
+  @Operation(
+      summary = "Editar missão",
+      description =
+          "Só o criador, e só enquanto RASCUNHO ou ABERTA. Recompensa, categoria, status e "
+              + "executor não são editáveis: enviá-los no corpo não tem efeito.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Missão atualizada"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public MissaoResponse atualizar(
+      @PathVariable UUID id,
+      @Valid @RequestBody AtualizarMissaoRequest request,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    return missaoService.atualizar(id, request, ator(principal, autenticacao));
+  }
+
+  @PostMapping("/{id}/publicar")
+  @Operation(
+      summary = "Publicar missão",
+      description =
+          "RASCUNHO → ABERTA. Só o criador. A partir daqui a missão é visível a todos. Missão "
+              + "TRIBO/COLETA com recompensa em tokens exige o pote já financiado, senão 422: como "
+              + "a conclusão paga DO pote, publicar sem cobertura criaria uma missão que ninguém "
+              + "consegue concluir.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Missão publicada"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito"),
+    @ApiResponse(responseCode = "422", ref = "#/components/responses/RegraNegocioViolada"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public MissaoResponse publicar(
+      @PathVariable UUID id,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    return missaoService.publicar(id, ator(principal, autenticacao));
+  }
+
+  @PostMapping("/{id}/aceitar")
+  @Operation(
+      summary = "Aceitar missão",
+      description =
+          "ABERTA → ACEITA, vinculando o usuário do token como executor. Serializado por lock "
+              + "pessimista: em disputa concorrente exatamente um aceite vence e os demais recebem "
+              + "409. O criador não pode aceitar a própria missão. Aceitar NÃO credita nada — "
+              + "crédito só existe em CONCLUIDA.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Missão aceita"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public MissaoResponse aceitar(
+      @PathVariable UUID id,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    return missaoService.aceitar(id, ator(principal, autenticacao));
+  }
+
+  @PostMapping("/{id}/iniciar")
+  @Operation(summary = "Iniciar execução", description = "ACEITA → EM_ANDAMENTO. Só o executor.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Execução iniciada"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public MissaoResponse iniciar(
+      @PathVariable UUID id,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    return missaoService.iniciar(id, ator(principal, autenticacao));
+  }
+
+  @PostMapping("/{id}/desistir")
+  @Operation(
+      summary = "Desistir da missão",
+      description =
+          "ACEITA → ABERTA. Só o executor. A missão volta ao pool sem executor; quem desistiu "
+              + "fica registrado na trilha de eventos.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Desistência registrada"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public MissaoResponse desistir(
+      @PathVariable UUID id,
+      @Valid @RequestBody(required = false) MotivoRequest corpo,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    return missaoService.desistir(id, ator(principal, autenticacao), motivo(corpo));
+  }
+
+  @PostMapping("/{id}/cancelar")
+  @Operation(
+      summary = "Cancelar missão",
+      description = "ABERTA ou ACEITA → CANCELADA. Só o criador.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Missão cancelada"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public MissaoResponse cancelar(
+      @PathVariable UUID id,
+      @Valid @RequestBody(required = false) MotivoRequest corpo,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    return missaoService.cancelar(id, ator(principal, autenticacao), motivo(corpo));
+  }
+
+  @PostMapping("/{id}/contestar")
+  @Operation(
+      summary = "Contestar entrega",
+      description =
+          "AGUARDANDO_CONFIRMACAO → EM_DISPUTA. Só o criador. A disputa só é resolvida por ADMIN.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Contestação registrada"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public MissaoResponse contestar(
+      @PathVariable UUID id,
+      @Valid @RequestBody(required = false) MotivoRequest corpo,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    return missaoService.contestar(id, ator(principal, autenticacao), motivo(corpo));
+  }
+
+  // ─── Check-in geolocalizado ────────────────────────────────────────────────────────────────
+  // A ordem aqui é 403 → sondagem de idempotência → 409 → gravação, e não a 403 → 409 → 422 do
+  // resto da API: um replay legítimo chega com a missão já em AGUARDANDO_CONFIRMACAO e levaria 409
+  // se a sondagem viesse depois. Ver services/api/CLAUDE.md.
+
+  @PostMapping("/{id}/checkin")
+  @Operation(
+      summary = "Registrar check-in geolocalizado",
+      description =
+          "EM_ANDAMENTO → AGUARDANDO_CONFIRMACAO. A distância até a origem é calculada no servidor "
+              + "por PostGIS e comparada com raio_checkin_m — valor vindo do cliente é ignorado. "
+              + "Rejeições respondem 422 e FICAM REGISTRADAS na tabela checkin com o motivo: a "
+              + "trilha é evidência antifraude, não subproduto do sucesso. O header "
+              + "Idempotency-Key é obrigatório; repetir a mesma chave devolve o mesmo resultado "
+              + "sem gravar novo registro.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Check-in aceito; missão transicionada"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito"),
+    @ApiResponse(responseCode = "422", ref = "#/components/responses/RegraNegocioViolada"),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public MissaoResponse checkin(
+      @PathVariable UUID id,
+      @Valid @RequestBody RegistrarCheckinRequest request,
+      // required=true: a ausência vira 400 pelo próprio framework, sem exceção de domínio.
+      // O @Size não protege o banco (a coluna guarda o sha256, de tamanho fixo) — protege o
+      // cliente de si mesmo: chave vazia ou constante o prenderia para sempre no replay do
+      // primeiro check-in daquela missão, inclusive no de uma rejeição.
+      @RequestHeader("Idempotency-Key") @NotBlank @Size(min = 8, max = 200)
+          String chaveIdempotencia,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    ResultadoRegistroCheckin resultado =
+        missaoService.registrarCheckin(
+            id, ator(principal, autenticacao), request, chaveIdempotencia);
+
+    // O 422 é lançado AQUI, fora da transação, e não lá dentro. Lançar de dentro faria rollback da
+    // linha que acabou de ser gravada em `checkin` — e essa linha é a trilha antifraude, que
+    // precisa sobreviver justamente às tentativas recusadas. Ver ResultadoRegistroCheckin.
+    if (!resultado.aceito()) {
+      // Continua 422; o que o código da rejeição acrescenta é o `type` específico, para que o app
+      // distinga "desligue o mock" de "aproxime-se" de "procure céu aberto" sem parsear a mensagem.
+      // Ver ADR 0010. Os números vão junto como campos de extensão do ProblemDetail: sem eles a
+      // tela conseguiria escolher a reação, mas não escreveria "você está a 180 m; aproxime-se para
+      // até 50 m" sem parsear o `detail` — que é copy e muda a cada revisão.
+      throw CheckinRejeitadoException.de(
+          resultado.codigoRejeicao(),
+          resultado.motivoRejeicao(),
+          resultado.distanciaM(),
+          resultado.missao().raioCheckinM(),
+          resultado.acuraciaM());
+    }
+    return resultado.missao();
+  }
+
+  @PostMapping("/{id}/confirmar")
+  @Operation(
+      summary = "Confirmar conclusão",
+      description =
+          "AGUARDANDO_CONFIRMACAO → CONCLUIDA. Só o criador. É o ÚNICO caminho que credita "
+              + "carteira: BRL, tokens e XP do executor entram na mesma transação da transição. "
+              + "Idempotente por missão, sem header — repetir devolve o estado atual em vez de 409, "
+              + "porque um retry de rede é a mesma operação. Missão TRIBO/COLETA paga do pote "
+              + "financiado; pote insuficiente responde 422.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Missão concluída e executor creditado"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito"),
+    @ApiResponse(responseCode = "422", ref = "#/components/responses/RegraNegocioViolada")
+  })
+  public MissaoResponse confirmar(
+      @PathVariable UUID id,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    return missaoService.confirmar(id, ator(principal, autenticacao));
+  }
+
+  @PostMapping("/{id}/resolver")
+  @PreAuthorize("hasRole('ADMIN')")
+  @Operation(
+      summary = "Resolver disputa",
+      description =
+          "EM_DISPUTA → CONCLUIDA ou CANCELADA. Exclusivo de ADMIN. CONCLUIR credita o executor "
+              + "pelo mesmo caminho da confirmação; CANCELAR não credita ninguém e estorna o pote "
+              + "aos financiadores, se houver.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Disputa resolvida"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito"),
+    @ApiResponse(responseCode = "422", ref = "#/components/responses/RegraNegocioViolada")
+  })
+  public MissaoResponse resolver(
+      @PathVariable UUID id,
+      @Valid @RequestBody ResolverDisputaRequest request,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    return missaoService.resolverDisputa(id, ator(principal, autenticacao), request);
+  }
+
+  @PostMapping("/{id}/destravar")
+  @PreAuthorize("hasRole('ADMIN')")
+  @Operation(
+      summary = "Destravar missão parada",
+      description =
+          "EM_ANDAMENTO ou AGUARDANDO_CONFIRMACAO → CANCELADA, estornando o pote aos "
+              + "financiadores. Exclusivo de ADMIN. Existe porque a varredura automática resolve o "
+              + "caso comum por prazo, não o excepcional — missão em disputa silenciosa, ou parada "
+              + "por um motivo que a regra de prazo não previu. A justificativa é obrigatória e "
+              + "fica na trilha: destravar é ato discricionário e precisa de motivo registrado.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Missão destravada e pote estornado"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/AcessoNegado"),
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/NaoEncontrado"),
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/Conflito")
+  })
+  public MissaoResponse destravar(
+      @PathVariable UUID id,
+      @Valid @RequestBody DestravarMissaoRequest request,
+      @AuthenticationPrincipal AutenticadoPrincipal principal,
+      Authentication autenticacao) {
+    return missaoService.destravar(id, ator(principal, autenticacao), request.justificativa());
+  }
+
+  // ─── Helpers privados ──────────────────────────────────────────────────────────────────────
+
+  /**
+   * Monta o ator a partir do JWT. O papel vem da authority do SecurityContext (populada pelo
+   * JwtAuthFilter a partir do claim "papel") e não de PapelUsuario: importar identidade/dominio
+   * aqui violaria a regra ArchUnit de fronteira entre módulos.
+   *
+   * <p>Ler a authority além do @PreAuthorize é defesa em profundidade — se alguém remover a
+   * anotação de /resolver, o ator continua USUARIO e a máquina de estados nega a resolução.
+   */
+  private static AtorMissao ator(AutenticadoPrincipal principal, Authentication autenticacao) {
+    boolean admin =
+        autenticacao != null
+            && autenticacao.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+    return admin ? AtorMissao.admin(principal.id()) : AtorMissao.usuario(principal.id());
+  }
+
+  /** Corpo é opcional nestes endpoints; sem o null-check, um POST sem corpo viraria NPE → 500. */
+  private static String motivo(MotivoRequest corpo) {
+    return corpo == null ? null : corpo.motivo();
+  }
+}

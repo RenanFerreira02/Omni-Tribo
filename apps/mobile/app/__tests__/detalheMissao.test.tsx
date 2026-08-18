@@ -1,0 +1,422 @@
+import { screen, fireEvent } from '@testing-library/react-native';
+import { HttpResponse, http } from 'msw';
+
+import DetalheMissao from '../(app)/missao/[id]';
+import { missao, problema } from '@/testes/fixtures';
+import { render } from '@/testes/render';
+import { servidor } from '@/testes/servidor';
+import { useSessao } from '@/stores/sessao';
+
+const BASE = 'http://api.teste/api/v1';
+const EU = 'bbbbbbbb-0000-0000-0000-000000000002';
+const OUTRO = 'bbbbbbbb-0000-0000-0000-000000000009';
+
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn() }),
+  useLocalSearchParams: () => ({ id: 'dddddddd-0000-0000-0000-000000000003' }),
+}));
+
+/**
+ * Detalhe da missão: botão CONTEXTUAL, confirmação, 409 e as três rejeições de check-in.
+ *
+ * A matriz completa (status × papel) é testada em `src/features/missoes/__tests__/acoes.test.ts`,
+ * que é dado puro. Aqui o que se verifica é que a TELA consome aquela tabela — e os caminhos que só
+ * existem em tela: diálogo, reversão otimista e a composição das mensagens de check-in a partir dos
+ * campos numéricos do ProblemDetail.
+ */
+describe('detalhe da missão', () => {
+  beforeEach(() => {
+    useSessao.setState({
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+      usuario: { id: EU, email: 'alice@omnitribo.dev', papel: 'USUARIO' },
+    });
+  });
+
+  function comMissao(sobrescrever: Parameters<typeof missao>[0]) {
+    servidor.use(http.get(`${BASE}/missoes/:id`, () => HttpResponse.json(missao(sobrescrever))));
+  }
+
+  // ─── Botão contextual, um caso por status ─────────────────────────────────────────────────
+
+  it('ABERTA para terceiro: oferece aceitar', async () => {
+    comMissao({ status: 'ABERTA', criadorId: OUTRO, executorId: null });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('acao-aceitar')).toBeTruthy();
+    expect(screen.queryByTestId('explicacao-sem-acao')).toBeNull();
+  });
+
+  it('ABERTA para o criador: só cancelar, nunca aceitar a própria missão', async () => {
+    comMissao({ status: 'ABERTA', criadorId: EU });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('acao-cancelar')).toBeTruthy();
+    expect(screen.queryByTestId('acao-aceitar')).toBeNull();
+  });
+
+  it('EM_ANDAMENTO para o executor: check-in', async () => {
+    comMissao({ status: 'EM_ANDAMENTO', criadorId: OUTRO, executorId: EU });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('acao-checkin')).toBeTruthy();
+  });
+
+  it('AGUARDANDO_CONFIRMACAO para o criador: confirmar e contestar', async () => {
+    comMissao({ status: 'AGUARDANDO_CONFIRMACAO', criadorId: EU, executorId: OUTRO });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('acao-confirmar')).toBeTruthy();
+    expect(screen.getByTestId('acao-contestar')).toBeTruthy();
+  });
+
+  /**
+   * O caso que motivou extrair a tabela: antes, quatro status deixavam a tela MUDA — sem botão e
+   * sem explicação. O usuário não sabia se estava esperando algo ou se o app havia quebrado.
+   */
+  it('CONCLUIDA: nenhuma ação, mas com explicação na tela', async () => {
+    comMissao({ status: 'CONCLUIDA', criadorId: OUTRO, executorId: EU });
+    await render(<DetalheMissao />);
+
+    const explicacao = await screen.findByTestId('explicacao-sem-acao');
+    expect(explicacao).toHaveTextContent(/sua carteira/i);
+  });
+
+  it('ACEITA por outra pessoa: terceiro entende que perdeu a vez', async () => {
+    comMissao({
+      status: 'ACEITA',
+      criadorId: OUTRO,
+      executorId: 'bbbbbbbb-0000-0000-0000-00000000000a',
+    });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('explicacao-sem-acao')).toHaveTextContent(/já aceitou/i);
+  });
+
+  it('EM_DISPUTA: ninguém age, porque resolver é exclusivo de ADMIN', async () => {
+    comMissao({ status: 'EM_DISPUTA', criadorId: EU, executorId: OUTRO });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('explicacao-sem-acao')).toHaveTextContent(/disputa/i);
+  });
+
+  // ─── Confirmação antes do irreversível ────────────────────────────────────────────────────
+
+  it('aceitar NÃO pede confirmação — quem aceitou pode desistir', async () => {
+    comMissao({ status: 'ABERTA', criadorId: OUTRO, executorId: null });
+    await render(<DetalheMissao />);
+
+    await fireEvent.press(await screen.findByTestId('acao-aceitar'));
+    expect(screen.queryByTestId('dialogo-confirmacao-confirmar')).toBeNull();
+  });
+
+  it('confirmar conclusão pede confirmação e só dispara depois dela', async () => {
+    comMissao({ status: 'AGUARDANDO_CONFIRMACAO', criadorId: EU, executorId: OUTRO });
+    let chamou = false;
+    servidor.use(
+      http.post(`${BASE}/missoes/:id/confirmar`, () => {
+        chamou = true;
+        return HttpResponse.json(missao({ status: 'CONCLUIDA' }));
+      }),
+    );
+
+    await render(<DetalheMissao />);
+    await fireEvent.press(await screen.findByTestId('acao-confirmar'));
+
+    // Nada foi enviado ainda: o diálogo existe justamente para dar a chance de recuar.
+    expect(chamou).toBe(false);
+    expect(await screen.findByTestId('dialogo-confirmacao')).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId('dialogo-confirmacao-confirmar'));
+    await screen.findByTestId('chip-status');
+    expect(chamou).toBe(true);
+  });
+
+  it('cancelar o diálogo não dispara a ação', async () => {
+    comMissao({ status: 'ACEITA', criadorId: OUTRO, executorId: EU });
+    let chamou = false;
+    servidor.use(
+      http.post(`${BASE}/missoes/:id/desistir`, () => {
+        chamou = true;
+        return HttpResponse.json(missao({ status: 'ABERTA' }));
+      }),
+    );
+
+    await render(<DetalheMissao />);
+    await fireEvent.press(await screen.findByTestId('acao-desistir'));
+    await fireEvent.press(screen.getByTestId('dialogo-confirmacao-cancelar'));
+
+    expect(chamou).toBe(false);
+  });
+
+  // ─── 409: outra pessoa aceitou primeiro ───────────────────────────────────────────────────
+
+  it('409 de transição inválida explica que outra pessoa chegou antes', async () => {
+    comMissao({ status: 'ABERTA', criadorId: OUTRO, executorId: null });
+    servidor.use(
+      http.post(`${BASE}/missoes/:id/aceitar`, () =>
+        HttpResponse.json(problema('transicao-invalida', 409, 'Missão não está mais aberta.'), {
+          status: 409,
+        }),
+      ),
+    );
+
+    await render(<DetalheMissao />);
+    await fireEvent.press(await screen.findByTestId('acao-aceitar'));
+
+    const erro = await screen.findByTestId('erro-acao');
+    expect(erro).toHaveTextContent(/outra pessoa aceitou primeiro/i);
+  });
+
+  // ─── Check-in: uma mensagem por `type`, montada dos NÚMEROS ───────────────────────────────
+
+  it('fora do raio: usa distanciaM e raioM, não o texto do servidor', async () => {
+    comMissao({ status: 'EM_ANDAMENTO', criadorId: OUTRO, executorId: EU });
+    servidor.use(
+      http.post(`${BASE}/missoes/:id/checkin`, () =>
+        HttpResponse.json(
+          problema('checkin-fora-do-raio', 422, 'copy do servidor que pode mudar', {
+            distanciaM: 180.4,
+            raioM: 50,
+          }),
+          { status: 422 },
+        ),
+      ),
+    );
+
+    await render(<DetalheMissao />);
+    await fireEvent.press(await screen.findByTestId('acao-checkin'));
+
+    const orientacao = await screen.findByTestId('orientacao-checkin');
+    // A frase exata do requisito, composta dos campos de extensão do RFC 9457. Se um dia a copy do
+    // backend mudar, esta instrução continua correta — é por isso que não se lê o `detail`.
+    expect(orientacao).toHaveTextContent(/180 m/);
+    expect(orientacao).toHaveTextContent(/50 m/);
+    expect(orientacao).toHaveTextContent(/aproxime-se/i);
+  });
+
+  it('acurácia insuficiente: diz o tamanho do erro e manda esperar, não caminhar', async () => {
+    comMissao({ status: 'EM_ANDAMENTO', criadorId: OUTRO, executorId: EU });
+    servidor.use(
+      http.post(`${BASE}/missoes/:id/checkin`, () =>
+        HttpResponse.json(
+          problema('checkin-acuracia-insuficiente', 422, 'precisão ruim', {
+            acuraciaM: 180,
+            acuraciaMaximaM: 50,
+          }),
+          { status: 422 },
+        ),
+      ),
+    );
+
+    await render(<DetalheMissao />);
+    await fireEvent.press(await screen.findByTestId('acao-checkin'));
+
+    const orientacao = await screen.findByTestId('orientacao-checkin');
+    expect(orientacao).toHaveTextContent(/180 m de margem de erro/i);
+    expect(orientacao).toHaveTextContent(/mesmo lugar/i);
+  });
+
+  it('localização simulada: manda desligar o mock, e NÃO manda se aproximar', async () => {
+    comMissao({ status: 'EM_ANDAMENTO', criadorId: OUTRO, executorId: EU });
+    servidor.use(
+      http.post(`${BASE}/missoes/:id/checkin`, () =>
+        HttpResponse.json(problema('checkin-localizacao-simulada', 422, 'mock'), { status: 422 }),
+      ),
+    );
+
+    await render(<DetalheMissao />);
+    await fireEvent.press(await screen.findByTestId('acao-checkin'));
+
+    const orientacao = await screen.findByTestId('orientacao-checkin');
+    expect(orientacao).toHaveTextContent(/localização simulada/i);
+    // As três instruções são mutuamente inúteis: mandar quem está com mock ligado "aproximar-se" o
+    // faria caminhar até o local para falhar de novo no mesmo ponto.
+    expect(orientacao).not.toHaveTextContent(/aproxime-se/i);
+  });
+
+  it('check-in envia acurácia e mocked verbatim do sensor', async () => {
+    comMissao({ status: 'EM_ANDAMENTO', criadorId: OUTRO, executorId: EU });
+    let corpoEnviado: Record<string, unknown> | null = null;
+    let chaveEnviada: string | null = null;
+    servidor.use(
+      http.post(`${BASE}/missoes/:id/checkin`, async ({ request }) => {
+        corpoEnviado = (await request.json()) as Record<string, unknown>;
+        chaveEnviada = request.headers.get('Idempotency-Key');
+        return HttpResponse.json(missao({ status: 'AGUARDANDO_CONFIRMACAO' }));
+      }),
+    );
+
+    await render(<DetalheMissao />);
+    await fireEvent.press(await screen.findByTestId('acao-checkin'));
+    await screen.findByTestId('chip-status');
+
+    // O app NÃO julga nem "melhora" a leitura do sensor: a régua é do servidor.
+    expect(corpoEnviado).toEqual({
+      lat: -23.564,
+      lon: -46.6934,
+      acuraciaM: 8,
+      mocked: false,
+    });
+    expect(chaveEnviada).toBeTruthy();
+    expect((chaveEnviada as unknown as string).length).toBeGreaterThanOrEqual(8);
+  });
+
+  // ─── Economia ─────────────────────────────────────────────────────────────────────────────
+
+  it('não exibe valor em reais em lugar nenhum', async () => {
+    comMissao({ status: 'ABERTA', criadorId: OUTRO });
+    await render(<DetalheMissao />);
+    await screen.findByTestId('recompensa-tokens');
+
+    expect(screen.queryByText(/R\$/)).toBeNull();
+    expect(screen.queryByText(/BRL/)).toBeNull();
+  });
+
+  // ─── Endereço recortado por participação ──────────────────────────────────────────────────
+
+  /**
+   * Missão de terceiro chega SEM logradouro e SEM CEP — o servidor recorta por participação.
+   *
+   * Antes o tipo declarava `string` e a tela renderizava direto: `<Text>{null}</Text>` não quebra,
+   * mas deixava uma linha vazia no bloco "Onde" que ninguém entendia. Dizer por que está oculto
+   * transforma a ausência em informação e explica o que a pessoa ganha ao aceitar.
+   */
+  it('missão de terceiro explica o endereço oculto em vez de deixar linha vazia', async () => {
+    comMissao({ status: 'ABERTA', criadorId: OUTRO, logradouro: null, cep: null });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('endereco-oculto')).toBeTruthy();
+    // O logradouro sumiu; o bairro CONTINUA visível — é o que orienta a decisão de aceitar sem
+    // identificar a casa. Texto EXATO do logradouro, e não regex: o título desta missão também
+    // menciona "Rua dos Pinheiros", e um regex casaria com ele e passaria por engano.
+    expect(screen.queryByText('Rua dos Pinheiros, 500')).toBeNull();
+    expect(screen.getByText(/Pinheiros, São Paulo/)).toBeTruthy();
+  });
+
+  it('participante vê o endereço completo', async () => {
+    comMissao({ status: 'ACEITA', criadorId: OUTRO, executorId: EU });
+    await render(<DetalheMissao />);
+    await screen.findByTestId('chip-status');
+
+    expect(screen.queryByTestId('endereco-oculto')).toBeNull();
+    expect(screen.getByText('Rua dos Pinheiros, 500')).toBeTruthy();
+  });
+
+  /** A complexidade congelada é o que explica POR QUE a recompensa é aquela. */
+  it('mostra a complexidade e de onde ela veio', async () => {
+    comMissao({ status: 'ABERTA', criadorId: OUTRO, pesoKg: 3.5, volumeL: 20 });
+    await render(<DetalheMissao />);
+
+    const complexidade = await screen.findByTestId('complexidade');
+    expect(complexidade).toHaveTextContent(
+      'Complexidade: Média — calculada a partir de 3.5 kg e 20 L',
+    );
+  });
+
+  it('nível insuficiente: botão de aceitar aparece DESABILITADO, com o motivo', async () => {
+    // A trava é de UI e existe para a pessoa descobrir o requisito ANTES de gastar o toque. O 422
+    // do servidor continua sendo a regra — este teste não o substitui, cobre o que vem antes dele.
+    comMissao({ status: 'ABERTA', criadorId: OUTRO, executorId: null, nivelMinimo: 5 });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('acao-aceitar')).toBeDisabled();
+    expect(screen.getByTestId('bloqueio-aceitar')).toHaveTextContent(/nível 5/);
+  });
+
+  it('nível suficiente: aceitar continua habilitado', async () => {
+    comMissao({ status: 'ABERTA', criadorId: OUTRO, executorId: null, nivelMinimo: 1 });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('acao-aceitar')).not.toBeDisabled();
+    expect(screen.queryByTestId('bloqueio-aceitar')).toBeNull();
+  });
+
+  // ─── Aviso de risco de falha na entrega ───────────────────────────────────────────────────
+
+  it('risco ALTO: exibe o aviso com a orientação do servidor', async () => {
+    comMissao({
+      status: 'ABERTA',
+      criadorId: OUTRO,
+      executorId: null,
+      faixaRisco: 'ALTO',
+      multiplicadorRisco: 1.42,
+      avisoRisco:
+        'Entregas neste endereço costumam falhar. Combine o horário com o destinatário antes de ir.',
+    });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('aviso-risco')).toBeTruthy();
+    // O texto vem PRONTO do servidor. Se o app compusesse a frase, cada versão instalada teria a
+    // sua e mudar a orientação exigiria publicar na loja.
+    expect(screen.getByText(/Combine o horário com o destinatário/)).toBeTruthy();
+  });
+
+  it('risco ALTO: o aviso NÃO revela logradouro nem CEP', async () => {
+    comMissao({
+      status: 'ABERTA',
+      criadorId: OUTRO,
+      logradouro: null,
+      cep: null,
+      faixaRisco: 'ALTO',
+      multiplicadorRisco: 1.42,
+      avisoRisco:
+        'Entregas neste endereço costumam falhar. Combine o horário com o destinatário antes de ir.',
+    });
+    await render(<DetalheMissao />);
+    await screen.findByTestId('aviso-risco');
+
+    // A resposta da missão recorta endereço a bairro para quem não participa. Um aviso citando a
+    // rua devolveria pela porta de trás exatamente o que aquele recorte protege — e este teste é o
+    // que impede alguém de "melhorar" o texto do servidor incluindo o endereço.
+    expect(screen.queryByText(/Rua dos Pinheiros, 500/)).toBeNull();
+    expect(screen.getByTestId('endereco-oculto')).toBeTruthy();
+  });
+
+  it('risco BAIXO: nenhum aviso — alerta que aparece sempre deixa de ser lido', async () => {
+    comMissao({
+      status: 'ABERTA',
+      criadorId: OUTRO,
+      faixaRisco: 'BAIXO',
+      multiplicadorRisco: 1.02,
+      avisoRisco: null,
+    });
+    await render(<DetalheMissao />);
+    await screen.findByTestId('chip-status');
+
+    expect(screen.queryByTestId('aviso-risco')).toBeNull();
+  });
+
+  it('missão sem avaliação de risco: nada de aviso e nada de multiplicador', async () => {
+    // O caso da MAIORIA das missões: só o webhook de entrega falida avalia risco. Ausência tem de
+    // ser tratada como "sem avaliação", nunca como risco baixo.
+    comMissao({ status: 'ABERTA', criadorId: OUTRO });
+    await render(<DetalheMissao />);
+    await screen.findByTestId('chip-status');
+
+    expect(screen.queryByTestId('aviso-risco')).toBeNull();
+    expect(screen.queryByTestId('multiplicador-risco')).toBeNull();
+  });
+
+  it('multiplicador acima de 1 é exibido junto da recompensa, explicando por que paga mais', async () => {
+    comMissao({
+      status: 'ABERTA',
+      criadorId: OUTRO,
+      faixaRisco: 'ALTO',
+      multiplicadorRisco: 1.42,
+      avisoRisco: 'Entregas neste endereço costumam falhar.',
+    });
+    await render(<DetalheMissao />);
+
+    expect(await screen.findByTestId('multiplicador-risco')).toHaveTextContent(/1\.42×/);
+  });
+
+  it('multiplicador neutro não vira ruído na tela', async () => {
+    comMissao({ status: 'ABERTA', criadorId: OUTRO, multiplicadorRisco: 1.0, faixaRisco: 'BAIXO' });
+    await render(<DetalheMissao />);
+    await screen.findByTestId('chip-status');
+
+    // Exibir "1.00× por risco" em toda missão comum seria informação sem conteúdo.
+    expect(screen.queryByTestId('multiplicador-risco')).toBeNull();
+  });
+});

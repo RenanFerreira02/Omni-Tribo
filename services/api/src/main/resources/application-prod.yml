@@ -1,0 +1,18 @@
+springdoc:
+  swagger-ui:
+    enabled: false
+  api-docs:
+    enabled: false
+
+app:
+  cors:
+    # SEM default, de propósito. O default de application.yml libera localhost:8081 e exp://, que é
+    # o certo para dev — e se CORS_ORIGENS não for exportado no ambiente de produção, produção
+    # herdaria essa lista e subiria aceitando origem de máquina de desenvolvimento. Sem default,
+    # falta de configuração vira falha no boot, alta e imediata, em vez de uma brecha silenciosa.
+    origens-permitidas: ${CORS_ORIGENS}
+
+logging:
+  level:
+    root: WARN
+    com.omnitribo: INFO

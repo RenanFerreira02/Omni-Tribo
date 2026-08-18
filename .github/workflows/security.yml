@@ -1,0 +1,98 @@
+name: Security Scan
+
+# Dois jobs com cadências DIFERENTES de propósito, e a diferença é o assunto de cada um.
+#
+# Segredo vaza no instante do commit e o custo de varrer é milissegundos: `gitleaks` roda em todo
+# push e PR, sem filtro de caminho, e é ele o candidato a status obrigatório de merge.
+#
+# Dependência vulnerável não aparece por causa de um push nosso — aparece porque a NVD publicou um
+# CVE novo, o que é assíncrono ao repositório. Varrer a cada push não adiantaria a descoberta em um
+# dia sequer, e queimaria cota de uma chave limitada por taxa. Por isso o `dependencias` é agendado.
+# É a mesma razão pela qual o profile `seguranca` já fica fora do `verify` padrão (services/api/pom.xml).
+on:
+  push:
+  pull_request:
+  schedule:
+    # Segunda, 06:00 UTC. Cron do GitHub é sempre UTC e não respeita fuso do repositório.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Histórico COMPLETO: um segredo commitado e removido depois continua no histórico, e é
+          # exatamente esse o caso que uma varredura só do HEAD não pega.
+          fetch-depth: 0
+
+      - name: Gitleaks — varre histórico completo
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependencias:
+    runs-on: ubuntu-latest
+    # Fora do caminho de push/PR: só no agendamento semanal e sob demanda. Ver o comentário do `on:`.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    # O secret precisa virar `env` no nível do JOB porque o contexto `secrets` NÃO está disponível
+    # em `if:` — nem de job nem de step. `env`, sim, está disponível no `if:` de step, e é assim que
+    # o guarda do passo de varredura abaixo consegue perguntar se a chave existe.
+    env:
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          cache-dependency-path: services/api/pom.xml
+
+      # A base de CVE é grande e a NVD limita a taxa por chave. Sem este cache, builds concorrentes
+      # com a mesma chave tomam 403 — o modo de falha documentado do plugin.
+      - name: Cache da base do Dependency-Check
+        if: env.NVD_API_KEY != ''
+        uses: actions/cache@v4
+        with:
+          path: services/api/target/dependency-check-data
+          key: depcheck-${{ runner.os }}-${{ hashFiles('services/api/pom.xml') }}
+          restore-keys: depcheck-${{ runner.os }}-
+
+      # PULAR CALADO É PIOR QUE FALHAR: sem este aviso, um job verde por não ter varrido nada é
+      # indistinguível de um job verde por não ter achado nada. O `::warning` aparece no resumo da
+      # execução, então a ausência da chave fica visível sem precisar abrir o log.
+      - name: Aviso — varredura pulada por falta de chave
+        if: env.NVD_API_KEY == ''
+        run: |
+          echo "::warning title=Dependency-Check pulado::O secret NVD_API_KEY nao esta configurado, entao NENHUMA varredura de dependencia foi executada. Este job estar verde NAO significa ausencia de CVE. Chave gratuita em https://nvd.nist.gov/developers/request-an-api-key e depois Settings > Secrets and variables > Actions > NVD_API_KEY."
+
+      # `nvd.api.key` é a propriedade de usuário do próprio plugin. NÃO configure a chave no pom com
+      # ${env.*}: com a variável ausente o plugin recebe string vazia e aborta com
+      # "Invalid API Key, length of 0" — verificado na prática, e foi o que deixou este workflow
+      # vermelho de 2026-08-15 a 2026-08-17 (ver docs/evidencias/f13-ci-github-actions.md).
+      - name: OWASP Dependency-Check — reprova em alta e crítica
+        if: env.NVD_API_KEY != ''
+        run: cd services/api && ./mvnw -Pseguranca verify -DskipTests -Djacoco.skip=true -Dspotbugs.skip=true -Dnvd.api.key=$NVD_API_KEY
+
+      # `if-no-files-found: error` porque o padrão (`warn`) foi exatamente o que mascarou a falha:
+      # o passo subia em 0s sem arquivo nenhum e reportava sucesso, enquanto o Dependency-Check nunca
+      # havia produzido relatório.
+      - name: Upload relatório de vulnerabilidades
+        if: always() && env.NVD_API_KEY != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: |
+            services/api/target/dependency-check-report.html
+            services/api/target/dependency-check-report.json
+          if-no-files-found: error
+          retention-days: 30

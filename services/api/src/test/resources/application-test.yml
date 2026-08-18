@@ -1,0 +1,78 @@
+spring:
+  datasource:
+    url: ${DATASOURCE_URL:jdbc:postgresql://localhost:5432/omnitribo}
+    username: ${DATASOURCE_USERNAME:omnitribo}
+    password: ${DATASOURCE_PASSWORD:omnitribo_dev}
+    hikari:
+      # Dimensionado pelo teste mais pesado, que hoje é ConclusaoConcorrenteTest com 100 threads —
+      # não mais o aceite concorrente com 50. Com o pool default de 10, threads esperariam além do
+      # connection-timeout e o resultado viraria 500 por timeout de conexão, mascarando o que o
+      # teste quer medir.
+      #
+      # 40 e não 100: as 100 threads serializam atrás de um único SELECT ... FOR UPDATE na linha da
+      # missão, então a maioria está bloqueada no lock e não consumindo conexão por muito tempo. O
+      # que 40 compra é margem para que um runner de CI lento não transforme espera de lock em
+      # SQLTransientConnectionException — que apareceria como 500 e seria lido como bug de
+      # concorrência, e não como o problema de infraestrutura que é.
+      maximum-pool-size: 40
+  flyway:
+    locations:
+      - classpath:db/migration
+      - classpath:db/seed
+
+app:
+  carteira:
+    # Ligado no teste para que a cobertura do fluxo de saque (concorrência, mínimo, idempotência,
+    # saldo insuficiente) continue exercitando o caminho real. O comportamento com a flag
+    # DESLIGADA — que é o padrão de dev e prod — tem teste próprio em SaqueDesabilitadoTest.
+    saque-habilitado: true
+  cors:
+    origens-permitidas: http://localhost:8081
+  rate-limit:
+    # Rate limiting tem testes próprios em AuthControllerTest e é reavaliado em F12. Aqui um
+    # limite apertado só mascararia resultados de outros testes com 429.
+    escrita-por-minuto: 10000
+    leitura-por-minuto: 10000
+  agendamento:
+    # Job de expiração desligado: se disparasse no meio de um teste, mudaria o status de missões
+    # entre o arrange e o assert — flakiness intermitente e difícil de reproduzir.
+    habilitado: false
+  webhooks:
+    # Duas transportadoras: a de teste e uma segunda, para provar que o segredo é POR transportadora
+    # — assinar com o segredo de uma e declarar a outra tem de dar 401. Com uma só, esse teste não
+    # existiria e a troca de segredos passaria despercebida.
+    segredos:
+      transportadora-teste: segredo-de-teste-nao-usar-em-producao
+      outra-transportadora: outro-segredo-de-teste
+    janela-timestamp: PT5M
+    # Alto pelo mesmo motivo do rate-limit acima: um teto apertado mascararia com 429 o resultado
+    # dos testes de assinatura. O teto tem teste próprio, que sobrescreve este valor.
+    requisicoes-por-minuto: 10000
+  notificacoes:
+    raio-alerta-metros: 3000
+    alertas-por-hora: 5
+    tribos-por-evento: 50
+  integracoes:
+    # Backoff ZERADO na suíte: a espera de 200 ms é calibrada para a produção, e aqui só somaria
+    # tempo de parede a cada teste que exercita uma falha de provedor. O que os testes medem é
+    # QUANTAS idas ao provedor acontecem, não o intervalo entre elas — e o intervalo tem teste
+    # próprio, de unidade, que não passa por Spring.
+    retry:
+      espera: PT0S
+      jitter: PT0S
+
+springdoc:
+  swagger-ui:
+    # Continua desligado: é uma SPA de webjar, não acrescenta nada à suíte.
+    enabled: false
+  api-docs:
+    # LIGADO de propósito, e é o que permite ContratoOpenApiTest existir sem criar um quarto contexto
+    # Spring. Um @TestPropertySource daria outra chave de cache de contexto, e cada contexto custa 40
+    # conexões contra max_connections=500 — a conta que ContainerConfig documenta e que já estourou
+    # uma vez. O custo aqui é zero: o springdoc monta a especificação preguiçosamente, na primeira
+    # requisição a /v3/api-docs, e só aquele teste a faz.
+    enabled: true
+
+management:
+  server:
+    port: 0

@@ -1,0 +1,813 @@
+package com.omnitribo.missoes.api;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.omnitribo.JwtTestConfig;
+import com.omnitribo.TesteIntegracaoMvcBase;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import tools.jackson.databind.JsonNode;
+
+/**
+ * Contrato HTTP do módulo de missões.
+ *
+ * <p>Não repete a matriz de 99 transições — essa é responsabilidade de MissaoStateMachineTest, que
+ * roda sem Spring. Aqui verificamos o que só o HTTP prova: códigos de status, formato
+ * ProblemDetail, ordem das checagens de erro, visibilidade e paginação.
+ */
+@Import(JwtTestConfig.class)
+class MissaoControllerTest extends TesteIntegracaoMvcBase {
+
+  private static final UUID ADMIN_ID = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000001");
+  private static final UUID ALICE_ID = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000002");
+  private static final UUID BOB_ID = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000003");
+  private static final UUID CAROL_ID = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000004");
+
+  private static final String BASE = "/api/v1/missoes";
+
+  @Autowired MockMvc mockMvc;
+
+  // ─── Caminho feliz ─────────────────────────────────────────────────────────────────────────
+
+  @Test
+  void cicloCompleto_criarPublicarAceitarIniciarCheckin() throws Exception {
+    UUID missaoId = criarMissao(ALICE_ID, corpoEntregaValido());
+
+    // Nasce em RASCUNHO — nunca no estado que o cliente pedir.
+    mockMvc
+        .perform(get(BASE + "/{id}", missaoId).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("RASCUNHO"))
+        .andExpect(jsonPath("$.criadorId").value(ALICE_ID.toString()))
+        .andExpect(jsonPath("$.executorId").doesNotExist());
+
+    mockMvc
+        .perform(post(BASE + "/{id}/publicar", missaoId).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("ABERTA"));
+
+    // Bob aceita: vira executor, mas NADA é creditado — crédito só existe em CONCLUIDA.
+    mockMvc
+        .perform(post(BASE + "/{id}/aceitar", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("ACEITA"))
+        .andExpect(jsonPath("$.executorId").value(BOB_ID.toString()))
+        .andExpect(jsonPath("$.aceitaEm").exists())
+        .andExpect(jsonPath("$.concluidaEm").doesNotExist());
+
+    mockMvc
+        .perform(post(BASE + "/{id}/iniciar", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("EM_ANDAMENTO"));
+
+    // Check-in na própria origem da missão: distância ~0, dentro do raio de 50 m. Implementado em
+    // F6 — o detalhe das regras antifraude fica em CheckinControllerTest; aqui só se o ciclo fecha.
+    mockMvc
+        .perform(
+            post(BASE + "/{id}/checkin", missaoId)
+                .header("Authorization", bearer(BOB_ID))
+                .header("Idempotency-Key", "ciclo-completo-" + missaoId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"lat\":-23.5629,\"lon\":-46.6996,\"acuraciaM\":8.0,\"mocked\":false}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("AGUARDANDO_CONFIRMACAO"));
+
+    // Esta é a única linha em `checkin` que esta classe gera, e ela precisa sair daqui. A tabela é
+    // compartilhada por toda a suíte e alimenta a checagem de plausibilidade cinemática: uma linha
+    // órfã do BOB em Pinheiros faria um check-in futuro dele em outra classe ser marcado suspeito
+    // sem motivo. Limpar aqui é responsabilidade de quem sujou.
+    jdbcTemplate.update("DELETE FROM checkin WHERE missao_id = ?", missaoId);
+  }
+
+  @Test
+  void desistenciaDevolveMissaoAoPoolSemExecutor() throws Exception {
+    UUID missaoId = criarPublicarEAceitar();
+
+    mockMvc
+        .perform(
+            post(BASE + "/{id}/desistir", missaoId)
+                .header("Authorization", bearer(BOB_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"motivo\":\"Imprevisto no trabalho\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("ABERTA"))
+        .andExpect(jsonPath("$.executorId").doesNotExist());
+  }
+
+  @Test
+  void cancelarSemCorpoNaoQuebra() throws Exception {
+    // @RequestBody(required = false): POST sem corpo não pode virar NPE → 500.
+    UUID missaoId = criarEPublicar();
+
+    mockMvc
+        .perform(post(BASE + "/{id}/cancelar", missaoId).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("CANCELADA"));
+  }
+
+  // ─── 409: transição inválida ───────────────────────────────────────────────────────────────
+
+  @Test
+  void aceitarRascunhoDaConflito() throws Exception {
+    UUID missaoId = criarMissao(ALICE_ID, corpoEntregaValido());
+
+    // Bob não vê o rascunho na listagem, mas aceitar precisa responder 409 e não 404:
+    // o endpoint de transição carrega com lock, sem a regra de visibilidade de leitura.
+    mockMvc
+        .perform(post(BASE + "/{id}/aceitar", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isConflict())
+        .andExpect(
+            jsonPath("$.detail").value("Esta operação não é permitida no estado atual da missão."));
+  }
+
+  @Test
+  void iniciarSemTerAceitadoDaConflitoOuAcessoNegado() throws Exception {
+    UUID missaoId = criarEPublicar();
+
+    // Missão ABERTA não tem executor: INICIAR exige EXECUTOR, então a autorização falha antes
+    // da transição — 403, e nunca 200.
+    mockMvc
+        .perform(post(BASE + "/{id}/iniciar", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void publicarDuasVezesDaConflito() throws Exception {
+    UUID missaoId = criarEPublicar();
+
+    mockMvc
+        .perform(post(BASE + "/{id}/publicar", missaoId).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isConflict());
+  }
+
+  // ─── 403: ator errado ──────────────────────────────────────────────────────────────────────
+
+  @Test
+  void cancelarComoNaoCriadorDaAcessoNegado() throws Exception {
+    UUID missaoId = criarEPublicar();
+
+    mockMvc
+        .perform(post(BASE + "/{id}/cancelar", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isForbidden())
+        .andExpect(
+            jsonPath("$.detail").value("Você não tem permissão para esta operação nesta missão."));
+  }
+
+  @Test
+  void iniciarComoNaoExecutorDaAcessoNegado() throws Exception {
+    UUID missaoId = criarPublicarEAceitar();
+
+    // Carol não é a executora (Bob é).
+    mockMvc
+        .perform(post(BASE + "/{id}/iniciar", missaoId).header("Authorization", bearer(CAROL_ID)))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void criadorNaoPodeAceitarAPropriaMissao() throws Exception {
+    UUID missaoId = criarEPublicar();
+
+    mockMvc
+        .perform(post(BASE + "/{id}/aceitar", missaoId).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void editarComoNaoCriadorDaAcessoNegado() throws Exception {
+    UUID missaoId = criarEPublicar();
+
+    mockMvc
+        .perform(
+            patch(BASE + "/{id}", missaoId)
+                .header("Authorization", bearer(BOB_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"titulo\":\"Titulo sequestrado\"}"))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void resolverDisputaComoUsuarioComumDa403ENao500() throws Exception {
+    // Regressão do risco mais perigoso desta fase: AccessDeniedException lançada pelo
+    // @PreAuthorize é resolvida pelo DispatcherServlet, e sem handler explícito o
+    // @ExceptionHandler(Exception.class) a transformaria num 500.
+    UUID missaoId = criarEPublicar();
+
+    mockMvc
+        .perform(
+            post(BASE + "/{id}/resolver", missaoId)
+                .header("Authorization", bearer(BOB_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"resultado\":\"CONCLUIR\",\"justificativa\":\"Entrega comprovada\"}"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.detail").value("Acesso negado"));
+  }
+
+  @Test
+  void semTokenDa401() throws Exception {
+    mockMvc.perform(get(BASE)).andExpect(status().isUnauthorized());
+  }
+
+  // ─── Ordem 403 → 409 → efeito ──────────────────────────────────────────────────────────────
+
+  @Test
+  void confirmarValidaAutorizacaoDepoisTransicaoDepoisCredita() throws Exception {
+    UUID missaoId = criarEPublicar();
+
+    // (1) ator errado numa missão ABERTA → 403, sem revelar o estado
+    mockMvc
+        .perform(post(BASE + "/{id}/confirmar", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isForbidden());
+
+    // (2) criador correto, mas estado errado → 409
+    mockMvc
+        .perform(post(BASE + "/{id}/confirmar", missaoId).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isConflict());
+
+    // (3) criador correto e estado correto → 200, com o crédito efetivado. A ordem 403 → 409
+    //     continua sendo a mesma de quando este caminho era um stub 501; o que mudou é o desfecho.
+    UUID aguardando = criarMissaoEm("AGUARDANDO_CONFIRMACAO");
+    mockMvc
+        .perform(
+            post(BASE + "/{id}/confirmar", aguardando).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("CONCLUIDA"))
+        .andExpect(jsonPath("$.concluidaEm").isNotEmpty());
+
+    Long lancamentos =
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM lancamento WHERE missao_id = ?", Long.class, aguardando);
+    assertThat(lancamentos).as("CONCLUIDA é o único estado que credita").isEqualTo(1L);
+  }
+
+  @Test
+  void resolverComAdminEmDisputaConcluiECredita() throws Exception {
+    UUID emDisputa = criarMissaoEm("EM_DISPUTA");
+
+    mockMvc
+        .perform(
+            post(BASE + "/{id}/resolver", emDisputa)
+                .header("Authorization", bearer(ADMIN_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"resultado\":\"CONCLUIR\",\"justificativa\":\"Comprovantes conferem\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("CONCLUIDA"));
+
+    Long lancamentos =
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM lancamento WHERE missao_id = ?", Long.class, emDisputa);
+    assertThat(lancamentos)
+        .as("RESOLVER_CONCLUIR reusa o mesmo caminho de crédito da confirmação")
+        .isEqualTo(1L);
+  }
+
+  @Test
+  void resolverCancelandoNaoCreditaNinguem() throws Exception {
+    UUID emDisputa = criarMissaoEm("EM_DISPUTA");
+
+    mockMvc
+        .perform(
+            post(BASE + "/{id}/resolver", emDisputa)
+                .header("Authorization", bearer(ADMIN_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"resultado\":\"CANCELAR\",\"justificativa\":\"Entrega não comprovada\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("CANCELADA"));
+
+    Long lancamentos =
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM lancamento WHERE missao_id = ?", Long.class, emDisputa);
+    assertThat(lancamentos).as("disputa cancelada não paga ninguém").isZero();
+  }
+
+  @Test
+  void stubResolverComAdminEmEstadoErradoDaConflito() throws Exception {
+    UUID missaoId = criarEPublicar();
+
+    mockMvc
+        .perform(
+            post(BASE + "/{id}/resolver", missaoId)
+                .header("Authorization", bearer(ADMIN_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"resultado\":\"CANCELAR\",\"justificativa\":\"Sem disputa aberta\"}"))
+        .andExpect(status().isConflict());
+  }
+
+  // ─── 400: validação ────────────────────────────────────────────────────────────────────────
+
+  @Test
+  void payloadInvalidoDa400ComListaDeCampos() throws Exception {
+    String corpo =
+        """
+        {
+          "categoria": "ENTREGA",
+          "titulo": "abc",
+          "descricao": "Descrição válida da missão.",
+          "valorBrl": 900.00,
+          "origemLat": -23.5629,
+          "origemLon": -46.6996,
+          "cep": "05422030",
+          "logradouro": "Rua dos Pinheiros",
+          "bairro": "Pinheiros",
+          "cidade": "São Paulo",
+          "uf": "SP",
+          "raioCheckinM": 50,
+          "janelaInicio": "2026-09-01T10:00:00Z",
+          "janelaFim": "2026-08-01T10:00:00Z"
+        }
+        """;
+
+    MvcResult resultado =
+        mockMvc
+            .perform(
+                post(BASE)
+                    .header("Authorization", bearer(ALICE_ID))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(corpo))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.title").value("Requisição inválida"))
+            .andReturn();
+
+    List<String> campos = camposComErro(resultado);
+    assertThat(campos).contains("titulo", "valorBrl", "janelaFim");
+  }
+
+  @Test
+  void missaoTriboComValorEmBrlDa400() throws Exception {
+    // A regra que dá coerência à economia: missão recompensa em XP e token, nunca em BRL.
+    String corpo = corpoValido("TRIBO", "10.00");
+
+    MvcResult resultado =
+        mockMvc
+            .perform(
+                post(BASE)
+                    .header("Authorization", bearer(ALICE_ID))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(corpo))
+            .andExpect(status().isBadRequest())
+            .andReturn();
+
+    assertThat(camposComErro(resultado)).contains("valorBrl");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"ENTREGA", "AJUDA", "COLETA", "TRIBO"})
+  void nenhumaCategoriaAceitaValorEmBrl(String categoria) throws Exception {
+    // ENTREGA e AJUDA são o ponto do teste: até o ADR 0009 elas PODIAM ter valor_brl, e era
+    // exatamente por isso que a conclusão creditava dinheiro sem débito em lugar nenhum —
+    // medido, R$ 118,00 viravam R$ 1.618,00 em três ciclos. A regra deixou de depender da
+    // categoria, e este teste percorre as quatro para que ninguém a reintroduza para uma só.
+    MvcResult resultado =
+        mockMvc
+            .perform(
+                post(BASE)
+                    .header("Authorization", bearer(ALICE_ID))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(corpoValido(categoria, "10.00")))
+            .andExpect(status().isBadRequest())
+            .andReturn();
+
+    assertThat(camposComErro(resultado)).contains("valorBrl");
+  }
+
+  @Test
+  void missaoTriboSemValorEmBrlEAceita() throws Exception {
+    mockMvc
+        .perform(
+            post(BASE)
+                .header("Authorization", bearer(ALICE_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoValido("TRIBO", "0.00")))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.categoria").value("TRIBO"));
+  }
+
+  @Test
+  void tamanhoDePaginaAcimaDoLimiteDa400() throws Exception {
+    // Afere o CAMPO, não só o status: um 400 vindo de outra causa (ex.: falha de binding de
+    // 'pagina') faria este teste passar sem provar nada sobre o limite de página.
+    MvcResult resultado =
+        mockMvc
+            .perform(get(BASE).param("tamanho", "500").header("Authorization", bearer(ALICE_ID)))
+            .andExpect(status().isBadRequest())
+            .andReturn();
+
+    assertThat(camposComErro(resultado)).containsExactly("tamanho");
+  }
+
+  @Test
+  void listagemSemNenhumParametroUsaDefaults() throws Exception {
+    mockMvc
+        .perform(get(BASE).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pagina").value(0))
+        .andExpect(jsonPath("$.tamanho").value(20));
+  }
+
+  // ─── Mass assignment ───────────────────────────────────────────────────────────────────────
+
+  @Test
+  void patchIgnoraStatusExecutorERecompensas() throws Exception {
+    UUID missaoId = criarEPublicar();
+    // Lidos do recurso, e não fixados: desde o ADR 0009 quem decide a recompensa é a
+    // CalculadoraDeRecompensa, e um número escrito à mão aqui quebraria a cada recalibração sem
+    // que nada de errado tivesse acontecido. O que este teste garante é que o PATCH não os MUDA.
+    JsonNode antes =
+        JSON.readTree(
+            mockMvc
+                .perform(get(BASE + "/{id}", missaoId).header("Authorization", bearer(ALICE_ID)))
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+    int xpOriginal = antes.get("xpRecompensa").asInt();
+    long tokensOriginais = antes.get("tokensRecompensa").asLong();
+
+    mockMvc
+        .perform(
+            patch(BASE + "/{id}", missaoId)
+                .header("Authorization", bearer(ALICE_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "titulo": "Título legitimamente editado",
+                      "status": "CONCLUIDA",
+                      "executorId": "bbbbbbbb-0000-0000-0000-000000000003",
+                      "valorBrl": 499.99,
+                      "criadorId": "bbbbbbbb-0000-0000-0000-000000000003"
+                    }
+                    """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.titulo").value("Título legitimamente editado"));
+
+    // Relê do banco: o que não é editável tem de continuar exatamente como estava.
+    mockMvc
+        .perform(get(BASE + "/{id}", missaoId).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("ABERTA"))
+        .andExpect(jsonPath("$.executorId").doesNotExist())
+        .andExpect(jsonPath("$.xpRecompensa").value(xpOriginal))
+        // tokensRecompensa nomeado explicitamente, e não por completude: é o campo que sai do DTO
+        // de CRIAÇÃO quando a CalculadoraDeRecompensa entrar, e esta assertion é o que impede a
+        // reintrodução dele por qualquer caminho. Hoje o DTO de edição já não o expõe, então o
+        // teste é preventivo — que é exatamente quando ele custa menos e vale mais.
+        .andExpect(jsonPath("$.tokensRecompensa").value(tokensOriginais))
+        // Continua 0.00 mesmo com "valorBrl": 499.99 no corpo do PATCH. Duas garantias numa
+        // assertion: o DTO de edição não expõe o campo (mass assignment), e desde o ADR 0009
+        // nenhuma missão remunera em BRL — se o campo voltasse a ser editável, este 499.99 seria
+        // exatamente o caminho de volta da impressora de dinheiro.
+        .andExpect(jsonPath("$.valorBrl").value(0.00))
+        .andExpect(jsonPath("$.criadorId").value(ALICE_ID.toString()));
+  }
+
+  @Test
+  void criacaoIgnoraStatusECriadorEnviadosNoCorpo() throws Exception {
+    String corpo =
+        corpoValido("ENTREGA", "0.00")
+            .replaceFirst(
+                "\\{",
+                "{\"status\":\"CONCLUIDA\","
+                    + "\"criadorId\":\"bbbbbbbb-0000-0000-0000-000000000003\","
+                    + "\"executorId\":\"bbbbbbbb-0000-0000-0000-000000000003\",");
+
+    mockMvc
+        .perform(
+            post(BASE)
+                .header("Authorization", bearer(ALICE_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpo))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.status").value("RASCUNHO"))
+        .andExpect(jsonPath("$.criadorId").value(ALICE_ID.toString()))
+        .andExpect(jsonPath("$.executorId").doesNotExist());
+  }
+
+  // ─── Visibilidade de rascunho ──────────────────────────────────────────────────────────────
+
+  @Test
+  void rascunhoAlheioResponde404ENao403() throws Exception {
+    // 403 confirmaria a existência do recurso a quem não deveria saber que ele existe.
+    UUID missaoId = criarMissao(ALICE_ID, corpoEntregaValido());
+
+    mockMvc
+        .perform(get(BASE + "/{id}", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void rascunhoAlheioNaoApareceNaListagem() throws Exception {
+    UUID missaoId = criarMissao(ALICE_ID, corpoEntregaValido());
+
+    MvcResult resultado =
+        mockMvc
+            .perform(
+                get(BASE)
+                    .param("status", "RASCUNHO")
+                    .param("tamanho", "100")
+                    .header("Authorization", bearer(BOB_ID)))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    JsonNode pagina = JSON.readTree(resultado.getResponse().getContentAsString());
+    for (JsonNode item : pagina.get("conteudo")) {
+      assertThat(item.get("id").asText()).isNotEqualTo(missaoId.toString());
+    }
+
+    // Só o criador enxerga o próprio rascunho.
+    mockMvc
+        .perform(get(BASE + "/{id}", missaoId).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isOk());
+  }
+
+  // ─── Paginação e filtros ───────────────────────────────────────────────────────────────────
+
+  @Test
+  void listagemPaginadaDevolveEnvelopeEstavel() throws Exception {
+    mockMvc
+        .perform(
+            get(BASE)
+                .param("tamanho", "2")
+                .param("status", "ABERTA")
+                .header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.conteudo").isArray())
+        .andExpect(jsonPath("$.tamanho").value(2))
+        .andExpect(jsonPath("$.pagina").value(0))
+        .andExpect(jsonPath("$.totalElementos").exists())
+        .andExpect(jsonPath("$.totalPaginas").exists())
+        .andExpect(jsonPath("$.primeira").value(true))
+        // O envelope não pode vazar a serialização interna de Page do Spring Data.
+        .andExpect(jsonPath("$.pageable").doesNotExist())
+        .andExpect(jsonPath("$.sort").doesNotExist());
+  }
+
+  @Test
+  void filtroMinhasCriadasSoTrazMissoesDoAtor() throws Exception {
+    criarMissao(ALICE_ID, corpoEntregaValido());
+
+    MvcResult resultado =
+        mockMvc
+            .perform(
+                get(BASE)
+                    .param("minhas", "CRIADAS")
+                    .param("tamanho", "100")
+                    .header("Authorization", bearer(ALICE_ID)))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    JsonNode pagina = JSON.readTree(resultado.getResponse().getContentAsString());
+    assertThat(pagina.get("conteudo")).isNotEmpty();
+    for (JsonNode item : pagina.get("conteudo")) {
+      assertThat(item.get("criadorId").asText()).isEqualTo(ALICE_ID.toString());
+    }
+  }
+
+  @Test
+  void missaoInexistenteDa404() throws Exception {
+    mockMvc
+        .perform(get(BASE + "/{id}", UUID.randomUUID()).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.detail").value("Missão não encontrada."));
+  }
+
+  // ─── Recorte de endereço por participação ──────────────────────────────────────────────────
+
+  /**
+   * Estranho não recebe logradouro, CEP, nem coordenada precisa — o criador recebe.
+   *
+   * <p>{@code GET /missoes} devolvia coordenada com ~15 dígitos significativos mais logradouro e
+   * CEP de toda missão não-rascunho, paginada, para qualquer autenticado. Era um catálogo de
+   * endereços do bairro pela mesma porta que {@code TriboController} se recusa a abrir ao não
+   * listar membros.
+   */
+  @Test
+  void detalheDeMissaoAlheiaNaoRevelaEnderecoNemCoordenadaPrecisa() throws Exception {
+    UUID missaoId = criarEPublicar();
+
+    // CAROL não é criadora nem executora: vê o bairro, não a porta.
+    mockMvc
+        .perform(get(BASE + "/{id}", missaoId).header("Authorization", bearer(CAROL_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.logradouro").doesNotExist())
+        .andExpect(jsonPath("$.cep").doesNotExist())
+        // Bairro/cidade/UF ficam: é o que orienta a decisão de aceitar, sem identificar a casa.
+        .andExpect(jsonPath("$.bairro").value("Pinheiros"))
+        .andExpect(jsonPath("$.cidade").value("São Paulo"))
+        // 3 casas ≈ 110 m. Com 6 casas (~11 cm) o arredondamento sozinho não protegeria nada.
+        .andExpect(jsonPath("$.origemLat").value(-23.563))
+        .andExpect(jsonPath("$.origemLon").value(-46.7));
+
+    // ALICE criou: precisa do endereço completo para acompanhar a própria missão.
+    mockMvc
+        .perform(get(BASE + "/{id}", missaoId).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.logradouro").value("Rua dos Pinheiros"))
+        .andExpect(jsonPath("$.cep").value("05422030"));
+  }
+
+  /** Aceitar a missão promove o executor a participante: a partir daí ele vê o endereço. */
+  @Test
+  void executorPassaAVerOEnderecoDepoisDeAceitar() throws Exception {
+    UUID missaoId = criarEPublicar();
+
+    mockMvc
+        .perform(get(BASE + "/{id}", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(jsonPath("$.logradouro").doesNotExist());
+
+    mockMvc
+        .perform(post(BASE + "/{id}/aceitar", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isOk());
+
+    mockMvc
+        .perform(get(BASE + "/{id}", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.logradouro").value("Rua dos Pinheiros"))
+        .andExpect(jsonPath("$.cep").value("05422030"));
+  }
+
+  /**
+   * A listagem paginada é o vetor de COLETA EM MASSA, e recorta pelo mesmo critério.
+   *
+   * <p>Percorre o JSON afirmando sobre CADA item, em vez de um matcher agregado: o que interessa é
+   * que nenhuma missão de terceiro carregue endereço, e uma asserção agregada esconderia a que
+   * vazasse no meio de noventa e nove que não vazam.
+   */
+  @Test
+  void listagemNaoVazaEnderecoDeMissaoAlheia() throws Exception {
+    criarEPublicar();
+
+    String corpo =
+        mockMvc
+            .perform(get(BASE).param("tamanho", "100").header("Authorization", bearer(CAROL_ID)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    JsonNode conteudo = JSON.readTree(corpo).get("conteudo");
+    assertThat(conteudo)
+        .as("a listagem precisa devolver alguma missão para o teste valer")
+        .isNotEmpty();
+
+    int alheias = 0;
+    for (JsonNode missao : conteudo) {
+      // Participante é criador OU executor. Pular só o criador deixaria passar as missões do seed
+      // em que ela é a executora — e foi exatamente o que este teste acusou na primeira execução.
+      boolean participa =
+          CAROL_ID.toString().equals(texto(missao, "criadorId"))
+              || CAROL_ID.toString().equals(texto(missao, "executorId"));
+      if (participa) {
+        continue;
+      }
+      alheias++;
+      assertThat(texto(missao, "logradouro"))
+          .as("logradouro de missão alheia (%s) não pode sair na listagem", texto(missao, "id"))
+          .isNull();
+      assertThat(texto(missao, "cep"))
+          .as("cep de missão alheia (%s) não pode sair na listagem", texto(missao, "id"))
+          .isNull();
+    }
+
+    assertThat(alheias)
+        .as("sem missão de terceiro na página, o teste não teria provado nada")
+        .isPositive();
+  }
+
+  private static String texto(JsonNode no, String campo) {
+    JsonNode valor = no.get(campo);
+    return valor == null || valor.isNull() ? null : valor.asText();
+  }
+
+  // ─── Helpers ───────────────────────────────────────────────────────────────────────────────
+
+  private String bearer(UUID usuarioId) {
+    String papel = usuarioId.equals(ADMIN_ID) ? "ADMIN" : "USUARIO";
+    return "Bearer " + JwtTestConfig.gerarTokenValido(usuarioId, usuarioId + "@teste.dev", papel);
+  }
+
+  private UUID criarMissao(UUID criador, String corpo) throws Exception {
+    MvcResult resultado =
+        mockMvc
+            .perform(
+                post(BASE)
+                    .header("Authorization", bearer(criador))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(corpo))
+            .andExpect(status().isCreated())
+            .andReturn();
+
+    return UUID.fromString(
+        JSON.readTree(resultado.getResponse().getContentAsString()).get("id").asText());
+  }
+
+  private UUID criarEPublicar() throws Exception {
+    UUID missaoId = criarMissao(ALICE_ID, corpoEntregaValido());
+    mockMvc
+        .perform(post(BASE + "/{id}/publicar", missaoId).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isOk());
+    return missaoId;
+  }
+
+  private UUID criarPublicarEAceitar() throws Exception {
+    UUID missaoId = criarEPublicar();
+    mockMvc
+        .perform(post(BASE + "/{id}/aceitar", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isOk());
+    return missaoId;
+  }
+
+  /**
+   * Leva a missão até um estado que hoje só é alcançável por caminhos de F6/F7. Percorre a máquina
+   * até EM_ANDAMENTO pelos endpoints reais e faz o último salto por SQL — o salto está coberto pela
+   * matriz de MissaoStateMachineTest, e simulá-lo aqui evita esperar F6 para testar o contrato de
+   * erro dos stubs.
+   */
+  private UUID criarMissaoEm(String status) throws Exception {
+    UUID missaoId = criarPublicarEAceitar();
+    mockMvc
+        .perform(post(BASE + "/{id}/iniciar", missaoId).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isOk());
+    jdbcAtualizarStatus(missaoId, status);
+    return missaoId;
+  }
+
+  @Autowired org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+  private void jdbcAtualizarStatus(UUID missaoId, String status) {
+    jdbcTemplate.update("UPDATE missao SET status = ? WHERE id = ?", status, missaoId);
+  }
+
+  private List<String> camposComErro(MvcResult resultado) throws Exception {
+    JsonNode raiz = JSON.readTree(resultado.getResponse().getContentAsString());
+    List<String> campos = new ArrayList<>();
+    for (JsonNode erro : raiz.get("errors")) {
+      campos.add(erro.get("campo").asText());
+    }
+    return campos;
+  }
+
+  private static String corpoEntregaValido() {
+    // valor_brl SEMPRE 0 desde o ADR 0009: missão não remunera em dinheiro, e o CHECK do banco
+    // (V15) recusa qualquer outro valor. A recompensa dessas fixtures é XP + token.
+    return corpoValido("ENTREGA", "0.00");
+  }
+
+  /**
+   * Corpo válido para qualquer categoria.
+   *
+   * <p>Os insumos da recompensa mudam com a categoria, e não por conveniência: desde o ADR 0009
+   * ENTREGA e COLETA exigem peso e volume (o servidor deriva a complexidade deles), enquanto TRIBO
+   * e AJUDA — que não movem objeto — declaram a complexidade. Enviar os dois conjuntos juntos é
+   * 400.
+   */
+  private static String corpoValido(String categoria, String valorBrl) {
+    boolean carregaCoisa = "ENTREGA".equals(categoria) || "COLETA".equals(categoria);
+    String insumos =
+        carregaCoisa
+            ? """
+              "pesoKg": 10.00,
+                  "volumeL": 40.00,"""
+            : """
+              "complexidade": "MEDIA","""; // sem carga: declarar é a única opção
+
+    Instant inicio = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+    Instant fim = inicio.plus(2, ChronoUnit.DAYS);
+    return """
+        {
+          "categoria": "%s",
+          "titulo": "Entrega solidária no bairro",
+          "descricao": "Levar a encomenda até o ponto de custódia da Vila Madalena.",
+          "valorBrl": %s,
+          %s
+          "origemLat": -23.5629,
+          "origemLon": -46.6996,
+          "cep": "05422030",
+          "logradouro": "Rua dos Pinheiros",
+          "bairro": "Pinheiros",
+          "cidade": "São Paulo",
+          "uf": "SP",
+          "raioCheckinM": 50,
+          "janelaInicio": "%s",
+          "janelaFim": "%s"
+        }
+        """
+        .formatted(categoria, valorBrl, insumos, inicio, fim);
+  }
+}

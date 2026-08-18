@@ -1,0 +1,63 @@
+spring:
+  datasource:
+    url: ${DATASOURCE_URL:jdbc:postgresql://localhost:5432/omnitribo}
+    # A APLICAÇÃO conecta com o papel RESTRITO, criado pela V2: SELECT+INSERT nas tabelas
+    # append-only, sem UPDATE nem DELETE. É isso que faz o REVOKE das migrations valer em RUNTIME.
+    #
+    # Antes aqui estava `omnitribo`, o DONO das tabelas — para quem GRANT e REVOKE não se aplicam.
+    # A proteção existia no catálogo e estava desligada na prática, e nada acusava: MigracaoTest
+    # lia information_schema, nunca tentava o UPDATE de verdade. Agora tenta (ver
+    # `aplicacao_nao_consegue_apagar_nem_alterar_o_ledger_em_runtime`).
+    username: ${DATASOURCE_USERNAME:omnitribo_app}
+    password: ${DATASOURCE_PASSWORD:omnitribo_app_dev}
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    # O FLYWAY conecta com o dono: ele cria schema, e o papel de aplicação não pode DDL. Sem estas
+    # três linhas, o Flyway herdaria o datasource acima e a primeira migration falharia com
+    # permission denied — separar os privilégios exige separar as conexões.
+    url: ${FLYWAY_URL:${DATASOURCE_URL:jdbc:postgresql://localhost:5432/omnitribo}}
+    user: ${FLYWAY_USERNAME:omnitribo}
+    password: ${FLYWAY_PASSWORD:omnitribo_dev}
+    out-of-order: false
+    locations:
+      - classpath:db/migration
+      - classpath:db/seed
+
+app:
+  webhooks:
+    # Segredo de DESENVOLVIMENTO, com o mesmo default de tools/carrier-mock/enviar.sh. É versionado
+    # de propósito e só existe no perfil dev: é o que faz `make up` + `spring-boot:run` + o mock
+    # funcionarem num clone novo sem passo manual, como as chaves RSA de dev.
+    #
+    # O perfil default (application.yml) tem o mapa VAZIO, então isto NÃO vaza para produção — lá o
+    # segredo entra por APP_WEBHOOKS_SEGREDOS_<TRANSPORTADORA>. Trocar este valor exige trocar o
+    # default do mock junto.
+    segredos:
+      transportadora-dev: ${WEBHOOK_SEGREDO_DEV:segredo-de-desenvolvimento-local}
+
+logging:
+  level:
+    com.omnitribo: DEBUG
+    # SQL sim, PARÂMETROS não. org.hibernate.orm.jdbc.bind em TRACE imprime todo valor bindado, o
+    # que a partir da F6 significa derramar lat/lon exatos de cada check-in e de cada busca do
+    # radar no console — e já derramava o hash de senha no login. Contradiz a regra do projeto
+    # ("nunca logue senha, token, refresh, coordenada exata ou payload autenticado"), e dev é
+    # justamente o perfil que sobe numa demo com plateia. Para depurar bind pontualmente, ligue na
+    # linha de comando: -Dlogging.level.org.hibernate.orm.jdbc.bind=TRACE
+    org.hibernate.SQL: DEBUG
+
+springdoc:
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+
+management:
+  endpoint:
+    health:
+      show-details: always
