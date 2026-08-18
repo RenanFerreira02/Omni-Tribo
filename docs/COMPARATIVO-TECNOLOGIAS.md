@@ -43,6 +43,13 @@ comparativo é escrito do zero. Ver [`DIVERGENCIAS-DOCUMENTACAO.md`](DIVERGENCIA
 O contraste de testes é o dado mais forte da tabela, e **não é sobre a linguagem**: é sobre o custo
 de montar o ambiente de teste. Falarei disso na conclusão.
 
+> **Procedência dos números.** A coluna do React Native foi contada por comando neste repositório e é
+> reproduzível (`find`/`wc` sobre `apps/mobile/`, `@*Mapping` sobre `services/api/src/main/java`).
+> A coluna do Kotlin veio do repositório **externo** `Omni-Tribo-PBL-Kotlin`, contada lá na época;
+> **nada aqui a reproduz**, e nenhum arquivo de `evidencias/` a sustenta. Quem quiser conferir tem de
+> ir ao outro repositório. A coluna Flutter está vazia porque o protótipo foi descartado e não há o
+> que medir — comparar contra memória seria pior que não comparar.
+
 ## Critério a critério
 
 | Critério | React Native / Expo | Kotlin nativo | Flutter |
@@ -68,8 +75,13 @@ Nenhum destes é hipotético. Todos consumiram tempo neste projeto e estão docu
    `getByTestId` estoura com "`render` function has not been called".
 3. **O primeiro teste de uma suíte de tela é ordens de grandeza mais caro que os outros.** O
    `react-native` exporta componentes por getters preguiçosos: o grafo de módulos só carrega no
-   primeiro `render()`. Medido: **221 ms → 2110 ms** com cache frio. Foi a causa do CI do mobile
-   vermelho da F9 até 2026-08-13, e passava em toda máquina local porque cache quente escondia.
+   primeiro `render()`. Medido na época em **221 ms → 2110 ms** com cache frio — *o log dessa
+   medição não foi retido, e o número está aqui como registro do diagnóstico, não como evidência*.
+   O **efeito**, esse sim, está provado: foi a causa do CI do mobile vermelho da F9 até 2026-08-13,
+   e passava em toda máquina local porque cache quente escondia.
+   **Nove execuções vermelhas seguidas, de 2026-08-09 a 2026-08-13**, viradas no commit `5f6fc11` —
+   histórico colhido da API do GitHub em
+   [`evidencias/f13-ci-github-actions.md`](evidencias/f13-ci-github-actions.md) §3.
 4. **O ambiente do `jest-expo` não faz rede de verdade.** `XMLHttpRequest` e `fetch` são dublês, o
    que obrigou o teste de integração a rodar num segundo config (`jest.e2e.config.js`) com
    `testEnvironment: 'node'`.
@@ -111,7 +123,9 @@ comercial não tem — funcionar na frente de outras pessoas, num ambiente que n
 resolve isso melhor que qualquer alternativa aqui.
 
 **A escolha cobrou o preço no lugar menos óbvio.** Não custou na UI; custou no ecossistema de teste,
-onde três armadilhas distintas consumiram tempo real e uma delas manteve o CI vermelho por dias.
+onde três armadilhas distintas consumiram tempo real e uma delas manteve o CI vermelho por dias —
+nove execuções, cinco dias, com o registro em
+[`evidencias/f13-ci-github-actions.md`](evidencias/f13-ci-github-actions.md) §3.
 Quem repetir a escolha deve orçar isso.
 
 **E a comparação tem um limite que a tabela não resolve:** o app Kotlin ao lado tem 1 teste, e o

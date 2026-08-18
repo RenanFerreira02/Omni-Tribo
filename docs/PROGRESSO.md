@@ -52,6 +52,58 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-08-17** — **O `Security Scan` estava vermelho havia dois dias, e ninguém tinha registrado.**
+
+  O relato foi "a security scan falhou no GitHub". O que a API do Actions mostrou foi mais estreito e
+  mais interessante que isso: **o Gitleaks passava — 48 execuções, todas verdes.** Quem falhava era o
+  job `dependencias`, introduzido em `ca328fc`, reprovado nas **4 execuções desde que existe**.
+
+  **Dois números diagnosticaram sem precisar do log**, que a API pública não entrega sem token
+  (`403`). Primeiro: o passo falhava em **25 a 36 segundos** — o Dependency-Check baixa a base da NVD
+  e analisa o classpath inteiro, o que leva minutos; meio minuto é o tempo de abortar na aquisição de
+  dados. Segundo, e pior: o passo seguinte, *"Upload relatório de vulnerabilidades"*, **concluía com
+  sucesso em 0 s**. O `actions/upload-artifact` estava no padrão `if-no-files-found: warn`, então
+  passava sem encontrar arquivo nenhum. **O passo que existia para dar visibilidade era o que
+  escondia que nenhum relatório havia sido produzido.**
+
+  A causa é a ausência do secret `NVD_API_KEY` — o mesmo `Invalid API Key, length of 0` que a
+  verificação de 08-15 já tinha capturado localmente. **A documentação descrevia a causa e nunca o
+  efeito:** nenhum arquivo do repositório dizia que o workflow estava vermelho, e a matriz de
+  rastreabilidade chamava a falta de "limitação **deste ambiente**", quando o secret também não
+  existe no GitHub.
+
+  **O conserto separa os dois jobs por cadência, e a razão não é cosmética.** Segredo vaza no
+  instante do commit, então `gitleaks` continua em todo push e PR. CVE novo é publicado pela NVD de
+  forma assíncrona ao repositório — varrer a cada push não adianta a descoberta em um dia sequer e
+  queima cota de uma chave limitada por taxa. `dependencias` passou a `schedule` semanal +
+  `workflow_dispatch`, com o passo guardado por `if: env.NVD_API_KEY != ''` e um `::warning` quando a
+  chave falta. **Pular calado seria pior que falhar:** um job verde por não ter varrido nada é
+  indistinguível de um verde por não ter achado nada, e o aviso é o que impede a confusão. O
+  `if-no-files-found` virou `error`.
+
+  Detalhe de implementação que custou uma consulta à documentação: **o contexto `secrets` não existe
+  em `if:`**, nem no nível de job nem no de step. É preciso expor o secret em `env:` no job — `env`,
+  esse sim, está disponível no `if:` de step.
+
+  **A varredura de dependências continua sem ter rodado**, e isso não mudou. O workflow deixa de ser
+  vermelho sem passar a alegar que varreu algo.
+
+  **A revisão final de afirmação × evidência achou mais seis.** O núcleo quantitativo estava sólido —
+  328 arquivos Java, 8.386 linhas no mobile, 44 endpoints, 23 ADRs, 17 transições: todos conferidos
+  por comando, todos exatos. O que não estava: o ✅ do Gitleaks na matriz vinha do **YAML**, não de
+  uma execução; a frase "o CI do mobile ficou vermelho da F9 até 2026-08-13" não tinha registro
+  nenhum — **e estava certa**, nove execuções vermelhas de 08-09 a 08-13, viradas em `5f6fc11`; o
+  índice de evidências creditava ao `f13-make-test.md` a prova do SpotBugs e dos gates JaCoCo, mas o
+  console colado ali tem só os cabeçalhos dos plugins, e as linhas de resultado são de **outra data**;
+  `f6-explain-analyze.md` era a única evidência sem a seção "o que não garante" que a convenção do
+  diretório exige; e a nota de 08-13 dizia **12** módulos nativos quando são **22**, todos na versão
+  exata do SDK 57 — a contagem errada enfraquecia um argumento que era mais forte do que se dizia.
+
+  As medições de flake de 08-13 (`221 ms → 2110 ms`, `1,8 s` contra `5 min 2 s`, "28 rodadas
+  verdes") ficaram, **marcadas como diagnóstico da época sem log retido**. Apagar o histórico de um
+  diagnóstico correto é pior que declarar que ele não tem arquivo — mas passá-lo por evidência
+  também. Tudo em [`evidencias/f13-ci-github-actions.md`](evidencias/f13-ci-github-actions.md).
+
 - **2026-08-16** — **F13, entrega final: a documentação passa a ser verificável.** Quatro coisas
   saíram desta fase e três delas são correções, não adições.
 
@@ -248,8 +300,11 @@ Pendências do CLAUDE.md.
     creditada/)`. O testID está na `FlatList`, que monta na PRIMEIRA renderização — de propósito,
     para cabeçalho e filtros ficarem visíveis durante o carregamento. Ou seja, o `findBy` resolvia
     de imediato e não esperava nada; o `getAllBy` corria contra uma lista vazia sempre que a
-    resposta demorava um tick a mais. Medido: 1 falha em 2 rodadas sob carga, 0 em 10 sem carga —
-    daí "de vez em quando", e daí falhar mais no runner, que é mais lento.
+    resposta demorava um tick a mais. Medido na época: 1 falha em 2 rodadas sob carga, 0 em 10 sem
+    carga — daí "de vez em quando", e daí falhar mais no runner, que é mais lento. *(Os números
+    desta nota e das duas seguintes são do diagnóstico do dia; o log não foi retido e não há
+    evidência arquivada para eles. O que está provado, pela API do GitHub, é o efeito: nove
+    execuções vermelhas seguidas — ver `evidencias/f13-ci-github-actions.md` §3.)*
   - **Um `gcTime` de 5 minutos segurando o processo.** `render.tsx` zerava o `gcTime` das queries e
     não o das mutations, cujo default é 300 s. Toda mutation exercitada num teste deixava um
     `setTimeout` pendurado, e timer vivo segura o event loop: a suíte de telas rodava em **1,8 s** e
@@ -327,9 +382,17 @@ Pendências do CLAUDE.md.
   - **Dois comentários afirmavam garantias inexistentes** — `erros.test.ts` dizia ficar vermelho se
     uma URI mudasse no backend (não fica; ele lê literais próprios) e `registrar.tsx` dizia que
     `GET /tribos` não existia (existe). Mesma classe do achado da rodada F0→F7.
-  - **`expo-dev-client` é desnecessário, e agora está medido:** os 12 módulos nativos do app estão
-    no `bundledNativeModules.json` do SDK 57, nas versões exatas instaladas — inclusive
-    `react-native-webview` e o seletor de data. **O app roda no Expo Go**, sem development build.
+  - **`expo-dev-client` é desnecessário, e agora está medido:** **22 dependências** do app constam do
+    `bundledNativeModules.json` do SDK 57, **todas na versão exata** que o SDK fixa — inclusive
+    `react-native-webview`, `react-native-reanimated` e o `@react-native-community/datetimepicker`.
+    **O app roda no Expo Go**, sem development build. Reconferido em 2026-08-17 (a nota original
+    dizia "12", contagem errada); reproduzível com:
+
+    ```bash
+    python3 -c "import json; b=json.load(open('apps/mobile/node_modules/expo/bundledNativeModules.json')); \
+    d=json.load(open('apps/mobile/package.json'))['dependencies']; \
+    print(sum(1 for k in d if k in b and d[k]==b[k]))"
+    ```
   - **Em aberto**, nas Pendências do CLAUDE.md: conta anonimizada escrevendo por 15 min (o mais
     grave), `nivel` divergente entre `/usuarios/me` e a exportação LGPD, e a transferência exigindo
     UUID digitado.

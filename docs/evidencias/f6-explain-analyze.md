@@ -194,3 +194,23 @@ compartilhada por toda a suíte.
 depois, porque o container é singleton para a JVM inteira. Se a suíte começar a ficar lenta em
 classes que consultam `missao`, este teste é o primeiro suspeito — e a correção é um `VACUUM` no
 `@AfterAll`, não reduzir a carga, que descaracterizaria a prova.
+
+---
+
+## O que esta evidência **não** garante
+
+Acrescentada em 2026-08-17: a convenção deste diretório exige que todo arquivo feche declarando seus
+limites, e esta era a única evidência sem a seção.
+
+- **Não é medição de desempenho.** O `EXPLAIN ANALYZE` prova a **escolha do plano** — `Index Scan`
+  sobre o GiST em vez de `Seq Scan`. Os tempos que aparecem na saída são de um container efêmero,
+  com cache frio, numa máquina de desenvolvimento: não são latência de produção, não foram repetidos
+  e não sustentam nenhum número de SLA. Medição de carga é a F12b, pendente.
+- **Não prova o comportamento com os dados reais.** As 200 mil linhas são geradas sinteticamente e
+  distribuídas de forma uniforme. Distribuição real de missões é concentrada por bairro, o que muda
+  a seletividade e pode mudar o plano.
+- **Não prova que o índice é usado por todas as consultas geoespaciais.** O teste exercita o radar
+  de proximidade. As demais consultas de `ConsultasGeoespaciais` não foram submetidas a `EXPLAIN`.
+- **Não prova estabilidade do plano.** O planejador do PostgreSQL decide por estatística; uma
+  mudança de volume, de `work_mem` ou um `ANALYZE` desatualizado pode levá-lo a outra escolha. O que
+  está provado é que, com este volume e estas estatísticas, ele escolhe o índice.

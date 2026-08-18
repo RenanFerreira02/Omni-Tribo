@@ -32,7 +32,7 @@ justificados em §2.3.
 | 12 | **SpotBugs sem HIGH** | build | `spotbugs:check` | ✅ **excedente** | `BugInstance size is 0`. O projeto reprova a partir de **Medium**, que engloba HIGH |
 | 13 | **ESLint e `tsc --noEmit` limpos** | app | `npm run lint`, `npm run typecheck` | ✅ | Ver §3 |
 | 14 | **Teste de contrato do OpenAPI** contra os endpoints reais | `/v3/api-docs` | `ContratoOpenApiTest` (4 casos) | ✅ | Compara nos dois sentidos + declaração de autenticação. **Achou um defeito real** — ver §2.1 |
-| 15 | **Gitleaks no histórico completo** | CI | `security.yml` | ✅ | `fetch-depth: 0`, sem filtro de caminho |
+| 15 | **Gitleaks no histórico completo** | CI | `security.yml` — execução real | ✅ | **48 runs, job `gitleaks` verde em todos**, 2–3 s com `fetch-depth: 0`. Evidência: [`f13-ci-github-actions.md`](../evidencias/f13-ci-github-actions.md) §2 |
 
 ---
 
@@ -53,12 +53,13 @@ foi **verificado na prática**, acrescentando um endpoint temporário: o teste p
 com `@Hidden` a comparação acusou. A asserção de segurança compara contra outra fonte — a cadeia de
 filtros — e é ela que encontrou o defeito acima.
 
-### 2.2 Requisito que não pôde ser executado neste ambiente
+### 2.2 Requisito que não foi executado — em ambiente nenhum
 
 **Dependency-Check sem alta/crítica** — configurado e ligado, **não executado até o fim**.
 
-O plugin está no profile `seguranca` com `failBuildOnCVSS=7`, arquivo de supressões e o job de CI
-prontos. A execução local reprova em:
+O plugin está no profile `seguranca` com `failBuildOnCVSS=7` e arquivo de supressões. O job de CI
+existe, mas **nunca completou uma execução**: falhou nas 4 vezes em que rodou, sempre em 25–36 s,
+sem produzir relatório. A execução local reprova pela mesma causa:
 
 ```
 UpdateException: Error updating the NVD Data
@@ -69,6 +70,13 @@ O OWASP Dependency-Check 13.0.0 **exige uma chave da API da NVD** para montar a 
 gratuita mas depende de cadastro. O que ficou provado é a fiação: o plugin executa, lê o arquivo de
 supressões e chega à etapa de aquisição de dados — falha só ali. Fica pendente de
 `-Dnvd.api.key=$NVD_API_KEY`.
+
+**O secret também não existe no GitHub, e isso deixou o workflow `Security Scan` vermelho de
+2026-08-15 a 2026-08-17** — quatro execuções, todas reprovadas por este job, enquanto o `gitleaks`
+passava em todas. Nenhum documento registrava esse efeito até a evidência
+[`f13-ci-github-actions.md`](../evidencias/f13-ci-github-actions.md). O conserto de 2026-08-17 moveu
+o job para agendamento semanal e o condicionou à existência da chave, com aviso explícito quando ela
+falta — o workflow deixa de ser vermelho **sem** passar a alegar que varreu algo.
 
 ### 2.3 Requisitos NÃO implementados, com justificativa
 
@@ -84,9 +92,11 @@ supressões e chega à etapa de aquisição de dados — falha só ali. Fica pen
 
 ---
 
-## §3 Resultado do pipeline
+## §3 Resultado da verificação local
 
-Saída completa e colada em [`verificacao-2026-08-15.md`](verificacao-2026-08-15.md). Resumo:
+Saída completa e colada em [`verificacao-2026-08-15.md`](verificacao-2026-08-15.md). **Isto é
+execução local, não estado do CI** — o do CI está em
+[`f13-ci-github-actions.md`](../evidencias/f13-ci-github-actions.md). Resumo:
 
 | Área | Comando | Resultado |
 |---|---|---|

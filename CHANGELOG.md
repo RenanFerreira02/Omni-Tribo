@@ -10,6 +10,49 @@ Uma entrada por **fase** do projeto — a numeração de fases é a de
 
 ---
 
+## [F13.1] — 2026-08-17 · Conserto do CI e revisão de evidência
+
+Entrada própria, e não emenda na F13, porque **mudou artefato e corrigiu afirmação publicada** — não
+foi só polimento de texto.
+
+### Corrigido
+- **O workflow `Security Scan` estava vermelho desde 2026-08-15** (4 execuções). O job `gitleaks`
+  passava em todas; quem reprovava era o `dependencias`, abortando em 25–36 s por ausência do secret
+  `NVD_API_KEY` (`Invalid API Key, length of 0`). O job passou a rodar em `schedule` semanal +
+  `workflow_dispatch`, com o passo de varredura guardado por `if: env.NVD_API_KEY != ''` e um
+  `::warning` explícito quando a chave falta. **A varredura continua sem ter rodado** — o workflow
+  deixa de ser vermelho sem passar a alegar que varreu algo.
+- **`if-no-files-found: error` no upload do relatório.** No padrão (`warn`), o passo concluía com
+  sucesso em 0 s sem encontrar arquivo nenhum: o passo que existia para dar visibilidade era o que
+  escondia que o Dependency-Check nunca produziu relatório.
+- **Contagem de módulos nativos:** eram **22**, não 12, todos na versão exata fixada pelo SDK 57
+  (`docs/PROGRESSO.md`). A contagem errada enfraquecia o argumento de que o app roda no Expo Go.
+- **Quatro afirmações sem evidência** em `docs/qualidade/matriz-rastreabilidade.md`: o ✅ do Gitleaks
+  vinha do YAML e não de execução; a §2.2 atribuía a falta da varredura a "este ambiente" quando o
+  secret também não existe no GitHub; "o job de CI **pronto**" descrevia um job que nunca completou;
+  e a §3, intitulada "Resultado do **pipeline**", listava saída local.
+- **`docs/evidencias/README.md`** creditava ao `f13-make-test.md` a prova do SpotBugs e dos dois
+  gates JaCoCo — o console colado ali traz só os cabeçalhos dos plugins, e as linhas de resultado são
+  de outra data (`verificacao-2026-08-15.md`).
+- **`docs/evidencias/f6-explain-analyze.md`** era a única evidência sem a seção "o que **não**
+  garante" que a convenção do próprio diretório exige.
+
+### Adicionado
+- `docs/evidencias/f13-ci-github-actions.md` — o histórico **real** do GitHub Actions colhido da API
+  pública: 113 runs, o job `gitleaks` verde em 48/48, o `Mobile CI` vermelho em nove execuções
+  seguidas de 08-09 a 08-13, e o `Security Scan` reprovado desde `ca328fc`. Sustenta por execução
+  duas afirmações que antes só existiam como texto.
+
+### Notas
+- As medições de flake de 2026-08-13 (`221 ms → 2110 ms`, `1,8 s` contra `5 min 2 s`, "28 rodadas
+  verdes") foram **mantidas e marcadas como diagnóstico da época sem log retido**. Apagar o registro
+  de um diagnóstico correto é pior que declarar que ele não tem arquivo — passá-lo por evidência
+  também seria.
+- Os números do app Kotlin no comparativo vêm de repositório **externo** e não são reproduzíveis
+  neste; a procedência passou a estar dita no próprio documento.
+
+---
+
 ## [F13] — 2026-08-16 · Entrega final
 
 ### Adicionado

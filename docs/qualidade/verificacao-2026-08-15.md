@@ -130,6 +130,12 @@ do axios).
   ausente vira string vazia e produz exatamente o mesmo erro, o que faz parecer que a chave está
   errada quando na verdade não existe.
 
+  > **Adendo de 2026-08-17.** Esta seção descreveu a falha como limitação da máquina local, e não
+  > era. O secret também não existe no GitHub: o job `dependencias` do `Security Scan` foi
+  > introduzido neste mesmo dia (`ca328fc`) e **reprovou nas 4 execuções seguintes**, sempre em
+  > 25–36 s, pela mesma causa. O workflow ficou vermelho de 08-15 a 08-17 e nenhum documento
+  > registrava isso. Ver [`../evidencias/f13-ci-github-actions.md`](../evidencias/f13-ci-github-actions.md).
+
 - **`docker compose ps` não se aplica nesta máquina.** Não há Docker Desktop; o ambiente usa podman,
   e a suíte sobe o PostgreSQL+PostGIS por Testcontainers (`DOCKER_HOST` apontando para o socket do
   podman). O passo do `/verificar` que confere containers de longa duração não tem alvo aqui.

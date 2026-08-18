@@ -320,7 +320,16 @@ CI (`.github/workflows/`), três workflows:
 - `mobile.yml` — push/PR que toque `apps/mobile/**`. Node 22, `npm ci`, `typecheck`, `lint`,
   `npm test -- --ci --coverage`, arquiva a cobertura. **Não roda `test:e2e`**, de propósito: aquele
   teste exige o backend de pé.
-- `security.yml` — todo push/PR, sem filtro de path. Gitleaks no histórico completo.
+- `security.yml` — **dois jobs, com cadências deliberadamente diferentes.** `gitleaks` roda em todo
+  push/PR, sem filtro de path, sobre o histórico completo (`fetch-depth: 0`) — é ele o candidato a
+  status obrigatório. `dependencias` (OWASP Dependency-Check) roda só em `schedule` semanal e
+  `workflow_dispatch`: CVE novo é publicado pela NVD de forma assíncrona ao repositório, então varrer
+  a cada push não adianta a descoberta em um dia e queima cota de uma chave limitada por taxa.
+  **O passo de varredura é guardado por `if: env.NVD_API_KEY != ''`** e, quando a chave falta, um
+  passo emite `::warning` — pular calado faria "verde por não ter varrido" ficar indistinguível de
+  "verde por não ter achado". O secret precisa virar `env` no nível do job porque o contexto
+  `secrets` NÃO existe em `if:`, nem de job nem de step. Este job já esteve vermelho por 4
+  execuções seguidas (ver Notas de manutenção de 2026-08-17).
 
 ## Onde está o quê, na documentação
 
