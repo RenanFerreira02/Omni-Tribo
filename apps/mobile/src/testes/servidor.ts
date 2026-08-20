@@ -11,6 +11,3 @@ import { manipuladores } from './manipuladores';
  * passarem pela rede de verdade — e falharem por conexão recusada, o que é lido como bug de código.
  */
 export const servidor = setupServer(...manipuladores);
-
-/** Base usada nos manipuladores; casa com o que `resolverBaseUrl()` devolve sob teste. */
-export const BASE_TESTE = 'http://api.teste/api/v1';

@@ -191,7 +191,10 @@ app:
   outbox:
     intervalo: PT10S             # varredura frequente: é latência de notificação, não de dados
     atraso-inicial: PT30S
-    maximo-tentativas: 5         # depois disso o evento sai do lote e espera intervenção
+    # Depois da quinta falha o evento sai do predicado do lote e NUNCA mais é tentado. Não existe
+    # consulta, endpoint nem métrica que mostre um evento esgotado — ele fica na tabela, invisível.
+    # Este comentário já dizia "espera intervenção", e não havia com o que intervir (Pendência #4).
+    maximo-tentativas: 5
     backoff-base: PT30S          # exponencial: 30s, 1min, 2min, 4min, 8min
 
   # Webhook de transportadora — a borda do "Fim da Entrega Falida".

@@ -20,6 +20,57 @@ Desenvolvimento 100% local. Um Postgres+PostGIS em Docker, backend Spring Boot, 
 NÃO adicione broker de mensageria, Redis, proxy reverso, Prometheus ou Grafana sem eu pedir — foram
 deliberadamente cortados do MVP. Se achar que algum é necessário, me pergunte antes.
 
+### Fora de escopo, decidido
+
+Estes dez foram avaliados e recusados. A linha diz o MOTIVO, não só a proibição: sem ele a decisão
+é refeita do zero a cada fase, e a recusa vira esquecimento aos olhos de quem chega depois.
+
+- **Cotação token→real.** O patrocinador aporta em TOKEN, e o valor que a transportadora oferta
+  entra na fórmula de recompensa como INSUMO DE CALIBRAÇÃO (`tokens-por-real-ofertado`, fórmula
+  versão 3), para ordenar missões por urgência — não é câmbio. A relação é unidirecional: nenhum
+  ator compra token com dinheiro, e token não é resgatável em reais. O que está fora de escopo é a
+  cotação inversa, token→real: token conversível *é* dinheiro, com KYC e enquadramento regulatório
+  junto (ADR 0009 §6). Contraexemplo conhecido: a conversão 1:2 do seed (ADR 0009) é migração única
+  de saldo legado, não taxa vigente.
+- **Pagamento real, KYC e CNPJ de patrocinador.** O cadastro é por endpoint ADMIN. Onboarding com
+  validação de CNPJ, meio de pagamento e prevenção a lavagem é produto financeiro, não MVP
+  acadêmico: é a mesma obrigação regulatória que o item acima existe para manter fora.
+- **Push remoto (FCM/APNs).** O módulo `notificacoes` é caixa de entrada in-app e **resolve o
+  requisito** — o alerta chega, é lido e é contado. Push remoto custaria o *development build*, e o
+  projeto roda no Expo Go pelo QR: é o mesmo bloqueio que o ADR 0012 já pagou no mapa, e pagá-lo de
+  novo troca o caminho de demonstração inteiro por um canal de entrega. `dispositivo.push_token` e
+  `dispositivo.plataforma` (V2) ficam INERTES de propósito e **não são pendência** — a tabela
+  permanece porque `docs/diagramas/arquitetura-alvo.md` mantém push como alvo, e aquele arquivo
+  descreve o que não existe.
+- **Testes de carga distribuídos, SLO formal e tuning de pool sem medição.** Número de desempenho
+  que ninguém mediu é afirmação indefensável numa banca, e mexer no pool "por segurança" muda o
+  comportamento sob concorrência sem nenhum antes-e-depois para comparar. A medição local continua
+  sendo a **F12b, pendente** — o que sai de escopo é a bancada distribuída e o SLO contratual.
+- **Mutation testing no projeto inteiro.** Restrito a `missoes.dominio` e `carteira.dominio`, e sem
+  gate: é ali que o teste protege dinheiro e máquina de estados, e é ali que um teste sem assertion
+  passaria despercebido. Rodar no projeto todo custa tempo de build por mutante equivalente em
+  DTO e getter, e um gate reprovaria o build por eles.
+- **Dark mode.** Dobraria a auditoria de contraste da F12: os 22 pares texto/fundo virariam 44, e
+  11 dos 22 já reprovaram em WCAG AA uma vez. `userInterfaceStyle: 'light'` está fixado em
+  `app.config.ts` justamente para que a auditoria valha para o que o usuário vê.
+- **Ilustrações personalizadas e família tipográfica custom.** Asset autoral e licença de fonte não
+  movem requisito nenhum, e fonte embarcada ainda pesa no bundle e some do fallback web. O sistema
+  de design entrega hierarquia com a fonte do sistema, que já passou contraste e tamanho.
+- **Certificação iOS/VoiceOver.** Não há Mac nem iPhone aqui — certificar exigiria hardware que o
+  projeto não tem. A verificação de acessibilidade é em TalkBack, no Android, e **nenhuma passada
+  está registrada até hoje**: é a LACUNA L4 da auditoria mobile, planejada para a F18. O que não
+  for verificado continua declarado como não verificado — afirmar suporte que ninguém executou é
+  pior que a lacuna, porque impede que alguém vá conferir.
+- **Recalibração do modelo de risco e validação com dado real.** Não existe operação, logo não
+  existe entrega falida real para treinar — recalibrar sobre mais dado sintético só aumentaria a
+  confiança num número sem melhorar a previsão. Segue registrada como o próximo passo do ADR 0022,
+  e não como trabalho desta entrega.
+- **Internacionalização, Detox e Maestro.** O produto é hiperlocal, de um bairro, com domínio em
+  português até nos nomes de classe: i18n adicionaria uma camada de indireção em toda string para
+  um segundo idioma que não existe. Detox e Maestro exigem build nativo e aparelho no CI — o mesmo
+  bloqueio do Expo Go —, e o ciclo ponta a ponta já é exercitado por `test:e2e` contra o backend
+  de pé.
+
 ## Arquitetura
 
 Monólito modular (ver docs/adr/0001). Raiz do pacote Java: `com.omnitribo` — sem prefixo `br.`.
@@ -631,3 +682,34 @@ tela pede o identificador do destinatário como texto. Funciona e é inutilizáv
 decisão de privacidade —
 listar membros daria a qualquer autenticado um mapa social do bairro. A saída não é expor a lista;
 é algo como busca por handle exato ou convite. Não decida isso sozinho.
+
+**4. A outbox abandona evento em silêncio, e não há carta-morta.** `DrenadorOutboxService` tenta no
+máximo `app.outbox.maximo-tentativas` (5) vezes; depois disso o predicado de
+`OutboxRepository.buscarPendentesParaPublicar` deixa de enxergar a linha e o evento **nunca mais é
+tentado**. Ele fica na tabela, com `publicado_em` nulo e `ultimo_erro` preenchido, e **nada o
+mostra**: não existe consulta de esgotados, endpoint de administração nem métrica. O único vestígio
+é o `log.warn` da última falha, que ninguém coleta — Prometheus e Grafana foram cortados do MVP.
+
+Consequência: um `MissaoConcluida` que o despachante não consiga tratar cinco vezes desaparece. O
+executor recebeu o crédito e nunca é avisado, e não há lugar onde esse fato apareça.
+
+**Isto foi descoberto como comentário falso, não como bug novo** (varredura de 2026-08-20,
+`docs/auditoria/varredura-orfaos.md` §1.1). Três lugares afirmavam a garantia que não existe —
+"retry até conseguir", "entrega at-least-once" e "espera intervenção". Os três foram corrigidos para
+dizer a verdade; **a lacuna em si continua aberta de propósito**, porque fechá-la é decisão de
+projeto: uma consulta de esgotados exposta a ADMIN, um contador, ou aceitar a perda explicitamente.
+Não decida sozinho — muda o contrato de entrega de notificação.
+
+**5. Nada acha pote imobilizado.** Token preso em missão não-terminal parada (`EM_ANDAMENTO`,
+`AGUARDANDO_CONFIRMACAO`, `EM_DISPUTA`) viola a CONSERVAÇÃO enquanto a reconciliação segue
+respondendo `integro=true` — são invariantes diferentes, e a primeira passa enquanto a segunda é
+violada. **Não existe consulta, endpoint nem relatório que mostre esses potes.**
+
+Existiu a aparência de um: `MissaoRepository.potesImobilizados`, com javadoc dizendo que
+"existe para dar visibilidade a essa diferença", e o ADR 0015 registrando essa visibilidade como
+consequência aceita. **Nenhum serviço, endpoint ou teste jamais a chamou.** A query foi removida
+como órfã em 2026-08-20 e o ADR 0015 recebeu a retificação, em vez de manter código morto que fazia
+a lacuna parecer coberta. A mitigação real que EXISTE é outra, e é preventiva, não detectiva: a
+varredura por prazo (`ExpiracaoMissoesService`) e a porta de ADMIN (`POST /missoes/{id}/destravar`)
+tiram a missão do limbo. O que falta é o instrumento de DIAGNÓSTICO — ver Pendência #4, que é o
+mesmo formato de problema.
