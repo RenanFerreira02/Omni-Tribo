@@ -11,20 +11,11 @@ import java.util.UUID;
 public record AutenticadoPrincipal(UUID id, String email, PapelUsuario papel) {
 
   /**
-   * Cria a partir de strings extraídas de claims JWT. Usado pelo JwtAuthFilter
-   * (compartilhado/infra/), que não pode referenciar PapelUsuario (identidade/dominio/) diretamente
-   * — a fábrica encapsula o valueOf dentro da camada api/ do módulo.
-   */
-  public static AutenticadoPrincipal deClaims(UUID id, String email, String papelString) {
-    return new AutenticadoPrincipal(id, email, PapelUsuario.valueOf(papelString));
-  }
-
-  /**
    * Authority no formato do Spring Security ({@code ROLE_ADMIN}).
    *
-   * <p>Mora aqui pela mesma razão de {@link #deClaims}: quem monta a autenticação é o {@code
-   * JwtAuthFilter}, em {@code compartilhado/infra}, que não pode importar {@code PapelUsuario} de
-   * {@code identidade/dominio} — então nem o {@code .name()} pode ser chamado de lá.
+   * <p>Mora aqui, e não no chamador: quem monta a autenticação é o {@code JwtAuthFilter}, em {@code
+   * compartilhado/infra}, que não pode importar {@code PapelUsuario} de {@code identidade/dominio}
+   * — então nem o {@code .name()} pode ser chamado de lá.
    */
   public String autoridade() {
     return "ROLE_" + papel.name();

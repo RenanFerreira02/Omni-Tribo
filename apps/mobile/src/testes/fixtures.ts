@@ -74,28 +74,6 @@ export function missao(sobrescrever: Partial<MissaoResponse> = {}): MissaoRespon
   };
 }
 
-/**
- * A MESMA missão como o servidor a devolve para quem NÃO participa dela.
- *
- * O backend recorta o endereço por participação: criador e executor veem tudo, os demais recebem
- * `cep`/`logradouro` nulos e coordenada com 3 casas (~110 m). É o que `GET /missoes`,
- * `GET /missoes/proximas` e o detalhe de missão alheia devolvem.
- *
- * Existe como fixture SEPARADA em vez de substituir `missao()` porque as duas formas são reais e o
- * app precisa aguentar ambas — e porque trocar a de cima quebraria dezenas de testes de uma vez, sem
- * que nenhum deles fosse sobre isto. Sem esta fixture, a suíte inteira passava verde contra um
- * contrato que o servidor não devolve mais.
- */
-export function missaoDeTerceiro(sobrescrever: Partial<MissaoResponse> = {}): MissaoResponse {
-  return missao({
-    cep: null,
-    logradouro: null,
-    origemLat: -23.564,
-    origemLon: -46.693,
-    ...sobrescrever,
-  });
-}
-
 export function pagina<T>(
   conteudo: T[],
   sobrescrever: Partial<PaginaResponse<T>> = {},

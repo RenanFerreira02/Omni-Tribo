@@ -238,11 +238,4 @@ public class EntregaFalidaService {
 
   // A baixa da custódia NÃO mora aqui: vive em BaixaCustodiaService, para quebrar o ciclo de beans
   // MissaoService → BaixaCustodia → ConversaoEntregaFalida → MissaoService. Ver o javadoc de lá.
-
-  /** Só para leitura em teste e diagnóstico. */
-  @Transactional(readOnly = true)
-  public Optional<EntregaFalida> porRastreio(String transportadora, String codigoRastreio) {
-    return entregaFalidaRepository.findByTransportadoraAndCodigoRastreio(
-        transportadora, codigoRastreio);
-  }
 }

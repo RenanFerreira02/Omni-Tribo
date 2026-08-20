@@ -102,10 +102,9 @@ public class PontoCustodia {
    * Registra a entrada de uma encomenda na custódia.
    *
    * <p>Não é setter público por decisão: ocupação não é dado que alguém informa, é consequência de
-   * uma encomenda ter chegado ou saído. O javadoc de {@code PontoCustodiaService} guardou o lugar
-   * desta chamada — "quando esse fluxo chegar, ele NÃO deve virar endpoint" —, e continua valendo:
-   * quem chama é {@code EntregaFalidaService} (webhook) e a conclusão de missão, nunca uma
-   * requisição de usuário.
+   * uma encomenda ter chegado ou saído. Quem chama é {@code EntregaFalidaService} (webhook) e a
+   * conclusão de missão, nunca uma requisição de usuário — o javadoc de {@code
+   * PontoCustodiaService} explica por que isto não vira endpoint.
    *
    * <p>A verificação de vaga acontece no serviço, sob o {@code SELECT ... FOR UPDATE} do ponto.
    * Aqui ela é só a rede de segurança contra um chamador futuro que esqueça o lock: sem o lock,

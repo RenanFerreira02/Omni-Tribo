@@ -239,10 +239,6 @@ public class EntregaFalida {
     return recusadaEm != null;
   }
 
-  public boolean foiConvertida() {
-    return missaoId != null;
-  }
-
   public boolean saiuDaCustodia() {
     return convertidaEm != null;
   }

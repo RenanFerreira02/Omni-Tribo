@@ -19,7 +19,7 @@ estado atual do projeto:
 2. **O projeto é Expo managed puro.** Não existem `apps/mobile/android/` nem `ios/` — o
    `.gitignore` os exclui explicitamente (`# generated native folders`). Não há `eas.json`, não há
    `expo-dev-client` nas dependências, e o `README.md` documenta o fluxo como "leia o QR com o Expo
-   Go".
+   Go".[^eas]
 3. **No Android, `react-native-maps` exige chave do Google Maps.** O mapa nativo do Android *é* o
    Google Maps; sem `android.config.googleMaps.apiKey` no `app.config.ts`, a tela renderiza um
    retângulo cinza. Não temos essa chave, e obtê-la é uma ação de conta Google fora do alcance do
@@ -93,3 +93,10 @@ escrever uma segunda implementação com as mesmas props — nenhuma tela muda.
 | **Mapa estático por imagem (Static Maps API)** | Elimina a WebView e mata a tela: sem arrastar, sem zoom, sem `onRegionChange`, e o debounce de 500 ms pedido deixa de ter sentido. Além disso as APIs de mapa estático de qualidade também exigem chave. |
 | **Manter só a lista/radar geoespacial** | É o que já existe desde a F10, e não atende ao pedido. O radar responde "o que está perto de mim"; o mapa responde "como isso se distribui pelo bairro", que é a leitura espacial que motiva o produto. |
 | **`@gorhom/bottom-sheet` para a folha do marcador** | Fora por uma restrição já documentada do projeto: `src/components/Esqueleto.tsx` registra que Reanimated foi banido dos componentes porque quebra o Jest (`loadUnpackers`). A folha usa `Modal` + `Animated` do core do React Native. |
+
+[^eas]: **Nota de 2026-08-20.** "Não há `eas.json`" descrevia o repositório na data desta decisão e
+    deixou de valer na F13: `apps/mobile/eas.json` existe desde 2026-08-16, com o procedimento em
+    `apps/mobile/README.md`, e está declarado como **configurado e não executado** em
+    `docs/qualidade/verificacao-2026-08-16.md`. A decisão do mapa NÃO muda: o caminho de
+    demonstração continua sendo o Expo Go pelo QR, e os outros três fatos do levantamento seguem
+    de pé. O contexto acima é preservado como registro do que se sabia no dia.

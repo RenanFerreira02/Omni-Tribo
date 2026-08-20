@@ -68,7 +68,13 @@ responde "há quanto tempo esta missão está parada AQUI" — `janela_fim` é o
 - Zero caminho de valor novo: `aplicar` já estornava em CANCELADA/EXPIRADA, `pagaTokensDoPote` já
   creditava em CONCLUIDA. Isso é o que torna a mudança segura — dois caminhos de crédito é como a
   conservação se perde sem ninguém perceber.
-- `MissaoRepository.potesImobilizados` dá visibilidade ao dinheiro que a reconciliação não acha.
+- ~~`MissaoRepository.potesImobilizados` dá visibilidade ao dinheiro que a reconciliação não
+  acha.~~ **Retificado em 2026-08-20.** Esta consequência nunca foi verdade: a consulta foi escrita
+  e **nenhum serviço, endpoint ou teste jamais a chamou**, então a visibilidade prometida não
+  existiu em momento nenhum. A query foi removida como órfã na varredura de
+  [`varredura-orfaos.md`](../auditoria/varredura-orfaos.md) §2.1, e a lacuna real — não há como
+  achar pote imobilizado — está registrada como **Pendência #5** do `CLAUDE.md`. O resto desta
+  decisão (varredura por prazo + porta de ADMIN) continua valendo e está implementado.
 
 **Negativas / trade-offs:**
 - Pagar por omissão do criador aceita um risco: conluio, ou check-in sem execução real. A documentação

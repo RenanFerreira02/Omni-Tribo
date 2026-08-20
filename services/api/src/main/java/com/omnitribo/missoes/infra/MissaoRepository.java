@@ -170,24 +170,4 @@ public interface MissaoRepository extends JpaRepository<Missao, UUID> {
   @Query("select m from Missao m where m.id = :id and m.status = :status")
   Optional<Missao> travarSeAindaNoStatus(
       @Param("id") UUID id, @Param("status") StatusMissao status);
-
-  /**
-   * Missões não-terminais com pote em custódia cujo marco temporal já venceu — o dinheiro que a
-   * reconciliação NÃO acha.
-   *
-   * <p>Reconciliação compara ledger com projeção, e as duas continuam batendo enquanto tokens estão
-   * presos numa missão parada: quem quebra é a CONSERVAÇÃO, que é outra invariante. Esta consulta
-   * existe para dar visibilidade a essa diferença.
-   */
-  @Query(
-      """
-      select m from Missao m
-      where m.poteTokens > 0
-        and m.status in (com.omnitribo.missoes.dominio.StatusMissao.EM_ANDAMENTO,
-                         com.omnitribo.missoes.dominio.StatusMissao.AGUARDANDO_CONFIRMACAO,
-                         com.omnitribo.missoes.dominio.StatusMissao.EM_DISPUTA)
-        and m.estadoDesde < :corte
-      order by m.estadoDesde asc
-      """)
-  List<Missao> potesImobilizados(@Param("corte") Instant corte, Pageable limite);
 }

@@ -20,9 +20,11 @@ import tools.jackson.databind.json.JsonMapper;
  * Entrega de eventos da outbox como alerta in-app. Implementação da porta {@link DespachoAlerta}.
  *
  * <p>Destino provisório e assumido como tal: nesta fase "despachar" significa gravar uma linha em
- * {@code alerta}, a caixa de entrada do app. O push real troca só o corpo deste despachante — o
- * contrato do drenador, o backoff e a garantia de entrega at-least-once não mudam, porque é
- * exatamente essa separação que o padrão outbox compra.
+ * {@code alerta}, a caixa de entrada do app. O push real trocaria só o corpo deste despachante — o
+ * contrato do drenador e o backoff não mudam, porque é exatamente essa separação que o padrão
+ * outbox compra. O que NÃO se deve repetir daqui é a palavra "at-least-once": a entrega para na
+ * quinta tentativa e o evento é abandonado sem aviso. Ver o javadoc de {@link
+ * com.omnitribo.compartilhado.api.PublicadorEventos}, seção "O LIMITE desta garantia".
  *
  * <p>O mapper é construído aqui, sem injeção: Jackson é o 3 (tools.jackson) em todo o repositório e
  * não existe bean de ObjectMapper para injetar. Mesmo padrão de {@code
@@ -213,14 +215,6 @@ public class DespachanteAlertaService implements DespachoAlerta {
   }
 
   /**
-   * Aviso operacional de ponto lotado.
-   *
-   * <p>Alerta GLOBAL — {@code usuario_id} nulo, que a V7 permite de propósito. Não é notificação de
-   * usuário: é sinal de operação, e um ponto que recusa encomendas com frequência é exatamente o
-   * dado que justifica negociar mais capacidade ou abrir outro ponto no bairro. Sem isto, a recusa
-   * ficaria só na linha de {@code entrega_falida}, visível apenas para quem for procurá-la.
-   */
-  /**
    * Faixa de risco → prioridade do alerta.
    *
    * <p>Faixa desconhecida vira NORMAL em vez de lançar: o drenador da outbox tem cinco tentativas e
@@ -255,6 +249,14 @@ public class DespachanteAlertaService implements DespachoAlerta {
         : "";
   }
 
+  /**
+   * Aviso operacional de ponto lotado.
+   *
+   * <p>Alerta GLOBAL — {@code usuario_id} nulo, que a V7 permite de propósito. Não é notificação de
+   * usuário: é sinal de operação, e um ponto que recusa encomendas com frequência é exatamente o
+   * dado que justifica negociar mais capacidade ou abrir outro ponto no bairro. Sem isto, a recusa
+   * ficaria só na linha de {@code entrega_falida}, visível apenas para quem for procurá-la.
+   */
   private void gravarPontoLotado(UUID entregaFalidaId, Map<String, Object> payload) {
     alertaRepository.save(
         new Alerta(
