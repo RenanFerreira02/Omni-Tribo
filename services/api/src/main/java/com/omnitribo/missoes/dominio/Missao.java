@@ -171,6 +171,18 @@ public class Missao {
   @Column(name = "nivel_minimo", nullable = false)
   private int nivelMinimo = 1;
 
+  /**
+   * De onde sai o token da recompensa. Derivado da categoria no construtor e CONGELADO ali — ver
+   * {@link FontePote}.
+   *
+   * <p>Não há setter público: a única transição permitida é {@link #financiadaPeloPatrocinador()},
+   * chamada na conversão de entrega falida antes de a missão ser publicada. Depois de ABERTA, mudar
+   * a fonte alteraria de onde o executor vai ser pago, com a missão já contratada.
+   */
+  @Enumerated(EnumType.STRING)
+  @Column(name = "fonte_pote", nullable = false, length = 12)
+  private FontePote fontePote;
+
   @Version
   @Column(nullable = false)
   private int versao;
@@ -242,6 +254,14 @@ public class Missao {
     this.criadaEm = criadaEm;
     // A missão nasce RASCUNHO neste instante. A partir daqui quem mexe é a máquina de estados.
     this.estadoDesde = criadaEm;
+    // DERIVADA da categoria e congelada aqui, num ponto único. Este construtor é a razão pela qual
+    // a V23 não criou um CHECK de coerência entre fonte_pote e categoria no banco: aquele CHECK
+    // reprovaria os INSERTs dos próprios seeds, que rodam depois da migration e não podem ser
+    // editados. A garantia mora aqui, e todo caminho de criação passa por aqui.
+    this.fontePote =
+        categoria == CategoriaMissao.TRIBO || categoria == CategoriaMissao.COLETA
+            ? FontePote.COMUNIDADE
+            : FontePote.CUNHAGEM;
   }
 
   /**
@@ -373,6 +393,31 @@ public class Missao {
    */
   public void registrarFaixaRisco(String faixa) {
     this.faixaRisco = faixa;
+  }
+
+  public FontePote getFontePote() {
+    return fontePote;
+  }
+
+  /**
+   * Marca a missão como financiada pelo patrocinador. Chamada UMA vez, na conversão de entrega
+   * falida, antes de publicar.
+   *
+   * <p>Mesmo molde de {@link #registrarFaixaRisco}: fica fora do construtor porque só a conversão
+   * sabe se existe patrocinador com saldo, e essa resposta só aparece depois de a recompensa estar
+   * calculada e a carteira travada.
+   *
+   * <p>A guarda não é decorativa. Aceitar esta chamada numa missão COMUNIDADE trocaria a fonte de
+   * um pote que membros da tribo já financiaram, e o estorno passaria a procurar lançamentos do
+   * motivo errado — o dinheiro deles ficaria preso na missão. Estado impossível vira erro alto
+   * aqui, e não saldo perdido em silêncio depois.
+   */
+  public void financiadaPeloPatrocinador() {
+    if (this.fontePote != FontePote.CUNHAGEM) {
+      throw new IllegalStateException(
+          "Só missão de fonte CUNHAGEM pode passar a PATROCINADOR; esta é " + this.fontePote + ".");
+    }
+    this.fontePote = FontePote.PATROCINADOR;
   }
 
   @SuppressFBWarnings(

@@ -43,6 +43,8 @@ public class DespachanteAlertaService implements DespachoAlerta {
   /** Discriminador do aviso operacional de ponto lotado. Alerta GLOBAL: usuário nulo. */
   static final String TIPO_PONTO_LOTADO = "PONTO_CUSTODIA_LOTADO";
 
+  static final String TIPO_SEM_PATROCINIO = "ENTREGA_SEM_PATROCINIO";
+
   private final AlertaRepository alertaRepository;
   private final ConsultasGeoespaciais consultasGeoespaciais;
   private final ConsultaConsentimento consultaConsentimento;
@@ -78,6 +80,7 @@ public class DespachanteAlertaService implements DespachoAlerta {
       case "MissaoConcluida" -> gravarConclusao(agregadoId, payload);
       case "EntregaFalidaConvertida" -> anunciarMissaoDeRetirada(payload);
       case "EntregaFalidaRecusada" -> gravarPontoLotado(agregadoId, payload);
+      case "EntregaFalidaSemPatrocinio" -> gravarSemPatrocinio(agregadoId, payload);
       default ->
           throw new IllegalStateException("Nenhum despachante para o evento " + tipoEvento + ".");
     }
@@ -279,5 +282,33 @@ public class DespachanteAlertaService implements DespachoAlerta {
             null,
             Instant.now()));
     log.warn("Ponto lotado registrado para entrega falida {}", entregaFalidaId);
+  }
+
+  /**
+   * Aviso operacional de entrega recusada por falta de patrocínio.
+   *
+   * <p>Alerta GLOBAL, como o de ponto lotado, e pela mesma razão: é sinal de OPERAÇÃO, não
+   * notificação de usuário. Uma transportadora cujo patrocinador ficou sem saldo para de gerar
+   * missões silenciosamente — a encomenda continua na loja, o vizinho nunca é chamado, e a única
+   * pista seria uma linha de {@code entrega_falida} que ninguém abre. É o ADMIN que precisa saber,
+   * porque a correção é dele: um aporte.
+   *
+   * <p>O corpo NÃO diz saldo nem valor. A causa exata — patrocinador inexistente, desativado ou sem
+   * fundos — fica fora pelo mesmo motivo que {@code MotivoRecusa.SEM_PATROCINIO} colapsa as três: o
+   * alerta é lido por gente que não precisa do estado financeiro de um parceiro para agir.
+   */
+  private void gravarSemPatrocinio(UUID entregaFalidaId, Map<String, Object> payload) {
+    alertaRepository.save(
+        new Alerta(
+            UUID.randomUUID(),
+            null,
+            TIPO_SEM_PATROCINIO,
+            "Entrega sem patrocínio",
+            "Uma encomenda de "
+                + payload.get("transportadora")
+                + " não virou missão por falta de patrocínio ativo. Nenhum vizinho foi acionado.",
+            null,
+            Instant.now()));
+    log.warn("Entrega falida {} recusada por falta de patrocínio", entregaFalidaId);
   }
 }

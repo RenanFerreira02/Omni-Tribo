@@ -166,3 +166,21 @@ reenviar em laço enquanto a encomenda continua no ponto sem missão.
 - ADR 0018 — fronteira de `compartilhado` e por que portas entre módulos usam só tipos JDK.
 - ADR 0021 — verificação de webhook de transportadora.
 - CLAUDE.md, Pendência #1 — por que ENTREGA ainda cunha token.
+
+---
+
+## Retificação — 2026-08-20 (ADR 0024)
+
+**A premissa da seção "O teto é estreito por causa da Pendência #1" caducou.** Quando este ADR foi
+escrito, missões de ENTREGA CUNHAVAM token na conclusão, então o multiplicador de risco multiplicava
+emissão sem financiador — e o teto de 1,5× foi escolhido estreito por causa disso.
+
+Desde a V23 a missão de retirada nasce com o pote financiado pelo PATROCINADOR
+(`missao.fonte_pote = 'PATROCINADOR'`), e a cunhagem saiu do fim do ciclo: o único ponto de emissão
+passou a ser `APORTE_PATROCINADOR`, por endpoint ADMIN. O multiplicador **não amplia mais emissão
+nenhuma** — ele aumenta quanto o patrocinador paga do próprio saldo.
+
+O que NÃO mudou: o teto continua em 1,5×, continua congelado em `missao.multiplicador_risco` e
+continua travado por `CoerenciaTetoRiscoTest`. **Reavaliá-lo virou possível, não obrigatório** — e
+seria trabalho com o mesmo problema de sempre, os dados serem sintéticos. A referência à Pendência #1
+no rodapé deste ADR aponta para uma pendência que não existe mais; o raciocínio dela está aqui.

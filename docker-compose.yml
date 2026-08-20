@@ -7,7 +7,16 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./docker/init:/docker-entrypoint-initdb.d:ro
+      # `z` é a flag de RELABEL do SELinux, e sem ela este projeto não sobe com podman em Fedora:
+      # o diretório do repositório fica com o rótulo user_home_t, o processo do container não tem
+      # permissão de lê-lo, e o entrypoint do Postgres morre com
+      # "ls: cannot open directory '/docker-entrypoint-initdb.d/': Permission denied".
+      #
+      # O sintoma engana porque só aparece no `make reset`: os scripts de init rodam UMA vez, na
+      # criação do volume. Um volume já inicializado sobe normalmente com `make up`, então a falha
+      # fica latente até alguém precisar recriar o banco — que é exatamente o que toda migration
+      # nova exige. O Docker aceita a mesma flag e a ignora quando não há SELinux.
+      - ./docker/init:/docker-entrypoint-initdb.d:ro,z
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s

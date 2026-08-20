@@ -73,7 +73,7 @@ responde "há quanto tempo esta missão está parada AQUI" — `janela_fim` é o
   e **nenhum serviço, endpoint ou teste jamais a chamou**, então a visibilidade prometida não
   existiu em momento nenhum. A query foi removida como órfã na varredura de
   [`varredura-orfaos.md`](../auditoria/varredura-orfaos.md) §2.1, e a lacuna real — não há como
-  achar pote imobilizado — está registrada como **Pendência #5** do `CLAUDE.md`. O resto desta
+  achar pote imobilizado — está registrada como **Pendência #4** do `CLAUDE.md` (era #5 até a F8 fechar a antiga #1). O resto desta
   decisão (varredura por prazo + porta de ADMIN) continua valendo e está implementado.
 
 **Negativas / trade-offs:**

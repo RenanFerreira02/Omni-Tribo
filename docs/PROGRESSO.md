@@ -52,6 +52,55 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-08-20** — **A carteira de patrocinador fechou a Pendência #1, e o caminho até ela achou
+  dois defeitos que ninguém tinha visto.**
+
+  A Pendência #1 dizia que ENTREGA e AJUDA cunhavam token na conclusão, então a conservação
+  `SUM(carteiras) + SUM(potes)` valia para duas categorias e não para o sistema. O que a implementação
+  mostrou é que a formulação estava incompleta: **a cunhagem não podia ser "removida", só deslocada.**
+  Alguém tem de pôr o token no pote. A decisão (ADR 0024) foi tirá-la do FIM do ciclo — implícita, por
+  missão, invisível para a reconciliação — e pô-la no COMEÇO, num `APORTE_PATROCINADOR` por endpoint
+  ADMIN, auditado e idempotente. O ganho não é "não cunhar mais"; é a emissão virar um número que
+  alguém consegue somar.
+
+  **Três armadilhas que o desenho óbvio teria pisado:**
+
+  1. **`abrirMissaoDeRetirada` não passa por `aplicar()`.** Ela chama a máquina de estados direto,
+     então `validarPoteSuficienteParaPublicar` NUNCA roda nesse caminho. Virar `pagaTokensDoPote`
+     sem financiar dentro da conversão criaria missões ABERTAS com pote vazio: alguém aceitaria,
+     entregaria, faria check-in, e a conclusão falharia com 422 **para sempre** — e como missão de
+     retirada só conclui pela varredura de prazo, o erro apareceria no job, não numa requisição, com
+     o token do executor perdido e a vaga do ponto travada.
+  2. **`LancamentoRepository.buscarFinanciamentosDaMissao` filtrava um motivo só.** Um motivo novo
+     ficaria invisível para o estorno, e cancelar ou expirar uma missão patrocinada não devolveria
+     nada — token preso numa missão morta, com a reconciliação respondendo `integro=true`, porque
+     ledger e projeção continuam batendo. Era a Pendência #5 reaparecendo por outra porta.
+  3. **A regra por CATEGORIA não conseguia separar as duas ENTREGAs.** Ligar ENTREGA ao pote
+     quebraria a ENTREGA criada por humano, que ficaria impublicável — financiamento de ENTREGA é
+     recusado e o pote nunca alcançaria a recompensa. Por isso a decisão virou coluna
+     (`missao.fonte_pote`), congelada na criação.
+
+  **E duas coisas quebradas que não tinham relação com a tarefa:**
+
+  - **`EntregaFalidaCicloTest.tetoPorHoraCortaOExcesso` estava vermelho em `develop`**, antes de
+     qualquer mudança — confirmado rodando a suíte na baseline com o trabalho em `git stash`: 637
+     testes, 1 falha. A causa é **dependência do relógio**: o corpo do webhook não informava
+     `janelaHoraInicio`, então o controller usava a HORA ATUAL como característica do modelo de
+     risco. Em hora de risco ALTO o carve-out do teto sobe de 5 para 8 alertas, os 5 alertas de ruído
+     deixam de esgotar a cota, e o teste que esperava 0 recebia 1. Verde de manhã, vermelho à noite.
+     Corrigido fixando a hora no fixture — não é relaxar assertion, é remover uma entrada oculta.
+  - **`make reset` não funcionava com podman.** O bind mount `./docker/init` não tinha a flag de
+     relabel do SELinux, então o container morria com `Permission denied` em
+     `/docker-entrypoint-initdb.d/`. Latente por construção: os scripts de init rodam UMA vez, na
+     criação do volume, então `make up` num volume já existente sempre funcionou — a falha só aparece
+     quando alguém precisa recriar o banco, que é o que toda migration nova exige. Corrigido com
+     `:ro,z` no compose.
+
+  Evidência: `./mvnw verify` verde com **651 testes, 0 falhas**, SpotBugs limpo e os dois gates
+  JaCoCo passando; `tools/carrier-mock/enviar.sh` com os 6 cenários OK contra o servidor de pé; e a
+  conservação medida no banco depois da conversão real — `carteiras + potes` fechando e reconciliação
+  com 0 divergências.
+
 - **2026-08-17** — **O `Security Scan` estava vermelho havia dois dias, e ninguém tinha registrado.**
 
   O relato foi "a security scan falhou no GitHub". O que a API do Actions mostrou foi mais estreito e

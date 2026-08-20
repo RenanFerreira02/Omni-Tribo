@@ -89,8 +89,10 @@ Maturidade real por módulo (o alvo é o de cima; o de hoje é este):
   `integracoes` (clima e CEP — módulo NOVO, ver ADR 0011). Nenhum módulo está vazio hoje.
 
 Módulo só fala com módulo por porta em `api/`. As de hoje:
-- `carteira/api/` — `CreditoRecompensa`, `FinanciamentoMissao`, `EstornoPote`,
-  `ProvisionamentoCarteira`
+- `carteira/api/` — `CreditoRecompensa`, `FinanciamentoMissao` (o `debitarPatrocinador` devolve
+  `Optional` VAZIO em saldo insuficiente, em vez de lançar: a encomenda já está na loja e a recusa
+  precisa ser GRAVADA), `EstornoPote`, `ProvisionamentoCarteira`,
+  `AporteToken` (o ÚNICO ponto de emissão de token do sistema — ver Economia)
 - `missoes/api/` — `ConversaoEntregaFalida` (o webhook de transportadora cria a missão de retirada
   por aqui; `logistica` não pode importar `missoes.dominio`)
 - `logistica/api/` — `BaixaCustodia` (a contraparte: a conclusão da missão libera a vaga). São DUAS
@@ -99,7 +101,10 @@ Módulo só fala com módulo por porta em `api/`. As de hoje:
 - `integracoes/api/` — `ConsultaClima` (o webhook alimenta o modelo de risco; devolve `Optional` e
   NUNCA lança, porque provedor externo fora do ar não pode transformar em 5xx o registro de uma
   entrega falida — a transportadora reenviaria em laço. Ver ADR 0022)
-- `identidade/api/` — `ProgressaoUsuario` (concede XP, deriva nível e filtra por nível em lote),
+- `identidade/api/` — `ConsultaPatrocinador` (slug da transportadora → titular de carteira ATIVO;
+  `logistica` a consulta no webhook. Devolve vazio para inexistente, inativo E desconhecido, de
+  propósito — os três dão no mesmo desfecho e distingui-los vazaria estado financeiro de terceiro),
+  `ProgressaoUsuario` (concede XP, deriva nível e filtra por nível em lote),
   `ConsultaAfiliacao`, `ConsultaConsentimento` (quem pode ser notificado — consulta em MASSA, porque
   `ConsentimentoService.listar` resolve o estado atual em Java e não escala para o fan-out),
   `UsuarioSistema` (o UUID fixo do criador das missões automáticas), `ConsultaSessao` (o `JwtAuthFilter`
@@ -187,11 +192,24 @@ como infraestrutura da conversão patrocinada futura — não remova.
 
 Regra: nenhuma missão pode ter valor_brl > 0. Quem tentar recebe 400 apontando o campo.
 
-Conservação do TOKEN: missão TRIBO/COLETA paga o executor a partir de `missao.pote_tokens`, que
-membros financiam debitando a própria carteira. Nada é cunhado no ciclo — `SUM(carteira.saldo_tokens)
-+ SUM(missao.pote_tokens)` é invariante. Publicar exige pote cobrindo a recompensa (senão a missão
-chegaria em AGUARDANDO_CONFIRMACAO sem poder ser concluída); cancelar ou expirar estorna o pote aos
-financiadores, senão os tokens ficam presos e a conservação vira mentira.
+Conservação do TOKEN: quem paga do pote é decidido por **`missao.fonte_pote`**, congelada na
+criação — não pela categoria (ADR 0024). `COMUNIDADE` (TRIBO/COLETA) tem pote financiado por membros;
+`PATROCINADOR` (entrega falida) tem pote financiado pela transportadora na própria conversão;
+`CUNHAGEM` emite na conclusão e hoje é só AJUDA e ENTREGA criada por humano.
+
+**A cunhagem não sumiu — mudou de lugar, e é isso que a torna defensável.** O único ponto de emissão
+é `APORTE_PATROCINADOR`, por endpoint ADMIN, auditado e idempotente. Vale a afirmação forte:
+`SUM(carteira.saldo_tokens) + SUM(missao.pote_tokens)` é constante em TODO o ciclo de missões, nas
+quatro categorias, e só um aporte a altera. Antes da V23 a emissão acontecia na CONCLUSÃO de toda
+ENTREGA e AJUDA, implícita, por missão e invisível para a reconciliação — ledger e projeção batem
+quando se cria token do nada.
+
+Publicar exige pote cobrindo a recompensa (senão a missão chegaria em AGUARDANDO_CONFIRMACAO sem
+poder ser concluída); cancelar ou expirar estorna o pote aos financiadores, senão os tokens ficam
+presos e a conservação vira mentira. **O estorno enxerga os DOIS motivos de financiamento**
+(`FINANCIAMENTO_TRIBO` e `FINANCIAMENTO_PATROCINADOR`) — `LancamentoRepository
+.buscarFinanciamentosDaMissao` filtra por motivo, e um motivo novo que não entre naquela lista deixa
+o dinheiro preso numa missão morta com a reconciliação respondendo `integro=true`.
 
 O estorno tem DOIS pontos de chamada, não um: `MissaoService.aplicar` e
 `ExpiracaoMissoesService.expirarUma`. O job de expiração é o único caminho para EXPIRADA e não passa
@@ -306,6 +324,10 @@ sem ela o plugin aborta com "Invalid API Key, length of 0". Não configure a cha
 
 `/api/v1/admin/carteiras/reconciliacao` — `GET`, só ADMIN.
 
+`/api/v1/admin/patrocinadores` — `POST` (cadastra titular + carteira + relação com o slug) · `GET`
+(lista, SEM saldo de propósito) · `POST /{id}/aportes` (**EMITE token**; exige `Idempotency-Key`) ·
+`DELETE /{id}` (encerra sem apagar). Todos só ADMIN. Ver ADR 0024.
+
 `/api/v1/usuarios` — `GET me` (perfil completo: nome, handle, tribo, XP, nível derivado,
 conquistas) · `GET me/dados` (exportação LGPD) · `GET|PUT me/consentimentos[/{tipo}]` ·
 `DELETE me` (anonimização; exige a senha atual no corpo). **`GET /auth/me` continua existindo e é
@@ -335,9 +357,10 @@ checagem do `{"erro":true}` do ViaCEP fica FORA da região protegida, porque o p
 
 `POST /api/v1/webhooks/transportadora` — entrada de entregas falidas. **Único endpoint de escrita
 sem JWT**, autenticado por HMAC-SHA256 sobre o CORPO BRUTO (cabeçalhos `X-Transportadora`,
-`X-Timestamp`, `X-Assinatura`). Idempotente por `(transportadora, codigoRastreio)`. Ponto lotado
-responde **200 com desfecho RECUSADA** — não é erro HTTP, e devolver 4xx faria a transportadora
-reenviar em laço contra um ponto que continuará lotado. Ver ADR 0021.
+`X-Timestamp`, `X-Assinatura`). Idempotente por `(transportadora, codigoRastreio)`. **Três desfechos, todos 200:** `CONVERTIDA`,
+`RECUSADA` (ponto lotado) e `SEM_PATROCINIO` (sem patrocinador ativo ou sem saldo para o pote).
+Nenhum é erro HTTP — devolver 4xx faria a transportadora reenviar em laço contra uma condição que o
+reenvio não muda. Ver ADR 0021 e ADR 0024.
 
 `GET /api/v1/ping`, do `PingController` em `compartilhado`.
 
@@ -460,18 +483,21 @@ Banco
 - Flyway é a ÚNICA fonte de schema. ddl-auto é sempre validate. Nunca resolva divergência mudando
   ddl-auto — escreva migration.
 - **Versão de migration é sequência GLOBAL, não por diretório.** Duas faixas, separadas de propósito:
-  - `db/migration` — schema, **V1–V8 e V11–V22**; único location do perfil default/prod.
-    Próxima é **V23**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
+  - `db/migration` — schema, **V1–V8 e V11–V23**; único location do perfil default/prod.
+    Próxima é **V24**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
     antes da renomeação para `V900__seed_dev.sql`, então um banco de dev criado antes dela tem as
     versões 9 e 10 gravadas no `flyway_schema_history` com descrição de seed. Um `V9__*.sql` novo em
     `db/migration` passaria em clone novo e falharia em máquina antiga com erro de checksum ou
     "detected applied migration not resolved locally" — divergência que não aparece no CI.
   - `db/seed` — só dev e test (via `application-dev.yml` / `application-test.yml`), faixa **900+**.
-    Hoje são cinco: `V900__seed_dev.sql`, `V901__seed_entregas_falidas.sql`,
+    Hoje são seis: `V900__seed_dev.sql`, `V901__seed_entregas_falidas.sql`,
     `V902__seed_alertas_consentimentos.sql`, `V903__seed_cidade_lider.sql` (dados de demonstração
     na zona leste — ver docs/INFRA.md) e `V904__seed_entrega_falida_fixtures.sql` (ponto LOTADO e
     os dois únicos usuários com NOTIFICACAO+LOCALIZACAO vigentes, sem os quais dois caminhos do
-    webhook não têm fixture). **Próximo seed é V905.**
+    webhook não têm fixture) e `V905__seed_patrocinador.sql` (os patrocinadores de `transportadora-dev`
+    e `transportadora-teste`, mais o backfill de `fonte_pote` que a V23 sozinha não alcança — os
+    seeds rodam DEPOIS dela. `outra-transportadora` fica sem patrocinador de propósito: é a fixture
+    do desfecho SEM_PATROCINIO). **Próximo seed é V906.**
   - A faixa 900+ garante por construção que o seed roda depois de todo schema. Seed novo continua na
     faixa e NUNCA usa um número que o schema possa alcançar. Ver ADR 0006, Notas de manutenção.
   - Como o seed é o último, ele grava dados em forma final: não conte com migration posterior para
@@ -591,7 +617,9 @@ bruto (ADR 0021), converte entrega falida em missão de retirada ABERTA no ponto
 (ADR 0020): valida vaga sob `FOR UPDATE`, incrementa ocupação, congela recompensa em XP+TOKEN,
 notifica por tribo com consentimento e teto por hora, e dá baixa na custódia quando a missão conclui.
 `tools/carrier-mock/enviar.sh` exercita o caminho feliz e os cinco negativos contra o servidor de pé.
-**De F8 falta só o patrocinador** — ver Pendência #1.
+**F8 fechou em 2026-08-20 com a carteira de patrocinador** (ADR 0024): a missão de retirada nasce com
+o pote já financiado pela transportadora, e a antiga cunhagem por missão virou um aporte ADMIN
+auditado e idempotente.
 
 **Mobile: F9 a F12 implementadas** em `apps/mobile/` — 11 telas mais a rota-porta `app/index.tsx`
 (um `<Redirect>` que decide entre onboarding, `(auth)` e `(tabs)` durante a renderização, não num
@@ -641,31 +669,7 @@ Seção para armadilhas diagnosticadas e ainda não corrigidas. Ao resolver uma,
 > - `EM_ANDAMENTO` e `AGUARDANDO_CONFIRMACAO` sem saída — ver a máquina de estados, que agora tem
 >   **17 transições** e varredura por prazo mais porta de ADMIN.
 
-**1. ENTREGA e AJUDA ainda CUNHAM token, até a carteira de patrocinador.** `pagaTokensDoPote`
-cobre só TRIBO e COLETA, então a conservação
-`SUM(carteira.saldo_tokens) + SUM(missao.pote_tokens)` vale para essas duas, não para o sistema
-inteiro.
-
-Com o webhook em pé, a lacuna ficou mais VISÍVEL e não mais grave: cada entrega falida convertida
-cunha tokens. O caminho de fechamento já está montado — `valor_ofertado_brl` é gravado em
-`entrega_falida` e a mecânica de pote existe em `FinanciamentoMissao`; falta a carteira do
-patrocinador debitar de fato.
-
-**O multiplicador de risco (F12c) AMPLIA essa cunhagem, de forma limitada e deliberada.** Uma entrega
-de risco alto cunha até 1,5× o que cunharia — e é exatamente por causa desta pendência que o teto é
-estreito e existe em dois blocos de configuração, com `CoerenciaTetoRiscoTest` travando a
-concordância. Sem teto, o risco multiplicaria a emissão sem financiador. Quando a carteira de
-patrocinador existir, `pagaTokensDoPote` passa a valer para ENTREGA e o teto pode ser reavaliado.
-
-**Isto não foi contornado de propósito, e a razão importa.** Exigir pote para ENTREGA hoje faria
-membros da tribo custearem a logística do varejista — o inverso do modelo. O financiador correto
-dessas categorias é o PATROCINADOR: entrega que falhou custa re-entrega, armazenagem e risco de
-perder o cliente, então patrocinar o pote sai mais barato que o fracasso. É esse o caso de negócio
-do challenge. Preferimos uma lacuna documentada a uma regra errada codificada. Fecha na F8, quando a
-carteira de patrocinador financiar o pote pela mecânica que já existe (`FinanciamentoMissao`), e aí
-`pagaTokensDoPote` passa a valer para todas as categorias.
-
-**2. Missão de entrega falida só conclui pela varredura de prazo.** O criador dela é o
+**1. Missão de entrega falida só conclui pela varredura de prazo.** O criador dela é o
 usuário-sistema (`status = 'INATIVO'`, nunca autentica), e `CONFIRMAR` exige `AtorEsperado.CRIADOR`
 — que compara IDENTIDADE, não papel. Nenhum humano pode confirmar, nem um ADMIN.
 
@@ -676,14 +680,14 @@ plausíveis são um segundo endpoint de webhook em que a transportadora confirma
 destinatário (ela é a contraparte real), ou autoconfirmação no check-in para missões de origem
 SISTEMA. **Não decida isso sozinho** — muda quando o token é cunhado.
 
-**3. Transferência exige digitar um UUID.** Não existe endpoint que liste membros da tribo, então a
+**2. Transferência exige digitar um UUID.** Não existe endpoint que liste membros da tribo, então a
 tela pede o identificador do destinatário como texto. Funciona e é inutilizável na prática.
 **Não é esquecimento**: o javadoc de `identidade/api/TriboController` documenta a omissão como
 decisão de privacidade —
 listar membros daria a qualquer autenticado um mapa social do bairro. A saída não é expor a lista;
 é algo como busca por handle exato ou convite. Não decida isso sozinho.
 
-**4. A outbox abandona evento em silêncio, e não há carta-morta.** `DrenadorOutboxService` tenta no
+**3. A outbox abandona evento em silêncio, e não há carta-morta.** `DrenadorOutboxService` tenta no
 máximo `app.outbox.maximo-tentativas` (5) vezes; depois disso o predicado de
 `OutboxRepository.buscarPendentesParaPublicar` deixa de enxergar a linha e o evento **nunca mais é
 tentado**. Ele fica na tabela, com `publicado_em` nulo e `ultimo_erro` preenchido, e **nada o
@@ -700,7 +704,7 @@ dizer a verdade; **a lacuna em si continua aberta de propósito**, porque fechá
 projeto: uma consulta de esgotados exposta a ADMIN, um contador, ou aceitar a perda explicitamente.
 Não decida sozinho — muda o contrato de entrega de notificação.
 
-**5. Nada acha pote imobilizado.** Token preso em missão não-terminal parada (`EM_ANDAMENTO`,
+**4. Nada acha pote imobilizado.** Token preso em missão não-terminal parada (`EM_ANDAMENTO`,
 `AGUARDANDO_CONFIRMACAO`, `EM_DISPUTA`) viola a CONSERVAÇÃO enquanto a reconciliação segue
 respondendo `integro=true` — são invariantes diferentes, e a primeira passa enquanto a segunda é
 violada. **Não existe consulta, endpoint nem relatório que mostre esses potes.**
@@ -711,5 +715,5 @@ consequência aceita. **Nenhum serviço, endpoint ou teste jamais a chamou.** A 
 como órfã em 2026-08-20 e o ADR 0015 recebeu a retificação, em vez de manter código morto que fazia
 a lacuna parecer coberta. A mitigação real que EXISTE é outra, e é preventiva, não detectiva: a
 varredura por prazo (`ExpiracaoMissoesService`) e a porta de ADMIN (`POST /missoes/{id}/destravar`)
-tiram a missão do limbo. O que falta é o instrumento de DIAGNÓSTICO — ver Pendência #4, que é o
+tiram a missão do limbo. O que falta é o instrumento de DIAGNÓSTICO — ver Pendência #3, que é o
 mesmo formato de problema.
