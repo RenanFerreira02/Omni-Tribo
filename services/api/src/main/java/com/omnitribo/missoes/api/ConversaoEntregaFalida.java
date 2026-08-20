@@ -2,6 +2,7 @@ package com.omnitribo.missoes.api;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -57,6 +58,7 @@ public interface ConversaoEntregaFalida {
       BigDecimal valorOfertadoBrl,
       BigDecimal multiplicadorRisco,
       String faixaRisco,
+      UUID patrocinadorUsuarioId,
       Instant agora) {}
 
   /** O que a logística precisa saber de volta para fechar o registro e notificar. */
@@ -64,10 +66,25 @@ public interface ConversaoEntregaFalida {
       UUID missaoId, int xpRecompensa, long tokensRecompensa, int nivelMinimo) {}
 
   /**
-   * Cria a missão de retirada já ABERTA e devolve o que foi congelado.
+   * Cria a missão de retirada já ABERTA, com o pote JÁ FINANCIADO pelo patrocinador.
    *
    * <p>ABERTA, e não RASCUNHO: rascunho depende de um humano publicar, e aqui não há humano nenhum
    * no caminho — a encomenda já está fisicamente na loja quando o webhook chega.
+   *
+   * <p><b>Devolve VAZIO quando o patrocinador não tem saldo para o pote</b>, e nesse caso NADA é
+   * criado: nem missão, nem lançamento. Vazio não é erro — é o desfecho SEM_PATROCINIO, que o
+   * chamador grava na entrega falida e devolve como 200. Lançar aqui abortaria a transação e
+   * apagaria justamente o registro que a transportadora precisa ler para saber que reenviar não
+   * adianta; é a mesma doutrina do ponto de custódia lotado (ADR 0021).
+   *
+   * <p>O financiamento acontece ANTES de a missão ser gravada, e não depois: uma missão publicada
+   * com pote vazio seria aceita e executada, e a conclusão falharia com 422 para sempre. Como
+   * missão de retirada só conclui pela varredura de prazo, o erro nem apareceria numa requisição —
+   * só no job, com o executor sem pagamento e a vaga do ponto travada.
+   *
+   * @param encomenda com {@code patrocinadorUsuarioId} NÃO nulo. Patrocinador ausente ou inativo é
+   *     resolvido por {@code logistica} antes desta chamada, porque não faz sentido calcular
+   *     recompensa para uma missão que não vai nascer.
    */
-  MissaoDeRetirada abrirMissaoDeRetirada(Encomenda encomenda);
+  Optional<MissaoDeRetirada> abrirMissaoDeRetirada(Encomenda encomenda);
 }

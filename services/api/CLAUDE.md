@@ -94,7 +94,7 @@ Antes de terminar qualquer tarefa: `./mvnw verify`, e cole a saída real. Compil
   até o push real do mobile. O consumidor tem de tolerar duplicata, porque a entrega não é
   exactly-once. **Mas NÃO diga que é at-least-once**: na quinta falha o evento sai do predicado do
   lote e nunca mais é tentado, sem carta-morta, sem endpoint e sem métrica — zero entregas, e
-  ninguém fica sabendo. Ver Pendência #4 do `CLAUDE.md` da raiz.
+  ninguém fica sabendo. Ver Pendência #3 do `CLAUDE.md` da raiz.
 - Cache de proximidade (`CacheMissoesProximas`, Caffeine, TTL 30s, chave por geohash de precisão 7 +
   raio + categoria + limite) é invalidado **depois do commit**, via
   `TransactionSynchronization.afterCommit` — invalidar dentro da transação deixaria uma leitura
@@ -137,3 +137,10 @@ Antes de terminar qualquer tarefa: `./mvnw verify`, e cole a saída real. Compil
   (ledger == projeção) e conservação (`SUM(carteiras) + SUM(potes)`). **A primeira passa enquanto a
   segunda é violada** — foi exatamente esse o buraco do estorno na expiração. Um endpoint de
   reconciliação respondendo `integro=true` não é prova de que nenhum token se perdeu.
+- **Quem paga do pote é `missao.fonte_pote`, não a categoria** (V23 / ADR 0024). `COMUNIDADE` e
+  `PATROCINADOR` pagam do pote; `CUNHAGEM` emite na conclusão e hoje é só AJUDA e ENTREGA criada por
+  humano. A coluna é congelada no construtor de `Missao` — não há CHECK de coerência no banco porque
+  ele reprovaria os INSERTs dos seeds, que rodam depois da migration.
+- **Motivo de financiamento novo entra em `LancamentoRepository.buscarFinanciamentosDaMissao` no
+  mesmo commit em que entra no enum.** Aquela query é o que o estorno enxerga; um motivo fora dela
+  deixa o token preso numa missão morta, e a reconciliação continua verde.

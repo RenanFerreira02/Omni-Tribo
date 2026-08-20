@@ -47,8 +47,12 @@ public class Usuario {
   @Column(nullable = false, precision = 2, scale = 1)
   private BigDecimal rating;
 
+  // length = 20, e não 10: 'PATROCINADOR' tem 12 caracteres. A V23 alargou a coluna, e o valor aqui
+  // precisa acompanhar — `ddl-auto: validate` do Hibernate não confere comprimento de VARCHAR,
+  // então
+  // a divergência não apareceria no boot; apareceria como truncamento no INSERT.
   @Enumerated(EnumType.STRING)
-  @Column(nullable = false, length = 10)
+  @Column(nullable = false, length = 20)
   private PapelUsuario papel;
 
   @Enumerated(EnumType.STRING)
@@ -94,6 +98,34 @@ public class Usuario {
     this.criadoEm = criadoEm;
     this.atualizadoEm = criadoEm;
   }
+
+  /**
+   * A conta-titular de um patrocinador.
+   *
+   * <p>Fábrica separada, e não um parâmetro {@code papel} no construtor público: o construtor é o
+   * caminho do REGISTRO de gente, e abrir o papel ali deixaria "crie-me como ADMIN" a um campo de
+   * distância do corpo da requisição. Aqui o papel é fixo no código e não vem de lugar nenhum.
+   *
+   * <p>{@code INATIVO} é a trava que torna a conta inofensiva — {@code AutenticacaoService} recusa
+   * status diferente de ATIVO, então a senha marcadora abaixo não autentica nada. {@code triboId}
+   * nulo é semântico: patrocinador não pertence a bairro, e é por isso que ele não passa por {@code
+   * FinanciamentoService.validarAutorizacao}, que exige afiliação.
+   */
+  public static Usuario paraPatrocinador(
+      UUID id, String nome, String email, String handle, Instant criadoEm) {
+    Usuario patrocinador = new Usuario(id, nome, email, SENHA_INEXISTENTE, handle, null, criadoEm);
+    patrocinador.papel = PapelUsuario.PATROCINADOR;
+    patrocinador.status = StatusUsuario.INATIVO;
+    return patrocinador;
+  }
+
+  /**
+   * Marcador gravado em {@code senha_hash}, que é NOT NULL e precisa de algum valor.
+   *
+   * <p>Não tem forma de hash Argon2, então o verificador não consegue casá-lo com senha alguma —
+   * nem por acaso, nem por engenharia. Mesma técnica da V21 para o usuário-sistema.
+   */
+  private static final String SENHA_INEXISTENTE = "CONTA-DE-PATROCINADOR-SEM-SENHA";
 
   public UUID getId() {
     return id;

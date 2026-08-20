@@ -66,10 +66,26 @@ class EntregaFalidaCicloTest extends TesteIntegracaoMvcBase {
 
   private static final String TIPO_ALERTA = "ENTREGA_FALIDA_DISPONIVEL";
 
+  /**
+   * Carteira do patrocinador de `transportadora-teste`, semeada pela V905 com 5.000 tokens.
+   *
+   * <p>Precisa ser restaurada por esta limpeza pelo mesmo motivo que as carteiras dos executores:
+   * desde a V23 a conversão DEBITA esta carteira para financiar o pote, e apagar as missões sem
+   * desfazer o débito deixaria a projeção de saldo divergente da soma do ledger — o que faz
+   * `assertLedgerReconcilia` reprovar em TODA suíte que rodar depois desta, num erro que não aponta
+   * para o teste que o causou.
+   */
+  private static final UUID CARTEIRA_PATROCINADOR =
+      UUID.fromString("eeeeeeee-0000-0000-0000-000000000951");
+
+  /** Saldo com que a V905 semeia a carteira acima. */
+  private static final long SALDO_PATROCINADOR_SEED = 5000L;
+
   @Autowired MockMvc mockMvc;
   @Autowired JdbcTemplate jdbcTemplate;
   @Autowired DrenadorOutboxService drenadorOutboxService;
   @Autowired MissaoService missaoService;
+  @Autowired com.omnitribo.missoes.infra.ExpiracaoMissoesJob expiracaoMissoesJob;
   @Autowired com.omnitribo.compartilhado.api.ConsultasGeoespaciais consultasGeoespaciais;
   @Autowired com.omnitribo.identidade.api.ConsultaConsentimento consultaConsentimento;
 
@@ -100,6 +116,66 @@ class EntregaFalidaCicloTest extends TesteIntegracaoMvcBase {
         GUSTAVO);
     jdbcTemplate.update("UPDATE usuario SET xp = 400, nivel = 3 WHERE id = ?", FERNANDA);
     jdbcTemplate.update("UPDATE usuario SET xp = 0, nivel = 1 WHERE id = ?", GUSTAVO);
+
+    // Desfaz o financiamento do patrocinador: apaga os débitos e devolve a projeção ao valor do
+    // seed. Os dois juntos, sempre — apagar o lançamento sem restaurar o saldo, ou vice-versa, é
+    // exatamente a divergência que a reconciliação existe para achar.
+    jdbcTemplate.update(
+        "DELETE FROM lancamento WHERE carteira_id = ? AND motivo = 'FINANCIAMENTO_PATROCINADOR'",
+        CARTEIRA_PATROCINADOR);
+    jdbcTemplate.update(
+        "UPDATE carteira SET saldo_tokens = ?, versao = 1 WHERE id = ?",
+        SALDO_PATROCINADOR_SEED,
+        CARTEIRA_PATROCINADOR);
+  }
+
+  @Test
+  @DisplayName("missão de retirada que expira estorna o pote AO PATROCINADOR")
+  void expiracaoEstornaAoPatrocinador() throws Exception {
+    long saldoAntes = saldoDoPatrocinador();
+
+    UUID missaoId = converter(PONTO_COM_VAGA);
+
+    long recompensa =
+        jdbcTemplate.queryForObject(
+            "SELECT tokens_recompensa FROM missao WHERE id = ?", Long.class, missaoId);
+
+    assertThat(saldoDoPatrocinador())
+        .as("financiar move token da carteira para o pote")
+        .isEqualTo(saldoAntes - recompensa);
+
+    // Vence a janela de oferta e roda a varredura. Este é o caminho que NÃO passa por
+    // MissaoService.aplicar — é ExpiracaoMissoesService.expirarUma que chama o estorno.
+    jdbcTemplate.update(
+        "UPDATE missao SET janela_fim = NOW() - INTERVAL '1 hour' WHERE id = ?", missaoId);
+    expiracaoMissoesJob.varrer(200, 5000);
+
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT status FROM missao WHERE id = ?", String.class, missaoId))
+        .isEqualTo("EXPIRADA");
+
+    // O ponto central desta fase: sem alargar buscarFinanciamentosDaMissao para os DOIS motivos de
+    // financiamento, o estorno não enxergaria o lançamento do patrocinador. O token ficaria preso
+    // numa missão morta e a reconciliação continuaria respondendo integro=true, porque ledger e
+    // projeção seguiriam batendo — a perda seria invisível justamente para o endpoint que existe
+    // para achá-la.
+    assertThat(saldoDoPatrocinador())
+        .as("expirar devolve ao patrocinador o que ele financiou")
+        .isEqualTo(saldoAntes);
+
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT pote_tokens FROM missao WHERE id = ?", Long.class, missaoId))
+        .as("pote esvaziado: o token voltou para a carteira, não ficou nos dois lugares")
+        .isZero();
+
+    com.omnitribo.carteira.SuporteCarteira.assertLedgerReconcilia(jdbcTemplate);
+  }
+
+  private long saldoDoPatrocinador() {
+    return jdbcTemplate.queryForObject(
+        "SELECT saldo_tokens FROM carteira WHERE id = ?", Long.class, CARTEIRA_PATROCINADOR);
   }
 
   // ─── As duas portas que sustentam o fan-out ─────────────────────────────────────────────────
@@ -401,11 +477,23 @@ class EntregaFalidaCicloTest extends TesteIntegracaoMvcBase {
             .content(corpo));
   }
 
+  /**
+   * O corpo do webhook desta suíte.
+   *
+   * <p><b>{@code janelaHoraInicio} é FIXO, e não pode voltar a ser omitido.</b> Sem ele o
+   * controller usa a hora do RELÓGIO como característica do modelo de risco ({@code
+   * WebhookTransportadoraController.avaliarRisco}), e a faixa de risco passa a depender de que
+   * horas a suíte roda. Isso quebrava {@code tetoPorHoraCortaOExcesso} todo fim de tarde: em hora
+   * de risco ALTO, o carve-out do teto por hora sobe de 5 para 8 ({@code
+   * alertas-alta-prioridade-por-hora}), os 5 alertas de ruído deixam de esgotar a cota e o alerta é
+   * entregue — o teste esperava 0 e recebia 1. Verde de manhã, vermelho à noite, sem nenhuma
+   * mudança de código.
+   */
   private static String corpo(UUID pontoCustodiaId, String rastreio) {
     return """
            {"codigoRastreio":"%s","motivo":"Destinatário ausente após 3 tentativas",
             "pontoCustodiaId":"%s","descricaoDoItem":"Caixa de porcelanato 60x60",
-            "pesoKg":18.50,"volumeL":42.00,
+            "pesoKg":18.50,"volumeL":42.00,"janelaHoraInicio":10,
             "destinoLat":-23.5695,"destinoLon":-46.6870,
             "cep":"05416000","logradouro":"Rua Teodoro Sampaio","bairro":"Pinheiros",
             "cidade":"São Paulo","uf":"SP"}

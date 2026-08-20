@@ -54,12 +54,25 @@ public interface LancamentoRepository extends JpaRepository<Lancamento, UUID> {
   /**
    * Financiamentos de uma missão, para o estorno em CANCELADA/EXPIRADA. Uma missão tem poucos
    * financiadores, então {@code List} sem paginação é adequado aqui.
+   *
+   * <p><b>OS DOIS motivos de financiamento, e a lista precisa continuar completa.</b> Enquanto só
+   * existia {@code FINANCIAMENTO_TRIBO} o filtro era por um valor só; a V23 acrescentou {@code
+   * FINANCIAMENTO_PATROCINADOR} e, sem incluí-lo aqui, cancelar ou expirar uma missão de retirada
+   * não devolveria nada ao patrocinador. Os tokens ficariam presos numa missão morta e a
+   * reconciliação seguiria respondendo {@code integro=true}, porque ledger e projeção continuam
+   * batendo — é a Pendência #5 reaparecendo por outro caminho, invisível justamente para o endpoint
+   * que existe para achá-la.
+   *
+   * <p>Motivo de financiamento novo entra NESTA lista no mesmo commit em que entra no enum. Não há
+   * teste que pegue o esquecimento a partir do enum sozinho.
    */
   @Query(
       """
       select l from Lancamento l
       where l.missaoId = :missaoId
-        and l.motivo = com.omnitribo.carteira.dominio.MotivoLancamento.FINANCIAMENTO_TRIBO
+        and l.motivo in (
+              com.omnitribo.carteira.dominio.MotivoLancamento.FINANCIAMENTO_TRIBO,
+              com.omnitribo.carteira.dominio.MotivoLancamento.FINANCIAMENTO_PATROCINADOR)
       order by l.criadoEm asc
       """)
   List<Lancamento> buscarFinanciamentosDaMissao(@Param("missaoId") UUID missaoId);

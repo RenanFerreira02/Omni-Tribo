@@ -75,6 +75,14 @@ public class EntregaFalida {
   @Column(name = "recusada_em")
   private Instant recusadaEm;
 
+  /**
+   * Por que foi recusada. Anda SEMPRE junto com {@link #recusadaEm} — {@code
+   * ck_entrega_falida_recusa_coerente} (V23) exige que os dois sejam nulos ou preenchidos juntos.
+   */
+  @Enumerated(EnumType.STRING)
+  @Column(name = "motivo_recusa", length = 20)
+  private MotivoRecusa motivoRecusa;
+
   @Column(name = "peso_kg", precision = 6, scale = 2)
   private BigDecimal pesoKg;
 
@@ -217,17 +225,22 @@ public class EntregaFalida {
   }
 
   /**
-   * Marca a recusa por falta de vaga.
+   * Marca a recusa, com o motivo.
    *
    * <p>O fato é gravado mesmo assim: a transportadora precisa saber onde o pacote dela parou, e um
    * ponto cronicamente lotado é exatamente o dado que justifica abrir outro ponto no bairro.
    * Recusada não ocupa vaga — {@code MigracaoTest} confere isso.
+   *
+   * <p>O motivo passou a ser obrigatório na V23, quando SEM_PATROCINIO se juntou a PONTO_LOTADO.
+   * Gravar recusa sem motivo deixaria a transportadora sem saber se reenviar adianta, e violaria
+   * {@code ck_entrega_falida_recusa_coerente}.
    */
-  public void recusar(Instant quando) {
+  public void recusar(Instant quando, MotivoRecusa motivo) {
     if (this.missaoId != null) {
       throw new IllegalStateException("Entrega já convertida não pode ser recusada: " + id);
     }
     this.recusadaEm = quando;
+    this.motivoRecusa = motivo;
   }
 
   /** Baixa da custódia: a missão concluiu e a encomenda saiu do ponto. */
@@ -237,6 +250,10 @@ public class EntregaFalida {
 
   public boolean foiRecusada() {
     return recusadaEm != null;
+  }
+
+  public MotivoRecusa getMotivoRecusa() {
+    return motivoRecusa;
   }
 
   public boolean saiuDaCustodia() {

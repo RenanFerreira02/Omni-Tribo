@@ -84,6 +84,50 @@ public class FinanciamentoCarteiraService implements FinanciamentoMissao, Estorn
     return new ResultadoFinanciamento(lancamento.getId(), carteira.getSaldoTokens(), false);
   }
 
+  @Override
+  @Transactional(propagation = Propagation.MANDATORY)
+  public Optional<ResultadoFinanciamento> debitarPatrocinador(
+      UUID patrocinadorUsuarioId,
+      UUID missaoId,
+      long tokens,
+      String chaveIdempotencia,
+      Instant agora) {
+
+    if (tokens <= 0) {
+      // Guarda de programação, não regra de negócio: o chamador já decide não financiar recompensa
+      // zero. Um lançamento de valor zero consumiria uma chave de idempotência sem mover nada, e
+      // ck_lancamento_valor_nao_nulo (V13) o recusaria com 500.
+      throw new IllegalArgumentException(
+          "Financiamento de patrocinador exige tokens positivos; recebeu " + tokens + ".");
+    }
+
+    // Primeira leitura desta carteira na transação, então o FOR UPDATE é de fato emitido.
+    Carteira carteira = travarCarteiraDe(patrocinadorUsuarioId);
+
+    // VAZIO, não exceção. A encomenda já está no ponto de custódia e a recusa precisa ser GRAVADA
+    // na entrega falida — lançar aqui abortaria a transação e apagaria o registro. Ver o javadoc da
+    // porta e o padrão do check-in rejeitado.
+    if (carteira.getSaldoTokens() < tokens) {
+      return Optional.empty();
+    }
+
+    Lancamento lancamento =
+        livroRazaoService.registrar(
+            carteira,
+            Movimento.deTokens(
+                SinalLancamento.DEBITO,
+                MotivoLancamento.FINANCIAMENTO_PATROCINADOR,
+                tokens,
+                missaoId,
+                null,
+                chaveIdempotencia,
+                null,
+                agora));
+
+    return Optional.of(
+        new ResultadoFinanciamento(lancamento.getId(), carteira.getSaldoTokens(), false));
+  }
+
   /**
    * Resolve {@code usuarioId → carteiraId} por projeção escalar e então trava a linha.
    *

@@ -87,6 +87,36 @@ public final class ChaveIdempotencia {
   }
 
   /**
+   * Financiamento do pote pelo PATROCINADOR, na conversão de uma entrega falida.
+   *
+   * <p>Sem chave de cliente, e sem precisar de uma: o webhook não manda {@code Idempotency-Key} —
+   * ele é idempotente por {@code (transportadora, codigo_rastreio)}, no próprio {@code
+   * entrega_falida}. Um reenvio é interceptado pela sondagem de {@code EntregaFalidaService} sob o
+   * lock do ponto de custódia e nunca chega a criar missão nem a debitar nada.
+   *
+   * <p>A chave natural é, portanto, o par missão + patrocinador: a missão é criada nesta transação
+   * e o UUID dela é novo por construção, então a chave é única sem depender de nada externo. Ela
+   * existe para satisfazer {@code uk_lancamento_idempotencia} e para tornar o lançamento rastreável
+   * — não para deduplicar um retry que já foi barrado antes.
+   */
+  public static String financiamentoPatrocinador(UUID patrocinadorId, UUID missaoId) {
+    return derivar("financiamento-patrocinador", patrocinadorId.toString(), missaoId.toString());
+  }
+
+  /**
+   * Aporte de token na carteira de um patrocinador.
+   *
+   * <p>COM chave de cliente, ao contrário do financiamento acima, e a diferença importa: o aporte é
+   * o único ponto de EMISSÃO de token do sistema, e um retry de rede que cunhasse duas vezes
+   * aumentaria a oferta da moeda sem que ninguém percebesse — a reconciliação continuaria batendo,
+   * porque ledger e projeção estariam ambos errados na mesma direção. Por isso o endpoint exige
+   * {@code Idempotency-Key} e a chave entra no material derivado.
+   */
+  public static String aportePatrocinador(UUID patrocinadorUsuarioId, String chaveDoCliente) {
+    return derivar("aporte-patrocinador", patrocinadorUsuarioId.toString(), chaveDoCliente);
+  }
+
+  /**
    * Estorno do pote para um financiador, no cancelamento ou expiração da missão.
    *
    * <p>Sem chave de cliente: o estorno é disparado pelo sistema (inclusive pelo job de expiração),
