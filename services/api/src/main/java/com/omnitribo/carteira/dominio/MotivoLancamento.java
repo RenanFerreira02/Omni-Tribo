@@ -12,8 +12,8 @@ public enum MotivoLancamento {
    * Crédito da conclusão.
    *
    * <p>Pago DO POTE sempre que {@code missao.fonte_pote} for COMUNIDADE ou PATROCINADOR; cunhado só
-   * quando for CUNHAGEM, o que hoje significa AJUDA e ENTREGA criada por humano. Até a V23 a
-   * decisão era por CATEGORIA e ENTREGA cunhava sempre — ver ADR 0024.
+   * quando for CUNHAGEM, o que desde o ADR 0025 significa apenas ENTREGA criada por humano. Até a
+   * V23 a decisão era por CATEGORIA e ENTREGA cunhava sempre — ver ADR 0024.
    */
   RECOMPENSA_MISSAO,
 

@@ -16,7 +16,14 @@ package com.omnitribo.missoes.dominio;
  */
 public enum FontePote {
 
-  /** Pote financiado por membros da tribo. TRIBO e COLETA. */
+  /**
+   * Pote financiado por membros da tribo. TRIBO, COLETA e — desde o ADR 0025 — AJUDA.
+   *
+   * <p>Em nenhuma delas quem financia é o criador: o ADR 0009 mantém "quem cria a missão NÃO paga",
+   * e o pote é formado por OUTROS membros. Foi essa distinção que trouxe AJUDA para cá — o
+   * argumento que a mantinha fora ("faria membros da tribo custearem a logística do varejista")
+   * descreve ENTREGA, que tem um varejista do outro lado; AJUDA é entre vizinhos, como TRIBO.
+   */
   COMUNIDADE,
 
   /**
@@ -30,13 +37,16 @@ public enum FontePote {
   PATROCINADOR,
 
   /**
-   * Token EMITIDO na conclusão, sem financiador. Hoje: AJUDA e ENTREGA criada por humano.
+   * Token EMITIDO na conclusão, sem financiador. Desde o ADR 0025, só ENTREGA criada por humano.
    *
-   * <p>É a lacuna que sobrou, e ela está declarada em vez de escondida. AJUDA não tem financiador
-   * plausível: quem pede ajuda não paga (é a premissa do produto), e exigir pote da tribo faria o
-   * vizinho custear o favor que ele mesmo pediu. ENTREGA de humano tem o problema simétrico do
-   * varejista — ver ADR 0024 §8, que registra as duas como trabalho seguinte, não como
-   * esquecimento.
+   * <p>É a última lacuna de cunhagem, e ela está declarada em vez de escondida. O financiador
+   * correto de uma ENTREGA é o PATROCINADOR — entrega que falhou custa re-entrega e armazenagem a
+   * ele —, mas uma ENTREGA criada por um usuário não está ligada a transportadora nenhuma, então
+   * não há patrocinador a debitar. Exigir pote da tribo aqui faria vizinhos custearem logística de
+   * varejista, que é o inverso do modelo.
+   *
+   * <p><b>AJUDA saiu daqui.</b> O argumento acima é sobre varejista, e nunca foi sobre ela — ver a
+   * retificação do §8 do ADR 0024.
    */
   CUNHAGEM
 }

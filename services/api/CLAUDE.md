@@ -138,9 +138,13 @@ Antes de terminar qualquer tarefa: `./mvnw verify`, e cole a saída real. Compil
   segunda é violada** — foi exatamente esse o buraco do estorno na expiração. Um endpoint de
   reconciliação respondendo `integro=true` não é prova de que nenhum token se perdeu.
 - **Quem paga do pote é `missao.fonte_pote`, não a categoria** (V23 / ADR 0024). `COMUNIDADE` e
-  `PATROCINADOR` pagam do pote; `CUNHAGEM` emite na conclusão e hoje é só AJUDA e ENTREGA criada por
-  humano. A coluna é congelada no construtor de `Missao` — não há CHECK de coerência no banco porque
-  ele reprovaria os INSERTs dos seeds, que rodam depois da migration.
+  `PATROCINADOR` pagam do pote; `CUNHAGEM` emite na conclusão e, desde o ADR 0025, é só ENTREGA
+  criada por humano. A coluna é congelada no construtor de `Missao` — não há CHECK de coerência no
+  banco porque ele reprovaria os INSERTs dos seeds, que rodam depois da migration.
+- **Regra que depende da fonte se lê da FONTE, nunca de uma lista de categorias.** `validarEstado`
+  do financiamento listava TRIBO/COLETA e por isso quase ficou fora de sincronia com o construtor
+  quando AJUDA mudou de lado: a missão exigiria pote para publicar e recusaria todo financiamento
+  que o formasse — impublicável e infinanciável ao mesmo tempo, sem erro apontando a causa.
 - **Motivo de financiamento novo entra em `LancamentoRepository.buscarFinanciamentosDaMissao` no
   mesmo commit em que entra no enum.** Aquela query é o que o estorno enxerga; um motivo fora dela
   deixa o token preso numa missão morta, e a reconciliação continua verde.

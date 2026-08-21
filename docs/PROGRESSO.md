@@ -52,6 +52,43 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-08-21** — **AJUDA passou a pagar do pote, e o motivo é que o argumento contra ela estava
+  errado.**
+
+  O ADR 0024 §8 tinha deixado AJUDA cunhando com esta justificativa: "quem pede ajuda não paga, e
+  exigir pote da tribo faria o vizinho custear o favor que ele mesmo pediu". **A frase conflaciona
+  duas coisas.** "Quem cria não paga" é o ADR 0009 e continua valendo; "a comunidade não deve
+  financiar" é outra afirmação — e em TRIBO ela já era falsa, porque o pote de um mutirão é formado
+  por OUTROS membros, nunca pelo criador. O argumento que de fato sustenta a exceção é o do
+  varejista, e ele é específico de ENTREGA. AJUDA é missão entre vizinhos, como TRIBO.
+
+  A mudança foi pequena de propósito — o construtor de `Missao` passa a derivar
+  `FontePote.COMUNIDADE` para AJUDA, e `pagaTokensDoPote` e `validarPoteSuficienteParaPublicar` já
+  liam `fonte_pote` desde a V23. **Sem migration.**
+
+  **Três coisas que a tarefa obrigou a conferir em vez de presumir:**
+
+  1. **Os dois pontos de estorno já cobriam AJUDA.** `MissaoService.aplicar` e
+     `ExpiracaoMissoesService.expirarUma` chaveiam por `poteTokens > 0`, não por categoria — nada
+     precisou mudar. Mas a cobertura era TEÓRICA: nenhuma AJUDA jamais teve pote para estornar. Os
+     testes novos são a primeira vez que o caminho é exercitado com ela, e um deles atravessa
+     deliberadamente `ExpiracaoMissoesJob.varrer`, que não passa por `aplicar()`.
+  2. **`FinanciamentoService.validarEstado` listava TRIBO/COLETA** e teria ficado fora de sincronia
+     com o construtor. O efeito seria silencioso e cruel: AJUDA exigindo pote para publicar e
+     recusando todo financiamento que o formasse — impublicável e infinanciável ao mesmo tempo. Foi
+     reescrito para testar a FONTE, que é onde a regra mora.
+  3. **Só um teste existente quebrou**, `ConservacaoTokensTest`, e a assertion foi APERTADA (de
+     "AJUDA cunha 30" para "Δ = 0"), nunca relaxada. Rastreei a suíte inteira antes: nenhum outro
+     teste publica AJUDA.
+
+  **As missões AJUDA que já existem continuam `fonte_pote = 'CUNHAGEM'`**, sem UPDATE. Elas não têm
+  pote, e marcá-las como COMUNIDADE faria a conclusão delas falhar com 422 para sempre. Corte por
+  data de criação, como a V905 fez com as entregas falidas antigas.
+
+  Evidência: `./mvnw verify` com **655 testes, 0 falhas**; e `tools/evidencias/conservacao-por-categoria.sh`
+  (que também codificava a regra antiga e foi atualizado para financiar a AJUDA) medindo
+  **AJUDA Δ=0, TRIBO Δ=0, reconciliação integro=true** contra o servidor de pé.
+
 - **2026-08-20** — **A carteira de patrocinador fechou a Pendência #1, e o caminho até ela achou
   dois defeitos que ninguém tinha visto.**
 

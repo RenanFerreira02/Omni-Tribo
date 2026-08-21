@@ -14,6 +14,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
@@ -62,6 +63,16 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
   private UUID forasteiro;
   private UUID missaoId;
 
+  /**
+   * Missão AJUDA do bloco do ADR 0025, quando o teste cria uma. Nula nos demais.
+   *
+   * <p>Rastreada num campo para que {@link #limpar()} a apague: o contêiner é singleton para a JVM
+   * inteira e não é truncado entre classes, então uma missão órfã aqui vaza para MigracaoTest.
+   */
+  private UUID missaoAjudaId;
+
+  private long recompensaAjuda;
+
   @BeforeEach
   void montarCenario() throws Exception {
     tribo = criarTribo("Financiadora");
@@ -75,6 +86,14 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
 
   @AfterEach
   void limpar() {
+    if (missaoAjudaId != null) {
+      jdbcTemplate.update("DELETE FROM outbox WHERE agregado_id = ?", missaoAjudaId);
+      jdbcTemplate.update("DELETE FROM alerta WHERE missao_id = ?", missaoAjudaId);
+      jdbcTemplate.update("DELETE FROM missao_evento WHERE missao_id = ?", missaoAjudaId);
+      jdbcTemplate.update("DELETE FROM lancamento WHERE missao_id = ?", missaoAjudaId);
+      jdbcTemplate.update("DELETE FROM missao WHERE id = ?", missaoAjudaId);
+      missaoAjudaId = null;
+    }
     jdbcTemplate.update("DELETE FROM outbox WHERE agregado_id = ?", missaoId);
     jdbcTemplate.update("DELETE FROM alerta WHERE missao_id = ?", missaoId);
     jdbcTemplate.update("DELETE FROM missao_evento WHERE missao_id = ?", missaoId);
@@ -591,6 +610,170 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
   /**
    * Admin do seed (V900). Precisa ser um usuário REAL: o filtro consulta a conta a cada request.
    */
+
+  // ─── AJUDA paga do pote como TRIBO (ADR 0025) ───────────────────────────────────────────────
+
+  /**
+   * A regra que AJUDA passou a seguir, e o beco sem saída que ela fecha.
+   *
+   * <p>Antes do ADR 0025, AJUDA publicava sem pote e CUNHAVA a recompensa na conclusão. Agora ela é
+   * `FontePote.COMUNIDADE` como TRIBO, então a guarda de publicação vale: sem pote cobrindo a
+   * recompensa, a missão chegaria a AGUARDANDO_CONFIRMACAO e o `/confirmar` falharia com 422 para
+   * sempre.
+   */
+  @Test
+  @DisplayName("AJUDA sem pote não publica — 422, e o pote continua zerado")
+  void publicarAjudaSemPoteDa422() throws Exception {
+    missaoAjudaId = criarMissaoAjudaEmRascunho();
+    long circulacaoInicial = tokensEmCirculacao(jdbcTemplate);
+
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/publicar", missaoAjudaId)
+                .header("Authorization", bearer(criador)))
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(
+            jsonPath("$.type").value("https://omnitribo.dev/problemas/regra-negocio-violada"));
+
+    assertThat(poteDe(missaoAjudaId)).as("recusa sem efeito colateral").isZero();
+    assertThat(statusDe(missaoAjudaId)).as("continua em RASCUNHO").isEqualTo("RASCUNHO");
+    assertThat(tokensEmCirculacao(jdbcTemplate)).isEqualTo(circulacaoInicial);
+    assertLedgerReconcilia(jdbcTemplate);
+  }
+
+  /**
+   * O ciclo inteiro de uma AJUDA financiada por OUTRO membro.
+   *
+   * <p>Quem financia é o `financiador`, não o `criador` — é o que mantém o ADR 0009 ("quem cria a
+   * missão NÃO paga") valendo depois da mudança. Em TRIBO já era assim; AJUDA passou a seguir a
+   * mesma regra, e este teste é o que prova que a premissa não foi violada de lado.
+   */
+  @Test
+  @DisplayName("AJUDA financiada por outro membro conserva a oferta no ciclo inteiro")
+  void cicloAjudaFinanciadaConserva() throws Exception {
+    missaoAjudaId = criarMissaoAjudaEmRascunho();
+    long circulacaoInicial = tokensEmCirculacao(jdbcTemplate);
+    long saldoCriadorAntes = saldoTokens(criador);
+
+    mockMvc
+        .perform(financiarMissao(financiador, missaoAjudaId, recompensaAjuda, "ajuda-ciclo"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.poteTokens").value(recompensaAjuda));
+
+    assertThat(tokensEmCirculacao(jdbcTemplate))
+        .as("financiar move token da carteira para o pote — não cria nem destrói")
+        .isEqualTo(circulacaoInicial);
+
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/publicar", missaoAjudaId)
+                .header("Authorization", bearer(criador)))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/aceitar", missaoAjudaId)
+                .header("Authorization", bearer(executor)))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/iniciar", missaoAjudaId)
+                .header("Authorization", bearer(executor)))
+        .andExpect(status().isOk());
+    jdbcTemplate.update(
+        "UPDATE missao SET status = 'AGUARDANDO_CONFIRMACAO' WHERE id = ?", missaoAjudaId);
+
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/confirmar", missaoAjudaId)
+                .header("Authorization", bearer(criador)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.poteTokens").value(0));
+
+    assertThat(saldoTokens(executor))
+        .as("executor pago DO POTE, não com token cunhado")
+        .isEqualTo(recompensaAjuda);
+    assertThat(saldoTokens(criador))
+        .as("ADR 0009: quem cria a missão NÃO paga — o pote saiu do financiador")
+        .isEqualTo(saldoCriadorAntes);
+    assertThat(tokensEmCirculacao(jdbcTemplate))
+        .as("CONSERVAÇÃO: Δ = 0 no ciclo inteiro de uma AJUDA")
+        .isEqualTo(circulacaoInicial);
+
+    assertLedgerReconcilia(jdbcTemplate);
+  }
+
+  @Test
+  @DisplayName("cancelar AJUDA financiada estorna ao financiador")
+  void cancelarAjudaEstorna() throws Exception {
+    missaoAjudaId = criarMissaoAjudaEmRascunho();
+    long circulacaoInicial = tokensEmCirculacao(jdbcTemplate);
+    long saldoFinanciadorAntes = saldoTokens(financiador);
+
+    mockMvc
+        .perform(financiarMissao(financiador, missaoAjudaId, recompensaAjuda, "ajuda-cancelar"))
+        .andExpect(status().isCreated());
+
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/cancelar", missaoAjudaId)
+                .header("Authorization", bearer(criador))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"motivo\":\"Resolvi sozinho\"}"))
+        .andExpect(status().isOk());
+
+    assertThat(saldoTokens(financiador))
+        .as("token de quem financiou volta inteiro")
+        .isEqualTo(saldoFinanciadorAntes);
+    assertThat(poteDe(missaoAjudaId)).as("pote zerado, não preso na missão morta").isZero();
+    assertThat(tokensEmCirculacao(jdbcTemplate)).isEqualTo(circulacaoInicial);
+    assertLedgerReconcilia(jdbcTemplate);
+  }
+
+  /**
+   * O SEGUNDO ponto de estorno, que é o que o CLAUDE.md avisa que costuma ser esquecido.
+   *
+   * <p>`ExpiracaoMissoesService.expirarUma` é o ÚNICO caminho para EXPIRADA e NÃO passa por
+   * `MissaoService.aplicar`. Os dois pontos chaveiam por `poteTokens > 0` e não por categoria,
+   * então AJUDA já estava coberta — mas até agora nenhuma AJUDA tinha pote para estornar, então a
+   * cobertura era teórica. Esta é a primeira vez que ela é exercitada.
+   *
+   * <p>Se o estorno faltasse aqui, o token ficaria preso numa missão morta e
+   * `assertLedgerReconcilia` continuaria PASSANDO — ledger e projeção seguem batendo. Quem acusa é
+   * a conservação, e é por isso que as duas asserções estão juntas.
+   */
+  @Test
+  @DisplayName("expirar AJUDA financiada estorna pelo segundo ponto de chamada")
+  void expirarAjudaEstorna() throws Exception {
+    missaoAjudaId = criarMissaoAjudaEmRascunho();
+    long circulacaoInicial = tokensEmCirculacao(jdbcTemplate);
+    long saldoFinanciadorAntes = saldoTokens(financiador);
+
+    mockMvc
+        .perform(financiarMissao(financiador, missaoAjudaId, recompensaAjuda, "ajuda-expirar"))
+        .andExpect(status().isCreated());
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/publicar", missaoAjudaId)
+                .header("Authorization", bearer(criador)))
+        .andExpect(status().isOk());
+
+    // Vence a janela de oferta e roda a varredura direto, sem @Scheduled.
+    jdbcTemplate.update(
+        "UPDATE missao SET janela_fim = NOW() - INTERVAL '1 hour' WHERE id = ?", missaoAjudaId);
+    expiracaoMissoesJob.varrer(200, 5000);
+
+    assertThat(statusDe(missaoAjudaId)).isEqualTo("EXPIRADA");
+    assertThat(saldoTokens(financiador))
+        .as("o segundo ponto de estorno devolveu ao financiador")
+        .isEqualTo(saldoFinanciadorAntes);
+    assertThat(poteDe(missaoAjudaId)).isZero();
+    assertThat(tokensEmCirculacao(jdbcTemplate))
+        .as("CONSERVAÇÃO: expirar não pode fazer token sumir")
+        .isEqualTo(circulacaoInicial);
+
+    assertLedgerReconcilia(jdbcTemplate);
+  }
+
   private String bearerAdmin() {
     return "Bearer "
         + com.omnitribo.JwtTestConfig.gerarTokenValido(
@@ -661,6 +844,65 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     var corpoCriada = JSON.readTree(criacao.getResponse().getContentAsString());
     recompensa = corpoCriada.get("tokensRecompensa").asLong();
     return UUID.fromString(corpoCriada.get("id").asText());
+  }
+
+  private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder
+      financiarMissao(UUID quem, UUID missao, long tokens, String chave) {
+    return post("/api/v1/tribos/{triboId}/financiamentos", tribo)
+        .header("Authorization", bearer(quem))
+        .header("Idempotency-Key", "teste-" + chave)
+        .contentType(MediaType.APPLICATION_JSON)
+        .content("{\"missaoId\":\"" + missao + "\",\"tokens\":" + tokens + "}");
+  }
+
+  /** AJUDA declara a complexidade (não move objeto), ao contrário de ENTREGA e COLETA. */
+  private UUID criarMissaoAjudaEmRascunho() throws Exception {
+    Instant inicio = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+    String corpo =
+        """
+        {
+          "categoria": "AJUDA",
+          "titulo": "Ajudar a carregar um móvel",
+          "descricao": "Missão entre vizinhos, paga com tokens financiados por outros membros.",
+          "valorBrl": 0.00,
+          "complexidade": "MEDIA",
+          "origemLat": -23.5629,
+          "origemLon": -46.6996,
+          "cep": "05422030",
+          "logradouro": "Rua dos Pinheiros",
+          "bairro": "Pinheiros",
+          "cidade": "São Paulo",
+          "uf": "SP",
+          "raioCheckinM": 50,
+          "janelaInicio": "%s",
+          "janelaFim": "%s"
+        }
+        """
+            .formatted(inicio, inicio.plus(2, ChronoUnit.DAYS));
+
+    MvcResult criacao =
+        mockMvc
+            .perform(
+                post(MISSOES)
+                    .header("Authorization", bearer(criador))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(corpo))
+            .andExpect(status().isCreated())
+            .andReturn();
+
+    var corpoCriada = JSON.readTree(criacao.getResponse().getContentAsString());
+    recompensaAjuda = corpoCriada.get("tokensRecompensa").asLong();
+    return UUID.fromString(corpoCriada.get("id").asText());
+  }
+
+  private long poteDe(UUID missao) {
+    return jdbcTemplate.queryForObject(
+        "SELECT pote_tokens FROM missao WHERE id = ?", Long.class, missao);
+  }
+
+  private String statusDe(UUID missao) {
+    return jdbcTemplate.queryForObject(
+        "SELECT status FROM missao WHERE id = ?", String.class, missao);
   }
 
   private UUID criarTribo(String nome) {

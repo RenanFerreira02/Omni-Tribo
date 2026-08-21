@@ -581,7 +581,11 @@ public class MissaoService implements ConversaoEntregaFalida {
   }
 
   /**
-   * Missão TRIBO/COLETA só é publicável com o pote já cobrindo a recompensa em tokens.
+   * Missão que paga DO POTE só é publicável com o pote já cobrindo a recompensa em tokens.
+   *
+   * <p>Lê {@code fonte_pote}, não a categoria: vale para TRIBO, COLETA e AJUDA (ADR 0025), e também
+   * para a missão de retirada — que nunca reprova aqui porque nasce com o pote já financiado pelo
+   * patrocinador, na mesma transação da conversão.
    *
    * <p>Fecha um beco sem saída que a conservação da moeda cria. Como a conclusão paga DO POTE e não
    * cunha token, uma missão publicada com pote menor que a recompensa chegaria a
@@ -985,10 +989,11 @@ public class MissaoService implements ConversaoEntregaFalida {
    * ck_missao_economia} da <b>V15</b> exige {@code valor_brl = 0} em TODAS as categorias, não só em
    * duas (a partição por categoria era da V3, e não vale mais).
    *
-   * <p>O que SOBRA de cunhagem é {@code FontePote.CUNHAGEM}: AJUDA e ENTREGA de humano. Está
-   * declarado na linha da missão em vez de implícito num {@code if}, que é a diferença entre uma
-   * lacuna conhecida e uma surpresa. A emissão que sustenta o resto agora tem um ponto único e
-   * auditado — {@code AporteToken}.
+   * <p>O que SOBRA de cunhagem é {@code FontePote.CUNHAGEM}, e desde o ADR 0025 isso é só ENTREGA
+   * criada por humano — AJUDA passou a pagar do pote como TRIBO. Está declarado na linha da missão
+   * em vez de implícito num {@code if}, que é a diferença entre uma lacuna conhecida e uma
+   * surpresa. A emissão que sustenta o resto agora tem um ponto único e auditado — {@code
+   * AporteToken}.
    */
   private static boolean pagaTokensDoPote(Missao missao) {
     return missao.getFontePote() != FontePote.CUNHAGEM;
