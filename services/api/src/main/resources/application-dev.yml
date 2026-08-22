@@ -37,6 +37,17 @@ app:
     # default do mock junto.
     segredos:
       transportadora-dev: ${WEBHOOK_SEGREDO_DEV:segredo-de-desenvolvimento-local}
+      # Transportadora INTEGRADA e DELIBERADAMENTE SEM PATROCINADOR COM SALDO.
+      #
+      # Existe para que a evidência da F14 possa demonstrar o desfecho SEM_PATROCINIO sem corromper
+      # nada: a assinatura HMAC dela é válida, então a requisição atravessa o filtro e chega ao
+      # serviço — e mesmo assim não vira missão. A alternativa seria zerar por UPDATE a carteira do
+      # patrocinador de `transportadora-dev`, o que deixaria a projeção divergente do ledger e faria
+      # a reconciliação acusar erro no meio da própria medição.
+      #
+      # O patrocinador dela é cadastrado pelo endpoint ADMIN dentro do script, e nunca recebe aporte.
+      # Ver tools/evidencias/conservacao-por-categoria.sh e docs/evidencias/f14-*.md.
+      transportadora-sem-saldo: ${WEBHOOK_SEGREDO_SEM_SALDO:segredo-de-desenvolvimento-sem-saldo}
 
 logging:
   level:

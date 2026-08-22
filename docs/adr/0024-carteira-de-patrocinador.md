@@ -60,6 +60,32 @@ Cinco peças:
 
 ---
 
+## Por que o aporte é em TOKEN, e não uma conversão de reais (§2b)
+
+O patrocinador **aporta em TOKEN**. `entrega_falida.valor_ofertado_brl` continua sendo gravado —
+é o valor que a transportadora declara que a entrega vale para ela —, mas **nunca é convertido em
+token**. Ele é registro de negócio, insumo da fórmula de recompensa (calibração
+`tokens-por-real-ofertado`) e alimento do painel de impacto da F20. Nada mais.
+
+A alternativa óbvia era converter: a transportadora informa R$ 18,00, o sistema credita N tokens a
+uma taxa. **É exatamente isso que não pode existir.** Uma taxa BRL→token, aplicada de forma
+sistemática, **é uma cotação** — e uma cotação com dois lados, porque quem sabe quantos tokens vale
+um real sabe quantos reais vale um token. O ADR 0009 §6 recusa a cotação token→real por uma razão
+que não é estética: **token conversível é dinheiro**, e dinheiro traz KYC, prevenção a lavagem e
+enquadramento regulatório junto. O projeto declarou isso fora de escopo e a decisão continua valendo.
+
+A relação permanece **unidirecional**, como o CLAUDE.md a descreve: o valor ofertado ENTRA na fórmula
+como insumo de calibração, para ordenar missões por urgência; nenhum ator compra token com dinheiro,
+e token não é resgatável em reais. Aportar em token mantém essa assimetria — o patrocinador decide
+quantos tokens põe na carteira dele, e essa decisão é comercial, não uma taxa de câmbio que o sistema
+publica e aplica.
+
+Consequência aceita: **o aporte é um número que alguém escolhe**, não algo derivado do valor da
+encomenda. É menos automático e mais honesto — e é o motivo de o endpoint de aporte ser ADMIN,
+auditado e idempotente, em vez de um efeito colateral do webhook.
+
+---
+
 ## Por que `fonte_pote` e não a categoria (§3)
 
 Virar `pagaTokensDoPote` para incluir ENTREGA teria quebrado a **ENTREGA criada por humano**: ela
@@ -171,8 +197,15 @@ não uma consequência implícita de um método privado.
   evidência de que a lacuna fechou.
 - Missão de retirada nunca mais nasce com pote vazio, o que elimina uma classe de missão
   impossível de concluir cuja falha só apareceria no job de expiração.
-- O teto do multiplicador de risco (1,5×) pode ser reavaliado: ele era estreito porque o risco
-  multiplicava emissão sem financiador.
+- O teto do multiplicador de risco (1,5×) **pode** ser reavaliado: ele era estreito porque o risco
+  multiplicava emissão sem financiador, e agora multiplica quanto o patrocinador paga do próprio
+  saldo. **Ele NÃO muda nesta fase** — reavaliar exige dado que não existe, porque o modelo foi
+  treinado em dados sintéticos (ADR 0022). Quem for mexer: o teto vive em DOIS blocos de
+  configuração, `app.logistica.risco.multiplicador-maximo` e
+  `app.missoes.recompensa.multiplicador-risco-maximo`, e `CoerenciaTetoRiscoTest` trava os dois
+  JUNTOS. Alterar um sem o outro deixa o build vermelho de propósito — a duplicação é deliberada
+  porque são decisões de donos diferentes (o que o modelo prevê × o quanto a economia se dispõe a
+  pagar), e o teste é o preço dela.
 - Ganhamos um alerta operacional (`ENTREGA_SEM_PATROCINIO`) que torna visível uma transportadora
   parada por falta de saldo — antes, a encomenda simplesmente não virava missão em silêncio.
 
@@ -201,4 +234,5 @@ não uma consequência implícita de um método privado.
 | Saldo insuficiente responder 422 ou 503 | A transportadora reenviaria em laço, e o corpo do erro contaria a ela o estado financeiro do patrocinador. Ver §6. |
 | Coluna própria (`sem_patrocinio_em`) em vez de reusar `recusada_em` | Criaria um terceiro estado que nem `ck_entrega_falida_recusada_sem_missao` nem a invariante de ocupação de `MigracaoTest` conhecem, obrigando a alterar as duas. Para o resto do sistema os dois casos são o mesmo fato: a encomenda não entrou na custódia. |
 | CHECK de coerência entre `fonte_pote` e `categoria` no banco | Reprovaria os INSERTs dos próprios seeds, que rodam DEPOIS da migration (faixa 900+) e não podem ser editados sem quebrar o checksum de todo banco de dev existente. A coerência mora no construtor de `Missao`, que é ponto único. |
+| Converter `valor_ofertado_brl` em token por uma taxa | Uma taxa BRL→token aplicada sistematicamente É uma cotação, e cotação tem dois lados: quem sabe quantos tokens valem um real sabe quantos reais vale um token. O ADR 0009 §6 recusa a cotação token→real porque token conversível é dinheiro — com KYC e enquadramento regulatório junto. Ver §2b. |
 | Aporte sem `Idempotency-Key` | Num endpoint que EMITE moeda, um retry de rede cunharia duas vezes — e a duplicata não seria detectável depois, porque ledger e projeção ficariam ambos errados na mesma direção e a reconciliação seguiria verde. |
