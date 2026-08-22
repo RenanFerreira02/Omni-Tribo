@@ -143,6 +143,12 @@ por complexidade que nada aqui justifica.
 
 ## O que NÃO foi resolvido (§8)
 
+> **RETIFICADO em 2026-08-21 pelo [ADR 0025](./0025-ajuda-paga-do-pote.md).** O parágrafo abaixo
+> sobre AJUDA está ERRADO e ficou registrado como estava. Ele conflacionou "quem cria não paga"
+> (ADR 0009, que vale) com "a comunidade não deve financiar" (que em TRIBO já era falso: o pote é
+> formado por OUTROS membros, não pelo criador). O argumento do varejista é sobre ENTREGA e nunca foi
+> sobre AJUDA. Desde o ADR 0025, AJUDA paga do pote como TRIBO.
+
 **AJUDA continua cunhando**, e `FontePote.CUNHAGEM` declara isso na linha da missão em vez de
 escondê-lo num `if`. Não há financiador plausível: quem pede ajuda não paga — é a premissa do
 produto —, e exigir pote da tribo faria o vizinho custear o favor que ele mesmo pediu.

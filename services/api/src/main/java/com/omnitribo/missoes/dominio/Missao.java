@@ -258,10 +258,16 @@ public class Missao {
     // a V23 não criou um CHECK de coerência entre fonte_pote e categoria no banco: aquele CHECK
     // reprovaria os INSERTs dos próprios seeds, que rodam depois da migration e não podem ser
     // editados. A garantia mora aqui, e todo caminho de criação passa por aqui.
+    // AJUDA entrou aqui em 2026-08-21 (ADR 0025) e a razão é que o argumento que a mantinha fora
+    // não
+    // era dela: "exigir pote faria membros da tribo custearem a logística do varejista" descreve
+    // ENTREGA, que tem um varejista do outro lado. AJUDA é missão entre vizinhos, como TRIBO, e em
+    // TRIBO quem financia NUNCA é o criador — são os outros membros. O ADR 0009 continua valendo.
+    //
+    // Sobra CUNHAGEM só para ENTREGA criada por humano, que é o caso onde o financiador correto
+    // (o patrocinador) existe mas não está ligado àquela missão.
     this.fontePote =
-        categoria == CategoriaMissao.TRIBO || categoria == CategoriaMissao.COLETA
-            ? FontePote.COMUNIDADE
-            : FontePote.CUNHAGEM;
+        categoria == CategoriaMissao.ENTREGA ? FontePote.CUNHAGEM : FontePote.COMUNIDADE;
   }
 
   /**

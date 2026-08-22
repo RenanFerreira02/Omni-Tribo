@@ -195,7 +195,9 @@ Regra: nenhuma missão pode ter valor_brl > 0. Quem tentar recebe 400 apontando 
 Conservação do TOKEN: quem paga do pote é decidido por **`missao.fonte_pote`**, congelada na
 criação — não pela categoria (ADR 0024). `COMUNIDADE` (TRIBO/COLETA) tem pote financiado por membros;
 `PATROCINADOR` (entrega falida) tem pote financiado pela transportadora na própria conversão;
-`CUNHAGEM` emite na conclusão e hoje é só AJUDA e ENTREGA criada por humano.
+`CUNHAGEM` emite na conclusão e, desde o ADR 0025, é só ENTREGA criada por humano — AJUDA passou a
+pagar do pote como TRIBO, porque o argumento que a mantinha fora ("vizinhos custeando logística de
+varejista") descreve ENTREGA e nunca foi sobre ela.
 
 **A cunhagem não sumiu — mudou de lugar, e é isso que a torna defensável.** O único ponto de emissão
 é `APORTE_PATROCINADOR`, por endpoint ADMIN, auditado e idempotente. Vale a afirmação forte:

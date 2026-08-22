@@ -46,17 +46,20 @@ import org.springframework.test.web.servlet.MvcResult;
  *
  * <h2>Por que ramifica em vez de exigir conservação nas quatro categorias</h2>
  *
- * <p>{@code MissaoService.pagaTokensDoPote} restringe o pote a TRIBO e COLETA. ENTREGA e AJUDA
- * pagam o executor sem débito de contrapartida — <b>cunham</b>. Isso é lacuna DELIBERADA e
- * documentada (ADR 0009, §Consequências): o financiador correto dessas categorias é o patrocinador,
- * que chega na F8, e exigir pote de membros da tribo faria a comunidade custear a logística do
- * varejista, que é o inverso do modelo.
+ * <p>{@code MissaoService.pagaTokensDoPote} lê {@code missao.fonte_pote}. Três das quatro
+ * categorias criadas por usuário pagam do pote — TRIBO, COLETA e, desde o ADR 0025, AJUDA. Só
+ * ENTREGA criada por humano ainda <b>cunha</b>, e por um motivo específico: o financiador correto
+ * dela é o PATROCINADOR (ADR 0024), que existe mas não está ligado a uma missão que um usuário
+ * criou por conta própria. Exigir pote da tribo aí faria vizinhos custearem logística de varejista.
  *
- * <p>Um {@code @EnumSource} exigindo {@code delta == 0} nas quatro falharia em ENTREGA e AJUDA —
- * não por bug, mas por desenho. O objetivo aqui é <b>declarar os dois regimes</b>, não apagar um.
- * Com isso, tanto uma emissão vazando para as categorias com pote quanto uma mudança de regime
- * acidental nas sem pote quebram o build. Quando o patrocinador da F8 entrar, este teste é o que
- * deve mudar primeiro — e a mudança dele é o registro de que a lacuna fechou.
+ * <p><b>O ramo que cunha encolheu duas vezes, e as duas mudanças passaram por aqui.</b> Este teste
+ * exigia {@code delta == recompensa} para ENTREGA e AJUDA; a V23 tirou a entrega falida do ramo e o
+ * ADR 0025 tirou AJUDA. As duas vezes a assertion foi APERTADA — de "cunha N" para "Δ = 0" —, nunca
+ * relaxada. É esse o registro executável de que cada lacuna fechou.
+ *
+ * <p>O objetivo continua sendo <b>declarar os dois regimes</b> em vez de apagar um: tanto uma
+ * emissão vazando para as categorias com pote quanto uma mudança de regime acidental na que cunha
+ * quebram o build.
  */
 @Import(JwtTestConfig.class)
 class ConservacaoTokensTest extends TesteIntegracaoMvcBase {
@@ -102,15 +105,18 @@ class ConservacaoTokensTest extends TesteIntegracaoMvcBase {
   @ParameterizedTest(name = "{0}")
   @EnumSource(CategoriaMissao.class)
   void conservacaoDaOfertaDeTokenDependeDaCategoria(CategoriaMissao categoria) throws Exception {
-    boolean pagaDoPote = categoria == CategoriaMissao.TRIBO || categoria == CategoriaMissao.COLETA;
+    // Espelha `Missao.fontePote`, e é a ÚNICA categoria que sobrou cunhando. Deriva da categoria em
+    // vez de ler a coluna de propósito: se o construtor mudar de regime sem que alguém decida, este
+    // teste discorda dele e o build fecha vermelho — que é o ponto.
+    boolean pagaDoPote = categoria != CategoriaMissao.ENTREGA;
 
     long circulacaoAntes = tokensEmCirculacao(jdbcTemplate);
 
     UUID missaoId = criarMissaoEmRascunho(categoria);
 
     if (pagaDoPote) {
-      // ENTREGA e AJUDA recebem 422 aqui ("só missões TRIBO e COLETA aceitam financiamento"), então
-      // o passo simplesmente não existe para elas. É o que torna a cunhagem possível nessas duas.
+      // ENTREGA recebe 422 aqui ("não aceita financiamento em tokens"), então o passo simplesmente
+      // não existe para ela. É o que torna a cunhagem possível — e é o que AJUDA deixou de ser.
       mockMvc
           .perform(
               post("/api/v1/tribos/{triboId}/financiamentos", tribo)
@@ -149,9 +155,10 @@ class ConservacaoTokensTest extends TesteIntegracaoMvcBase {
     } else {
       assertThat(delta)
           .as(
-              "%s CUNHA %d tokens — lacuna deliberada até a carteira de patrocinador da F8 "
-                  + "(ADR 0009). Se este valor mudar, a lacuna mudou de tamanho ou fechou, e as "
-                  + "duas coisas exigem decisão explícita.",
+              "%s criada por humano CUNHA %d tokens — a última lacuna, e ela é deliberada: o "
+                  + "financiador correto é o patrocinador (ADR 0024), que não está ligado a uma "
+                  + "missão que um usuário criou. Se este valor mudar, a lacuna mudou de tamanho "
+                  + "ou fechou, e as duas coisas exigem decisão explícita.",
               categoria, recompensa)
           .isEqualTo(recompensa);
     }
