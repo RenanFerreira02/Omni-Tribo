@@ -52,6 +52,50 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-08-22 (3)** — **O TOKEN passou a ter para onde ir: a economia virou ciclo.**
+
+  O ADR 0009 §3 dizia desde sempre que o resgate em benefício de parceiro é o sumidouro do token, e
+  não atribuía isso a nenhuma fase. O resultado, medido: `grep` por
+  `resgate|cupom|beneficio|parceiro` no backend devolvia **só comentário**. A tela do app era vitrine
+  com catálogo hardcoded, e `RESGATE` não existia no CHECK de `lancamento.motivo`.
+
+  Faltava a terceira operação de uma moeda. Havia emissão (aporte do patrocinador, ADR 0024) e
+  circulação (missões); não havia destruição. Uma moeda que só cresce é um placar.
+
+  V24 (`parceiro`, `beneficio`), V25 (`resgate`), V26 (`RESGATE` no CHECK) e V906 (catálogo da Cidade
+  Líder). `GET /beneficios`, `POST /resgates`, `POST /admin/beneficios` e
+  `PATCH /admin/resgates/{id}`.
+
+  **A mudança que exige atenção é de ENUNCIADO.** `SUM(carteiras) + SUM(potes)` **deixou de ser
+  constante no sistema**: é constante dentro do CICLO DE MISSÕES, e muda nas duas pontas — sobe no
+  aporte, desce no resgate. Não é regressão; é a diferença entre estoque fechado e economia com
+  entrada e saída. `ConservacaoTokensTest` e `FinanciamentoControllerTest` seguem válidos sem
+  alteração, porque medem ciclos de missão. Os dois `CLAUDE.md` foram corrigidos.
+
+  **Quatro decisões que ficaram no ADR 0027:**
+
+  1. **O resgate QUEIMA**, não transfere. O lançamento sai sem `contraparte_carteira_id` e sem
+     `missao_id` — creditar uma "carteira do parceiro" manteria o token na soma e o sumidouro seria
+     um depósito com outro nome.
+  2. **Benefício é BEM ou PERCENTUAL, nunca reais**, em duas camadas: `@Pattern` na borda (400) e
+     `ck_beneficio_sem_reais` no banco. Preço em moeda corrente publica a cotação token→real que o
+     ADR 0009 §6 recusa. A fronteira de palavra é deliberada — "realmente" não pode ser reprovado.
+  3. **O código de retirada não é credencial.** Oito caracteres sem `0/O` e `1/I/L`, sem HMAC:
+     autoriza a baixa é o ADMIN, pelo id. Criptografia ali daria aparência de credencial a um
+     identificador de balcão.
+  4. **Sem reversão.** `PENDENTE → UTILIZADO` e ponto: desfazer ressuscitaria token queimado, que é
+     emitir fora do ponto único do ADR 0024.
+
+  Numeração: usadas **V24, V25 e V26** contíguas, e não V25-V27. A V24 estava livre, e deixá-la vaga
+  seria bomba-relógio — um V24 criado depois fica out-of-order para todo banco com V25+ aplicada, e
+  out-of-order está desligado. Mesma classe de armadilha que queimou V9 e V10. O ADR virou **0027**
+  porque o 0026 já era a confirmação de retirada.
+
+  Evidência: `./mvnw verify` com **673 testes, 0 falhas**; e contra o servidor de pé — circulação de
+  **10845 → 10805 (−40, o custo exato)** com `integro=true` antes e depois, replay da mesma
+  `Idempotency-Key` sem segundo débito, saldo insuficiente em 422 com `type` do catálogo, e benefício
+  em "R$" reprovado nas duas camadas.
+
 - **2026-08-22 (2)** — **A transportadora passou a confirmar a retirada, e o ciclo do produto fecha
   no mesmo minuto.**
 

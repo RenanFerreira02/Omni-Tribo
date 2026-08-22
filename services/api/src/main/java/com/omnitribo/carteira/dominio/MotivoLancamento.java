@@ -56,6 +56,27 @@ public enum MotivoLancamento {
    */
   APORTE_PATROCINADOR,
 
+  /**
+   * Resgate de benefício de parceiro. O motivo que QUEIMA token — é o SUMIDOURO da moeda.
+   *
+   * <p>Debita e não credita ninguém: sem {@code contraparte_carteira_id}, sem {@code missao_id}. É
+   * exatamente isso que o separa de uma transferência, em que as duas pernas somam zero.
+   *
+   * <p>Forma o par que fecha a economia como CICLO em vez de estoque:
+   *
+   * <pre>
+   *   APORTE_PATROCINADOR  credita sem contraparte  -&gt; EMITE
+   *   RESGATE              debita  sem contraparte  -&gt; QUEIMA
+   * </pre>
+   *
+   * <p><b>Consequência de enunciado:</b> {@code SUM(carteiras) + SUM(potes)} deixa de ser constante
+   * no SISTEMA e passa a ser constante no CICLO DE MISSÕES, subindo no aporte e descendo aqui. A
+   * reconciliação (ledger × projeção) continua intocada — a queima escreve os dois lados como
+   * qualquer outro lançamento, e é justamente por isso que ela sozinha nunca provou conservação.
+   * Ver ADR 0027.
+   */
+  RESGATE,
+
   /** Saída de BRL. Desligado por padrão desde o ADR 0009 — ver {@code PoliticaCarteira}. */
   SAQUE,
 

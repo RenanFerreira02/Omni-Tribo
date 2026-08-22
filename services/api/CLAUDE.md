@@ -135,8 +135,12 @@ Antes de terminar qualquer tarefa: `./mvnw verify`, e cole a saída real. Compil
   quando não existem (TRIBO, AJUDA). Declarar junto com peso e volume é 400.
 - **Duas invariantes DIFERENTES, e confundi-las já custou caro:** reconciliação
   (ledger == projeção) e conservação (`SUM(carteiras) + SUM(potes)`). **A primeira passa enquanto a
-  segunda é violada** — foi exatamente esse o buraco do estorno na expiração. Um endpoint de
-  reconciliação respondendo `integro=true` não é prova de que nenhum token se perdeu.
+  segunda muda** — foi esse o buraco do estorno na expiração, foi a cunhagem de ENTREGA, e agora é a
+  queima do resgate, que é intencional. Um endpoint de reconciliação respondendo `integro=true` não
+  é prova de que nenhum token se perdeu.
+- **A conservação é de CICLO, não de estoque** (ADR 0027). `SUM(carteiras) + SUM(potes)` é constante
+  dentro do ciclo de missões e muda nas duas pontas: sobe no `APORTE_PATROCINADOR`, desce no
+  `RESGATE`. Um teste que afirme constância precisa dizer QUAL das duas coisas mede.
 - **Quem paga do pote é `missao.fonte_pote`, não a categoria** (V23 / ADR 0024). `COMUNIDADE` e
   `PATROCINADOR` pagam do pote; `CUNHAGEM` emite na conclusão e, desde o ADR 0025, é só ENTREGA
   criada por humano. A coluna é congelada no construtor de `Missao` — não há CHECK de coerência no
