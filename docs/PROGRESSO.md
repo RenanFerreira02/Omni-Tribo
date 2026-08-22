@@ -52,6 +52,39 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-08-22** — **A Pendência #1 fechou pelos dois lados, e agora existe evidência executada
+  disso.**
+
+  A pendência dizia que ENTREGA e AJUDA cunhavam token na conclusão. O lado de ENTREGA fechou com a
+  carteira de patrocinador (ADR 0024) e o de AJUDA com o ADR 0025. O que faltava era **medir**: até
+  aqui a afirmação vivia em teste unitário e no javadoc, não numa execução que alguém possa refazer
+  na banca.
+
+  `tools/evidencias/conservacao-por-categoria.sh` foi de dois ciclos para cinco — TRIBO, COLETA,
+  AJUDA, ENTREGA pelo webhook, e a recusa por falta de saldo. Resultado colado em
+  `docs/evidencias/f14-conservacao-quatro-categorias.md`: **Δ=0 nas quatro**, soma saindo de 10845 e
+  voltando a 10845, `integro=true` em todos os pontos, e o patrocinador indo de 5000 para 4934 —
+  pagou exatamente os 66 tokens que a vizinha recebeu por buscar a encomenda.
+
+  **Três coisas que a montagem da evidência obrigou a resolver:**
+
+  1. **O ciclo de ENTREGA não fecha sozinho.** O criador da missão de retirada é o usuário-sistema e
+     `AtorEsperado.CRIADOR` compara IDENTIDADE, não papel — nem um ADMIN chama `/confirmar`. O único
+     caminho para CONCLUIDA é a varredura de prazo, então o script recua `estado_desde` e o servidor
+     da evidência sobe com `--app.missoes.expiracao.intervalo=PT10S`. É o único `UPDATE` manual do
+     script, não toca dinheiro, e está declarado na seção "o que isto não prova".
+  2. **Demonstrar "sem saldo" sem corromper o ledger.** Zerar a carteira do patrocinador por
+     `UPDATE` faria a reconciliação acusar divergência no meio da própria medição. A saída foi uma
+     segunda transportadora em `application-dev.yml` (`transportadora-sem-saldo`), com HMAC válido e
+     patrocinador cadastrado pelo endpoint ADMIN sem nenhum aporte.
+  3. **O ADR 0024 não registrava a decisão do aporte em TOKEN.** Acrescentado o §2b: converter
+     `valor_ofertado_brl` a uma taxa fixaria a cotação token→real que o ADR 0009 §6 recusa ter —
+     token conversível é dinheiro, com KYC junto. O teto do multiplicador de risco **não muda**, e
+     ficou registrado que `CoerenciaTetoRiscoTest` trava os dois blocos de configuração juntos.
+
+  `docs/evidencias/f13-conservacao-por-categoria.md` foi marcada como SUPERADA: ela media o mundo em
+  que AJUDA cunhava, e o script que ela cita não reproduz mais aquela saída.
+
 - **2026-08-21** — **AJUDA passou a pagar do pote, e o motivo é que o argumento contra ela estava
   errado.**
 
