@@ -1,9 +1,15 @@
-import { fireEvent, screen } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 
 import TelaBeneficios from '../(app)/beneficios';
-import { BENEFICIOS } from '@/features/beneficios/catalogo';
-import { CARTEIRA, problema } from '@/testes/fixtures';
+import {
+  BENEFICIO_ALCANCAVEL,
+  BENEFICIO_CARO,
+  CARTEIRA,
+  RESGATE,
+  problema,
+} from '@/testes/fixtures';
 import { render } from '@/testes/render';
 import { servidor } from '@/testes/servidor';
 import { useSessao } from '@/stores/sessao';
@@ -24,90 +30,187 @@ beforeEach(() => {
 });
 
 /**
- * A vitrine de resgate — o que o TOKEN compra.
+ * Resgate de benefício — o que o TOKEN compra, agora contra o backend de verdade.
  *
- * A fixture `CARTEIRA` tem **41 tokens**, e os custos do catálogo foram calibrados nela de
- * propósito: o café da manhã custa 40 (alcança) e a cesta custa 45 (faltam 4). Assim as duas
- * metades da regra são exercitadas com o mesmo saldo, sem mock por teste.
+ * As consultas são por PAPEL e RÓTULO, não por `testID`. A diferença não é estilo: um teste que
+ * acha o botão por `testID` continua verde com o `accessibilityLabel` errado ou ausente, e é
+ * exatamente isso que a LACUNA L4 da auditoria mobile registrou — anotação concentrada nos
+ * componentes, ausente nas telas. Consultar como um leitor de tela consulta faz o teste falhar
+ * quando a acessibilidade regride.
+ *
+ * A fixture `CARTEIRA` tem **41 tokens**; o café custa 15 (alcança) e a revisão custa 60 (faltam
+ * 19). As duas metades da regra saem do mesmo saldo, sem mock por teste.
  */
 describe('benefícios', () => {
-  it('lista os benefícios do catálogo com o custo em token', async () => {
+  it('lista o catálogo vindo da API, com custo e parceiro no rótulo', async () => {
     await render(<TelaBeneficios />);
 
-    expect(await screen.findByTestId('saldo-beneficios')).toBeTruthy();
-    for (const beneficio of BENEFICIOS) {
-      expect(screen.getByTestId(`beneficio-${beneficio.id}`)).toBeTruthy();
-    }
+    expect(
+      await screen.findByRole('button', {
+        name: `${BENEFICIO_ALCANCAVEL.titulo}, ${BENEFICIO_ALCANCAVEL.parceiroNome}, 15 tokens`,
+      }),
+    ).toBeTruthy();
+
+    expect(
+      screen.getByRole('button', {
+        name: `${BENEFICIO_CARO.titulo}, ${BENEFICIO_CARO.parceiroNome}, 60 tokens`,
+      }),
+    ).toBeTruthy();
   });
 
-  it('marca o que o saldo alcança e diz quanto falta para o resto', async () => {
-    await render(<TelaBeneficios />);
-
-    // Espera o SALDO chegar, não o container: com 0 token na primeira renderização todo benefício
-    // apareceria como inalcançável, e a assertion abaixo passaria a medir o estado de carregamento.
-    await screen.findByTestId('saldo-beneficios');
-
-    expect(screen.getByTestId('estado-padaria-cafe-dois')).toHaveTextContent(/já alcança/i);
-    expect(screen.getByTestId('estado-hortifruti-cesta-semana')).toHaveTextContent(
-      /faltam 4 tokens/i,
-    );
-  });
-
-  it('o filtro "já alcanço" reduz a lista ao que o saldo cobre', async () => {
-    await render(<TelaBeneficios />);
-    await screen.findByTestId('saldo-beneficios');
-
-    await fireEvent.press(screen.getByTestId('filtro-alcancaveis'));
-
-    expect(screen.getByTestId('beneficio-padaria-cafe-dois')).toBeTruthy();
-    expect(screen.queryByTestId('beneficio-salao-corte')).toBeNull();
-  });
-
-  it('abrir um benefício explica o resgate e NÃO debita nada', async () => {
-    await render(<TelaBeneficios />);
-    await screen.findByTestId('saldo-beneficios');
-
-    await fireEvent.press(screen.getByTestId('beneficio-mercado-dez-porcento'));
-
-    expect(await screen.findByTestId('aviso-resgate')).toHaveTextContent(
-      /nada é descontado agora/i,
-    );
-
-    // Nenhuma requisição de escrita acontece — e isto é verificado de graça: `jest.setup.ts` liga o
-    // MSW com `onUnhandledRequest: 'error'`, então um POST para uma rota sem manipulador derrubaria
-    // este teste alto. O saldo continua o mesmo depois de abrir e fechar a folha.
-    await fireEvent.press(screen.getByTestId('botao-fechar-beneficio'));
-    expect(screen.getByTestId('saldo-beneficios')).toHaveTextContent(String(CARTEIRA.saldoTokens));
-  });
-
-  it('erro ao carregar o saldo oferece tentar de novo', async () => {
+  it('catálogo vazio ENSINA o que fazer, em vez de só dizer que não há nada', async () => {
     servidor.use(
-      http.get(`${BASE}/carteira`, () =>
-        HttpResponse.json(problema('erro-interno', 500, 'Falha inesperada no servidor.'), {
-          status: 500,
+      http.get(`${BASE}/beneficios`, () =>
+        HttpResponse.json({
+          conteudo: [],
+          pagina: 0,
+          tamanho: 20,
+          totalElementos: 0,
+          totalPaginas: 0,
+          primeira: true,
+          ultima: true,
         }),
       ),
     );
 
     await render(<TelaBeneficios />);
 
-    expect(await screen.findByTestId('beneficios-erro')).toBeTruthy();
-    expect(screen.getByText('Tentar de novo')).toBeTruthy();
+    expect(await screen.findByText('Nenhum benefício disponível no seu bairro ainda')).toBeTruthy();
+    // O que FAZER a respeito: sem isto o vazio parece defeito do app.
+    expect(screen.getByText(/fale com a sua tribo/i)).toBeTruthy();
   });
 
-  /**
-   * O mesmo guarda-corpo que a carteira já tinha, espelhado aqui.
-   *
-   * A tela nova é justamente onde a tentação de escrever "R$ 20 de desconto" aparece — e o ADR 0009
-   * §6 recusa isso: cotação token→real transformaria o token em dinheiro, com KYC e enquadramento
-   * regulatório junto. Benefício é BEM ou PORCENTAGEM.
-   */
+  it('resgatar exige CONFIRMAÇÃO antes de debitar', async () => {
+    await render(<TelaBeneficios />);
+
+    await fireEvent.press(await abrirCafe());
+
+    // O primeiro toque NÃO resgata: abre a confirmação.
+    await fireEvent.press(screen.getByRole('button', { name: 'Resgatar por 15 tokens' }));
+
+    expect(screen.getByText(/eles saem de circulação e não voltam/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Confirmar resgate de 15 tokens' })).toBeTruthy();
+    // Enquanto não confirmou, o saldo continua o da carteira.
+    expect(screen.getByLabelText(`${CARTEIRA.saldoTokens} tokens`)).toBeTruthy();
+  });
+
+  it('resgate confirmado mostra o código, anuncia o resultado e atualiza o saldo', async () => {
+    const anunciar = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+
+    await render(<TelaBeneficios />);
+    await fireEvent.press(await abrirCafe());
+    await fireEvent.press(screen.getByRole('button', { name: 'Resgatar por 15 tokens' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Confirmar resgate de 15 tokens' }));
+
+    expect(await screen.findByText('CVYU5UCH')).toBeTruthy();
+
+    // O código é lido CARACTERE A CARACTERE: sem isto o leitor pronuncia "CVYU5UCH" como palavra e
+    // quem está no balcão não consegue repetir o que ouviu.
+    expect(screen.getByLabelText('Código de retirada: C, V, Y, U, 5, U, C, H')).toBeTruthy();
+
+    // O desfecho é ANUNCIADO, não só desenhado.
+    await waitFor(() =>
+      expect(anunciar).toHaveBeenCalledWith(expect.stringContaining('Resgate concluído')),
+    );
+    expect(anunciar).toHaveBeenCalledWith(expect.stringContaining('C, V, Y, U, 5, U, C, H'));
+
+    anunciar.mockRestore();
+  });
+
+  it('o saldo NÃO muda enquanto o servidor não confirma', async () => {
+    // Requisição pendurada de propósito — o caso da rede lenta, não o do erro. A promessa é
+    // LIBERADA no fim do teste: um `new Promise(() => {})` que nunca resolve deixa o handle aberto
+    // e o jest não encerra o worker.
+    let liberar: () => void = () => {};
+    const pendente = new Promise<void>((resolver) => {
+      liberar = resolver;
+    });
+    servidor.use(
+      http.post(`${BASE}/resgates`, async () => {
+        await pendente;
+        return HttpResponse.json(RESGATE, { status: 201 });
+      }),
+    );
+
+    await render(<TelaBeneficios />);
+    await fireEvent.press(await abrirCafe());
+    await fireEvent.press(screen.getByRole('button', { name: 'Resgatar por 15 tokens' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Confirmar resgate de 15 tokens' }));
+
+    expect(await screen.findByRole('button', { name: 'Resgatando…' })).toBeTruthy();
+    // Nenhum débito otimista: o saldo é o do servidor até que ele responda.
+    expect(screen.getByLabelText(`${CARTEIRA.saldoTokens} tokens`)).toBeTruthy();
+    expect(screen.queryByText('CVYU5UCH')).toBeNull();
+
+    liberar();
+    await waitFor(() => expect(screen.getByText('CVYU5UCH')).toBeTruthy());
+  });
+
+  it('saldo insuficiente diz QUANTO falta, sem parsear o detail do servidor', async () => {
+    await render(<TelaBeneficios />);
+
+    // 41 de saldo, 60 de custo: a tela calcula os 19 sozinha, com números que já tem.
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: `${BENEFICIO_CARO.titulo}, ${BENEFICIO_CARO.parceiroNome}, 60 tokens`,
+      }),
+    );
+
+    expect(screen.getByText(/faltam 19 tokens para este benefício/i)).toBeTruthy();
+    // Não oferece um botão que só levaria a um 422.
+    expect(screen.queryByRole('button', { name: /resgatar por/i })).toBeNull();
+  });
+
+  it('erro do servidor no resgate é anunciado e explicado', async () => {
+    const anunciar = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    servidor.use(
+      http.post(`${BASE}/resgates`, () =>
+        HttpResponse.json(
+          problema('regra-negocio-violada', 422, 'Saldo de 41 tokens é insuficiente.'),
+          { status: 422 },
+        ),
+      ),
+    );
+
+    await render(<TelaBeneficios />);
+    await fireEvent.press(await abrirCafe());
+    await fireEvent.press(screen.getByRole('button', { name: 'Resgatar por 15 tokens' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Confirmar resgate de 15 tokens' }));
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    await waitFor(() =>
+      expect(anunciar).toHaveBeenCalledWith(expect.stringContaining('Não foi possível resgatar')),
+    );
+
+    anunciar.mockRestore();
+  });
+
+  it('falha ao carregar o catálogo oferece tentar de novo', async () => {
+    servidor.use(
+      http.get(`${BASE}/beneficios`, () =>
+        HttpResponse.json(problema('erro-interno', 500, 'Falha.'), { status: 500 }),
+      ),
+    );
+
+    await render(<TelaBeneficios />);
+
+    expect(await screen.findByText('Não deu para carregar o catálogo')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Tentar de novo' })).toBeTruthy();
+  });
+
   it('não fala em dinheiro em lugar nenhum', async () => {
     await render(<TelaBeneficios />);
-    await screen.findByTestId('saldo-beneficios');
+    await screen.findByRole('button', { name: /café coado/i });
 
-    expect(screen.queryByText(/R\$/)).toBeNull();
-    expect(screen.queryByText(/BRL/)).toBeNull();
-    expect(screen.queryByText(/0,00/)).toBeNull();
+    // ADR 0009 §6: nenhum "R$" na tela. A regra é garantida no servidor em duas camadas; aqui é a
+    // checagem de que a UI não a reintroduz por copy própria.
+    expect(screen.queryByText(/R\$|\breais\b/i)).toBeNull();
   });
 });
+
+/** O cartão do café, achado como um leitor de tela o acharia. */
+async function abrirCafe() {
+  return screen.findByRole('button', {
+    name: `${BENEFICIO_ALCANCAVEL.titulo}, ${BENEFICIO_ALCANCAVEL.parceiroNome}, 15 tokens`,
+  });
+}

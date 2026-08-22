@@ -1,5 +1,6 @@
 import type {
   AlertaResponse,
+  BeneficioResponse,
   CarteiraResponse,
   ClimaResponse,
   ConsentimentoResponse,
@@ -13,6 +14,7 @@ import type {
   PerfilResponse,
   PontoCustodiaResponse,
   PreviaRecompensaResponse,
+  ResgateResponse,
   TriboResponse,
 } from '@/api/tipos';
 
@@ -247,6 +249,48 @@ export const PREVIA: PreviaRecompensaResponse = {
 };
 
 /** Corpo RFC 9457 como o backend o emite, incluindo `traceId`. */
+/**
+ * Catálogo de teste, calibrado na fixture `CARTEIRA` (41 tokens) de propósito: o café custa 15
+ * (alcança) e a revisão custa 60 (faltam 19). As duas metades da regra são exercitadas com o mesmo
+ * saldo, sem mock por teste — mesma calibração que a versão hardcoded desta tela usava.
+ */
+export const BENEFICIO_ALCANCAVEL: BeneficioResponse = {
+  id: '33333333-0000-0000-0000-000000000960',
+  titulo: 'Um café coado e um pão na chapa',
+  descricao: 'Retire no balcão apresentando o código. De segunda a sábado, até as 11h.',
+  custoTokens: 15,
+  tipo: 'BEM',
+  parceiroId: '22222222-0000-0000-0000-000000000960',
+  parceiroNome: 'Padaria Pão da Praça',
+  bairro: 'Cidade Líder',
+  distanciaM: 212.4,
+};
+
+export const BENEFICIO_CARO: BeneficioResponse = {
+  id: '33333333-0000-0000-0000-000000000962',
+  titulo: '20% de desconto na revisão da bicicleta',
+  descricao: 'Desconto proporcional sobre a mão de obra. Não acumula com outras ofertas.',
+  custoTokens: 60,
+  tipo: 'PERCENTUAL',
+  parceiroId: '22222222-0000-0000-0000-000000000961',
+  parceiroNome: 'Bicicletaria do Zé',
+  bairro: 'Cidade Líder',
+  distanciaM: 640.1,
+};
+
+export const RESGATE: ResgateResponse = {
+  id: '44444444-0000-0000-0000-000000000001',
+  beneficioId: BENEFICIO_ALCANCAVEL.id,
+  custoTokens: 15,
+  // Alfabeto sem 0/O e sem 1/I/L — o mesmo do GeradorCodigoRetirada.
+  codigoRetirada: 'CVYU5UCH',
+  status: 'PENDENTE',
+  criadoEm: '2026-08-22T12:00:00Z',
+  utilizadoEm: null,
+  saldoTokensRestante: 26,
+  replay: false,
+};
+
 export function problema(
   type: string,
   status: number,

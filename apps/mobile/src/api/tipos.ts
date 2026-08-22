@@ -40,6 +40,12 @@ export type MotivoLancamento =
   | 'TRANSFERENCIA_ENVIADA'
   | 'TRANSFERENCIA_RECEBIDA'
   | 'FINANCIAMENTO_TRIBO'
+  /** Débito do patrocinador ao financiar o pote de uma missão de retirada (V23). */
+  | 'FINANCIAMENTO_PATROCINADOR'
+  /** O ÚNICO motivo que EMITE token. Só aparece no extrato de um patrocinador (V23). */
+  | 'APORTE_PATROCINADOR'
+  /** O ÚNICO motivo que QUEIMA token: resgate de benefício (V26, ADR 0027). */
+  | 'RESGATE'
   | 'SAQUE'
   | 'BONUS'
   | 'ESTORNO';
@@ -345,6 +351,45 @@ export interface TransferenciaResponse {
   /** Nulo num replay de idempotência. */
   lancamentoEntradaId: string | null;
   saldoTokensRemetente: number;
+  replay: boolean;
+}
+
+/**
+ * Um item do catálogo de benefícios — o que o TOKEN compra.
+ *
+ * `tipo` é BEM ou PERCENTUAL e NUNCA um valor em reais: preço em moeda corrente publicaria uma
+ * cotação token→real implícita, que o ADR 0009 §6 recusa ter. O servidor garante isso em duas
+ * camadas (validação na borda e `ck_beneficio_sem_reais`), então o app não precisa filtrar.
+ */
+export interface BeneficioResponse {
+  id: string;
+  titulo: string;
+  descricao: string;
+  custoTokens: number;
+  tipo: 'BEM' | 'PERCENTUAL';
+  parceiroId: string;
+  parceiroNome: string;
+  bairro: string;
+  /** Metros até o parceiro, derivados pelo PostGIS. Ausente no recorte por tribo. */
+  distanciaM?: number | null;
+}
+
+/**
+ * O comprovante de um resgate.
+ *
+ * `codigoRetirada` NÃO é credencial: são 8 caracteres para o humano do balcão casar o papel com a
+ * linha na tela do parceiro. Quem autoriza a baixa é um ADMIN, pelo id.
+ */
+export interface ResgateResponse {
+  id: string;
+  beneficioId: string;
+  custoTokens: number;
+  codigoRetirada: string;
+  status: 'PENDENTE' | 'UTILIZADO';
+  criadoEm: string;
+  utilizadoEm: string | null;
+  saldoTokensRestante: number;
+  /** `true` quando a chave de idempotência já existia e NADA foi queimado nesta chamada. */
   replay: boolean;
 }
 

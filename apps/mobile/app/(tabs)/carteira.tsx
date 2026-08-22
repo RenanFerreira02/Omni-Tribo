@@ -20,11 +20,23 @@ import { novaChaveIdempotencia } from '@/lib/ids';
 import { transferenciaSchema } from '@/schemas';
 import { cores, espaco, textoAcessivel, tipografia } from '@/theme';
 
+/**
+ * Rótulo por motivo do ledger. `Record` FECHADO de propósito: um motivo novo no backend quebra o
+ * typecheck aqui, em vez de aparecer no extrato do usuário como o enum cru em maiúsculas.
+ *
+ * Os três últimos entraram depois da F13 — os dois de patrocinador na V23, o resgate na V26.
+ */
 const ROTULOS_MOTIVO: Record<LancamentoResponse['motivo'], string> = {
   RECOMPENSA_MISSAO: 'Recompensa de missão',
   TRANSFERENCIA_ENVIADA: 'Transferência enviada',
   TRANSFERENCIA_RECEBIDA: 'Transferência recebida',
   FINANCIAMENTO_TRIBO: 'Financiamento de missão',
+  // Só aparecem no extrato de um PATROCINADOR, que não usa o app — ficam aqui porque o Record é
+  // fechado e o tipo os inclui, não porque a tela vá exibi-los.
+  FINANCIAMENTO_PATROCINADOR: 'Financiamento de entrega',
+  APORTE_PATROCINADOR: 'Aporte de patrocinador',
+  /** A queima: token que saiu de circulação virando algo no bairro (ADR 0027). */
+  RESGATE: 'Resgate no bairro',
   SAQUE: 'Saque',
   BONUS: 'Bônus',
   ESTORNO: 'Estorno',
