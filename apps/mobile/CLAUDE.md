@@ -69,20 +69,30 @@ patrocinada futura; nenhuma missão remunera em BRL. Não construa UI que sugira
 **A UI não oferece saque, e o endpoint continua existindo.** `POST /carteira/saques` responde 422 com
 `type` `.../saque-desabilitado` (ADR 0010) — desligado por configuração, não quebrado —, e a camada
 de API mantém `sacar()`, o mapeamento do `type` e o teste do 422. O que saiu foi o botão: a carteira
-agora leva a `app/beneficios.tsx`. O raciocínio antigo ("um botão ausente não ensina nada") valia
+agora leva a `app/(app)/beneficios.tsx`. O raciocínio antigo ("um botão ausente não ensina nada") valia
 enquanto não havia para onde mandar a pessoa; um catálogo mostra o que a moeda É, e isso ensina mais
 que um aviso dizendo o que ela não é.
 
 **Benefício se expressa em BEM ou em PORCENTAGEM. Nunca em reais.** O ADR 0009 §6 é a razão: se o
 token virasse conversível, ele *seria* dinheiro, com KYC e enquadramento regulatório junto. "R$ 20
 em compras" fixa uma cotação token→real exatamente onde o produto recusa ter uma — é a mesma regra
-que faz a carteira nunca imprimir `R$`. Há teste dos dois lados: o catálogo
-(`features/beneficios/__tests__/catalogo.test.ts`) e a tela (`app/__tests__/beneficios.test.tsx`).
+que faz a carteira nunca imprimir `R$`. **A garantia hoje é do SERVIDOR**, em duas camadas
+(`@Pattern` em `CadastrarBeneficioRequest` e `ck_beneficio_sem_reais` na V24); do lado do app sobrou
+o teste de que a tela não reintroduz `R$` por copy própria.
 
-**O catálogo de benefícios é dado LOCAL**, em `src/features/beneficios/catalogo.ts`, e nada nele
-debita saldo. O resgate é o sumidouro do TOKEN (ADR 0009 §3) e o backend não o tem: não há tabela de
-parceiro, endpoint, nem motivo `RESGATE` no ledger. Simular o débito no cliente produziria um saldo
-que o servidor desmente no primeiro `refetch` — a tela diz ao usuário que a baixa ainda não acontece.
+**O catálogo vem da API** — `GET /api/v1/beneficios`, por tribo ou por proximidade. Era dado LOCAL
+enquanto o sumidouro não existia; a F16 (V24-V26, ADR 0027) o trouxe, e `src/features/beneficios/
+catalogo.ts` encolheu para só `estadoDoResgate`.
+
+**O resgate QUEIMA token, e o saldo só muda quando o servidor confirma.** `POST /api/v1/resgates`
+com `Idempotency-Key`, confirmação explícita antes de debitar, e **sem atualização otimista** — a
+mesma doutrina de `useTransferirTokens`, agravada porque token queimado não volta. O sucesso invalida
+`chavesCarteira.todas`, então saldo e extrato se atualizam juntos.
+
+**"Faltam N tokens" é calculado no CLIENTE.** O backend responde saldo insuficiente com
+`422 regra-negocio-violada`, que não traz campos estruturados; a frase sai de `estadoDoResgate(saldo,
+custo)`, com dois números que o app já tem. Parsear o `detail` daria o mesmo texto e violaria a regra
+dura abaixo.
 
 ## Tratamento de erro — regra dura
 

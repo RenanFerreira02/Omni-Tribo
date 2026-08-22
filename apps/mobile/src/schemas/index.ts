@@ -211,11 +211,18 @@ export const carteiraResponseSchema = z.object({
 export const lancamentoResponseSchema = z.object({
   id: z.guid(),
   sinal: z.enum(['CREDITO', 'DEBITO']),
+  // Espelha o CHECK de `lancamento.motivo` no backend. Os três últimos entraram depois:
+  // FINANCIAMENTO_PATROCINADOR e APORTE_PATROCINADOR na V23, RESGATE na V26. Sem eles aqui, um
+  // extrato que contivesse a linha da queima reprovaria em `validarEmDev` — o app quebraria em
+  // desenvolvimento exatamente quando o usuário resgatasse algo.
   motivo: z.enum([
     'RECOMPENSA_MISSAO',
     'TRANSFERENCIA_ENVIADA',
     'TRANSFERENCIA_RECEBIDA',
     'FINANCIAMENTO_TRIBO',
+    'FINANCIAMENTO_PATROCINADOR',
+    'APORTE_PATROCINADOR',
+    'RESGATE',
     'SAQUE',
     'BONUS',
     'ESTORNO',
@@ -327,6 +334,31 @@ export const transferenciaResponseSchema = z.object({
 });
 
 /** `PaginaResponse<T>` do backend — envelope próprio, não o `Page` do Spring Data. */
+export const beneficioResponseSchema = z.object({
+  id: z.guid(),
+  titulo: z.string(),
+  descricao: z.string(),
+  custoTokens: z.number(),
+  tipo: z.enum(['BEM', 'PERCENTUAL']),
+  parceiroId: z.guid(),
+  parceiroNome: z.string(),
+  bairro: z.string(),
+  // Ausente no recorte por tribo, e nulo é resposta legítima do servidor.
+  distanciaM: z.number().nullish(),
+});
+
+export const resgateResponseSchema = z.object({
+  id: z.guid(),
+  beneficioId: z.guid(),
+  custoTokens: z.number(),
+  codigoRetirada: z.string(),
+  status: z.enum(['PENDENTE', 'UTILIZADO']),
+  criadoEm: z.string(),
+  utilizadoEm: z.string().nullable(),
+  saldoTokensRestante: z.number(),
+  replay: z.boolean(),
+});
+
 export function paginaSchema<T extends z.ZodTypeAny>(item: T) {
   return z.object({
     conteudo: z.array(item),
