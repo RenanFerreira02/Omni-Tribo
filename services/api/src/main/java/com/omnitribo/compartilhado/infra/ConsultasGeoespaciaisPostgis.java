@@ -68,6 +68,25 @@ public class ConsultasGeoespaciaisPostgis implements ConsultasGeoespaciais {
    * <p>{@code ativo} entra no WHERE e não é opcional: um ponto desativado no mapa levaria o
    * executor a uma loja que não recebe mais encomenda.
    */
+  static final String SQL_PARCEIROS_NO_RAIO =
+      """
+      SELECT p.id AS id,
+             ST_Distance(
+                 p.ponto,
+                 ST_SetSRID(ST_MakePoint(CAST(:lon AS double precision),
+                                         CAST(:lat AS double precision)), 4326)::geography
+             ) AS distancia_m
+        FROM parceiro p
+       WHERE ST_DWithin(
+                 p.ponto,
+                 ST_SetSRID(ST_MakePoint(CAST(:lon AS double precision),
+                                         CAST(:lat AS double precision)), 4326)::geography,
+                 CAST(:raio AS double precision))
+         AND p.ativo = true
+       ORDER BY distancia_m ASC
+       LIMIT CAST(:limite AS integer)
+      """;
+
   static final String SQL_PONTOS_CUSTODIA_NO_RAIO =
       """
       SELECT p.id AS id,
@@ -202,6 +221,20 @@ public class ConsultasGeoespaciaisPostgis implements ConsultasGeoespaciais {
   public List<AlvoProximo> pontosCustodiaNoRaio(
       BigDecimal lat, BigDecimal lon, int raioMetros, int limite) {
     return jdbc.sql(SQL_PONTOS_CUSTODIA_NO_RAIO)
+        .param("lat", lat)
+        .param("lon", lon)
+        .param("raio", raioMetros)
+        .param("limite", limite)
+        .query(
+            (rs, linha) ->
+                new AlvoProximo(rs.getObject("id", UUID.class), rs.getDouble("distancia_m")))
+        .list();
+  }
+
+  @Override
+  public List<AlvoProximo> parceirosNoRaio(
+      BigDecimal lat, BigDecimal lon, int raioMetros, int limite) {
+    return jdbc.sql(SQL_PARCEIROS_NO_RAIO)
         .param("lat", lat)
         .param("lon", lon)
         .param("raio", raioMetros)

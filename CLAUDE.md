@@ -201,9 +201,14 @@ pagar do pote como TRIBO, porque o argumento que a mantinha fora ("vizinhos cust
 varejista") descreve ENTREGA e nunca foi sobre ela.
 
 **A cunhagem não sumiu — mudou de lugar, e é isso que a torna defensável.** O único ponto de emissão
-é `APORTE_PATROCINADOR`, por endpoint ADMIN, auditado e idempotente. Vale a afirmação forte:
-`SUM(carteira.saldo_tokens) + SUM(missao.pote_tokens)` é constante em TODO o ciclo de missões, nas
-quatro categorias, e só um aporte a altera. Antes da V23 a emissão acontecia na CONCLUSÃO de toda
+é `APORTE_PATROCINADOR`, por endpoint ADMIN, auditado e idempotente.
+
+**A economia é um CICLO, não um estoque** (ADR 0027). O enunciado exato da invariante, e ele tem duas
+partes que não podem ser encurtadas numa:
+`SUM(carteira.saldo_tokens) + SUM(missao.pote_tokens)` é constante **dentro do ciclo de missões**,
+nas quatro categorias — e muda nas DUAS pontas: **sobe** no `APORTE_PATROCINADOR` (emite) e **desce**
+no `RESGATE` (queima). Nenhuma outra operação a altera; todas as demais movem token de lugar.
+Dizer só "a soma é constante" descreve um estoque fechado, que nunca foi o desenho. Antes da V23 a emissão acontecia na CONCLUSÃO de toda
 ENTREGA e AJUDA, implícita, por missão e invisível para a reconciliação — ledger e projeção batem
 quando se cria token do nada.
 
@@ -324,6 +329,22 @@ sem ela o plugin aborta com "Invalid API Key, length of 0". Não configure a cha
 · `POST /saques`. Os dois POST exigem header `Idempotency-Key`.
 
 `/api/v1/tribos/{triboId}/financiamentos` — `POST`, com `Idempotency-Key`.
+
+`/api/v1/beneficios` — `GET` (catálogo paginado; por proximidade `?lat&lon&raioMetros` OU por
+`?triboId`, nunca os dois). Só benefício ativo de parceiro ativo. A distância vem do PostGIS a cada
+consulta e é nula no recorte por tribo.
+
+`/api/v1/resgates` — `POST`, com `Idempotency-Key`. **É o SUMIDOURO do TOKEN**: o lançamento debita
+com motivo `RESGATE` e NÃO credita ninguém — sem contraparte, sem missão. Devolve um código de
+retirada de 8 caracteres que **não é credencial** (quem autoriza a baixa é o ADMIN, pelo id). Ver
+ADR 0027.
+
+`/api/v1/admin/beneficios` — `POST`, só ADMIN. Benefício é `BEM` ou `PERCENTUAL`, **nunca em reais**:
+a borda reprova com 400 e `ck_beneficio_sem_reais` (V24) é a barreira final. Preço em moeda corrente
+publicaria a cotação token→real que o ADR 0009 §6 recusa.
+
+`/api/v1/admin/resgates/{id}` — `PATCH`, só ADMIN. `PENDENTE → UTILIZADO`, idempotente. **Sem caminho
+de volta**: reverter ressuscitaria token queimado.
 
 `/api/v1/admin/carteiras/reconciliacao` — `GET`, só ADMIN.
 
@@ -494,21 +515,23 @@ Banco
 - Flyway é a ÚNICA fonte de schema. ddl-auto é sempre validate. Nunca resolva divergência mudando
   ddl-auto — escreva migration.
 - **Versão de migration é sequência GLOBAL, não por diretório.** Duas faixas, separadas de propósito:
-  - `db/migration` — schema, **V1–V8 e V11–V23**; único location do perfil default/prod.
-    Próxima é **V24**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
+  - `db/migration` — schema, **V1–V8 e V11–V26**; único location do perfil default/prod.
+    Próxima é **V27**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
     antes da renomeação para `V900__seed_dev.sql`, então um banco de dev criado antes dela tem as
     versões 9 e 10 gravadas no `flyway_schema_history` com descrição de seed. Um `V9__*.sql` novo em
     `db/migration` passaria em clone novo e falharia em máquina antiga com erro de checksum ou
     "detected applied migration not resolved locally" — divergência que não aparece no CI.
   - `db/seed` — só dev e test (via `application-dev.yml` / `application-test.yml`), faixa **900+**.
-    Hoje são seis: `V900__seed_dev.sql`, `V901__seed_entregas_falidas.sql`,
+    Hoje são sete: `V900__seed_dev.sql`, `V901__seed_entregas_falidas.sql`,
     `V902__seed_alertas_consentimentos.sql`, `V903__seed_cidade_lider.sql` (dados de demonstração
     na zona leste — ver docs/INFRA.md) e `V904__seed_entrega_falida_fixtures.sql` (ponto LOTADO e
     os dois únicos usuários com NOTIFICACAO+LOCALIZACAO vigentes, sem os quais dois caminhos do
     webhook não têm fixture) e `V905__seed_patrocinador.sql` (os patrocinadores de `transportadora-dev`
     e `transportadora-teste`, mais o backfill de `fonte_pote` que a V23 sozinha não alcança — os
     seeds rodam DEPOIS dela. `outra-transportadora` fica sem patrocinador de propósito: é a fixture
-    do desfecho SEM_PATROCINIO). **Próximo seed é V906.**
+    do desfecho SEM_PATROCINIO) e `V906__seed_beneficios.sql` (parceiros e benefícios da Cidade
+    Líder, com um parceiro INATIVO e um benefício INATIVO como fixtures de catálogo).
+    **Próximo seed é V907.**
   - A faixa 900+ garante por construção que o seed roda depois de todo schema. Seed novo continua na
     faixa e NUNCA usa um número que o schema possa alcançar. Ver ADR 0006, Notas de manutenção.
   - Como o seed é o último, ele grava dados em forma final: não conte com migration posterior para
