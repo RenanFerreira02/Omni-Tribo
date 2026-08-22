@@ -4,6 +4,7 @@ import com.omnitribo.compartilhado.api.AtributosWebhook;
 import com.omnitribo.compartilhado.dominio.Coordenadas;
 import com.omnitribo.compartilhado.dominio.RegraNegocioVioladaException;
 import com.omnitribo.integracoes.api.ConsultaClima;
+import com.omnitribo.logistica.dominio.ConfirmacaoRetiradaService;
 import com.omnitribo.logistica.dominio.DadosEntregaFalida;
 import com.omnitribo.logistica.dominio.DadosParaPrevisao;
 import com.omnitribo.logistica.dominio.EntregaFalidaService;
@@ -46,6 +47,13 @@ public class WebhookTransportadoraController {
   private final PrevisaoRiscoService previsaoRiscoService;
 
   /**
+   * Bean SEPARADO de {@link EntregaFalidaService}, e obrigatoriamente: a confirmação chama {@code
+   * missoes}, que chama de volta {@code BaixaCustodiaService} na conclusão. Juntar os dois num
+   * serviço só fecharia o ciclo de beans. Ver o javadoc de {@link ConfirmacaoRetiradaService}.
+   */
+  private final ConfirmacaoRetiradaService confirmacaoRetiradaService;
+
+  /**
    * {@code ConsultaClima} é injetado pela INTERFACE, e o tipo declarado no campo é o que o ArchUnit
    * inspeciona: nomear {@code ClimaService} aqui compilaria e reprovaria o teste de arquitetura,
    * porque {@code logistica} não pode alcançar {@code integracoes.dominio}.
@@ -55,10 +63,12 @@ public class WebhookTransportadoraController {
   public WebhookTransportadoraController(
       EntregaFalidaService entregaFalidaService,
       PrevisaoRiscoService previsaoRiscoService,
-      ConsultaClima consultaClima) {
+      ConsultaClima consultaClima,
+      ConfirmacaoRetiradaService confirmacaoRetiradaService) {
     this.entregaFalidaService = entregaFalidaService;
     this.previsaoRiscoService = previsaoRiscoService;
     this.consultaClima = consultaClima;
+    this.confirmacaoRetiradaService = confirmacaoRetiradaService;
   }
 
   @Operation(
@@ -107,17 +117,7 @@ public class WebhookTransportadoraController {
   public EntregaFalidaWebhookResponse registrar(
       @Valid @RequestBody EntregaFalidaWebhookRequest request, HttpServletRequest http) {
 
-    // A transportadora vem do atributo que o filtro publicou DEPOIS de verificar a assinatura,
-    // nunca de request.getHeader(...) e nunca do corpo. Ler o cabeçalho cru aqui aceitaria a
-    // alegação sem a prova, e o caminho feliz continuaria funcionando — o erro seria invisível.
-    Object verificada = http.getAttribute(AtributosWebhook.TRANSPORTADORA);
-    if (verificada == null) {
-      // Inalcançável enquanto o filtro estiver na cadeia. Existe para que, se alguém remover o
-      // filtro e esquecer o permitAll, a rota falhe fechada em vez de gravar sem autenticação.
-      throw new IllegalStateException(
-          "Requisição chegou ao webhook sem transportadora verificada — HmacWebhookFilter ausente"
-              + " da cadeia de segurança.");
-    }
+    String verificada = transportadoraVerificada(http);
 
     if (!request.destinoConsistente()) {
       throw new RegraNegocioVioladaException(
@@ -126,7 +126,7 @@ public class WebhookTransportadoraController {
 
     DadosEntregaFalida dados =
         new DadosEntregaFalida(
-            (String) verificada,
+            verificada,
             request.codigoRastreio(),
             request.motivo(),
             request.pontoCustodiaId(),
@@ -146,6 +146,83 @@ public class WebhookTransportadoraController {
 
     return EntregaFalidaWebhookResponse.de(
         entregaFalidaService.registrar(dados, avaliarRisco(request)));
+  }
+
+  @Operation(
+      summary = "Confirma que a encomenda chegou ao destinatário",
+      description =
+          """
+          Conclui a missão de retirada e credita o executor na hora, em vez de esperar as 72 h da
+          varredura de prazo.
+
+          Mesma autenticação do webhook de reporte: HMAC-SHA256 sobre o corpo BRUTO, nos cabeçalhos
+          `X-Transportadora`, `X-Timestamp` e `X-Assinatura`. A transportadora é lida do atributo
+          VERIFICADO, nunca do corpo.
+
+          Idempotente por (transportadora, codigoRastreio): reenviar devolve `replay: true` com
+          `tokensCreditados: 0`, sem creditar de novo. É seguro fazer retry.
+
+          POR QUE A TRANSPORTADORA CONFIRMA, e não o executor no check-in: o check-in prova
+          PRESENÇA, não RECEBIMENTO. Confirmar ali faria o executor confirmar a si mesmo. A
+          transportadora é a contraparte com interesse oposto, e é isso que faz a confirmação
+          significar alguma coisa. Ver ADR 0026.
+          """)
+  @ApiResponses({
+    @ApiResponse(
+        responseCode = "200",
+        description = "Retirada confirmada, ou replay de uma já confirmada"),
+    @ApiResponse(
+        responseCode = "400",
+        description = "Corpo inválido",
+        content = @io.swagger.v3.oas.annotations.media.Content),
+    @ApiResponse(
+        responseCode = "401",
+        description = "Assinatura inválida, ausente ou fora da janela de tempo",
+        content = @io.swagger.v3.oas.annotations.media.Content),
+    @ApiResponse(
+        responseCode = "404",
+        description =
+            "Código de rastreio desconhecido, ou entrega que nunca virou missão (ponto lotado, sem"
+                + " patrocínio). Reenviar não muda o resultado.",
+        content = @io.swagger.v3.oas.annotations.media.Content),
+    @ApiResponse(
+        responseCode = "409",
+        description =
+            "A missão não está em AGUARDANDO_CONFIRMACAO — ninguém executou ainda, ou ela foi"
+                + " cancelada, expirada ou contestada.",
+        content = @io.swagger.v3.oas.annotations.media.Content),
+    @ApiResponse(
+        responseCode = "429",
+        description = "Teto de requisições da transportadora",
+        content = @io.swagger.v3.oas.annotations.media.Content)
+  })
+  @PostMapping("/transportadora/confirmacao")
+  public ConfirmacaoRetiradaResponse confirmar(
+      @Valid @RequestBody ConfirmacaoRetiradaRequest request, HttpServletRequest http) {
+
+    return ConfirmacaoRetiradaResponse.de(
+        confirmacaoRetiradaService.confirmar(
+            transportadoraVerificada(http), request.codigoRastreio()));
+  }
+
+  /**
+   * O slug que o {@code HmacWebhookFilter} publicou DEPOIS de conferir a assinatura.
+   *
+   * <p>Nunca {@code request.getHeader(...)} e nunca o corpo: o cabeçalho é a alegação, a assinatura
+   * é a prova, e ler a alegação sem a prova deixaria a transportadora A gravar — ou confirmar — em
+   * nome da B. Extraído para cá porque os DOIS endpoints precisam da mesma garantia, e duplicar a
+   * leitura é como um dos dois acaba lendo o cabeçalho cru numa refatoração futura.
+   */
+  private static String transportadoraVerificada(HttpServletRequest http) {
+    Object verificada = http.getAttribute(AtributosWebhook.TRANSPORTADORA);
+    if (verificada == null) {
+      // Inalcançável enquanto o filtro estiver na cadeia. Existe para que, se alguém remover o
+      // filtro e esquecer o permitAll, a rota falhe fechada em vez de gravar sem autenticação.
+      throw new IllegalStateException(
+          "Requisição chegou ao webhook sem transportadora verificada — HmacWebhookFilter ausente"
+              + " da cadeia de segurança.");
+    }
+    return (String) verificada;
   }
 
   /**

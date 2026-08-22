@@ -18,12 +18,10 @@
 # Um quinto ciclo mede a recusa: transportadora integrada, patrocinador SEM saldo. Deve responder
 # 200 com desfecho SEM_PATROCINIO, sem missão e sem token cunhado.
 #
-# PRÉ-REQUISITO: o servidor precisa subir com a varredura de expiração acelerada, senão o ciclo 4
-# não fecha (ver o comentário do ciclo 4):
-#
-#   cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev \
-#     -Dspring-boot.run.arguments="--app.missoes.expiracao.intervalo=PT10S \
-#                                  --app.missoes.expiracao.atraso-inicial=PT5S"
+# Nenhum pré-requisito além do servidor de pé em dev. Até o ADR 0026 este script precisava subi-lo
+# com a varredura de expiração acelerada e recuar `estado_desde` por SQL, porque ninguém conseguia
+# confirmar uma missão cujo criador é o usuário-sistema. O webhook de confirmação fechou isso: o
+# ciclo 4 agora termina por HTTP, como os outros três.
 set -uo pipefail
 
 API=http://localhost:8080
@@ -144,9 +142,9 @@ corpo_webhook() { # corpo_webhook RASTREIO
 JSON
 }
 
-webhook() { # webhook SLUG SEGREDO CORPO
+webhook() { # webhook SLUG SEGREDO CORPO [CAMINHO]
   local ts; ts=$(date +%s)
-  curl -s -X POST "$API/api/v1/webhooks/transportadora" \
+  curl -s -X POST "$API/api/v1/webhooks/transportadora${4:-}" \
     -H 'Content-Type: application/json' \
     -H "X-Transportadora: $1" -H "X-Timestamp: $ts" \
     -H "X-Assinatura: $(assinar "$ts" "$3" "$2")" \
@@ -155,7 +153,7 @@ webhook() { # webhook SLUG SEGREDO CORPO
 
 webhook_com_status() { # igual a webhook(), mas devolve o corpo e o status HTTP na última linha
   local ts; ts=$(date +%s)
-  curl -s -w '\n%{http_code}' -X POST "$API/api/v1/webhooks/transportadora" \
+  curl -s -w '\n%{http_code}' -X POST "$API/api/v1/webhooks/transportadora${4:-}" \
     -H 'Content-Type: application/json' \
     -H "X-Transportadora: $1" -H "X-Timestamp: $ts" \
     -H "X-Assinatura: $(assinar "$ts" "$3" "$2")" \
@@ -224,25 +222,14 @@ echo "checkin:  $(api POST "/api/v1/missoes/$M4/checkin" "$ALICE" \
   "{\"lat\":$ORIGEM_LAT,\"lon\":$ORIGEM_LON,\"acuraciaM\":8.0,\"mocked\":false}" \
   | jq -r '.status // .type')"
 
-# O criador desta missão é o usuário-sistema, que nunca autentica — então NENHUM humano pode chamar
-# /confirmar: AtorEsperado.CRIADOR compara IDENTIDADE, não papel, e nem um ADMIN passa. O único
-# caminho para CONCLUIDA é EXPIRAR_CONFIRMACAO, disparado pela varredura de prazo.
-#
-# Recuar `estado_desde` é o ÚNICO UPDATE manual deste script, e ele não toca dinheiro nenhum: só
-# antecipa o relógio da missão para que a varredura a alcance sem esperar as 72 h de
-# app.missoes.expiracao.prazo-confirmacao. Está declarado na seção "o que isto não prova" da
-# evidência.
-echo "-- recuando estado_desde e aguardando a varredura (o criador é o usuário-sistema) --"
-"${PSQL[@]}" "UPDATE missao SET estado_desde = NOW() - INTERVAL '96 hours' WHERE id = '$M4';" >/dev/null
-
-STATUS4=""
-for _ in $(seq 1 40); do
-  STATUS4=$("${PSQL[@]}" "SELECT status FROM missao WHERE id = '$M4';")
-  [[ "$STATUS4" == "CONCLUIDA" ]] && break
-  sleep 3
-done
-echo "status após a varredura: $STATUS4"
-conferir "conclusão pela varredura" "CONCLUIDA" "$STATUS4"
+# A transportadora confirma o recebimento pelo destinatário — mesma autenticação HMAC do reporte.
+# É o caminho que substituiu o UPDATE manual em `estado_desde`: o criador desta missão é o
+# usuário-sistema e nenhum humano pode chamar /confirmar, mas a contraparte comercial pode.
+CONF=$(webhook transportadora-dev "${WEBHOOK_SEGREDO_DEV:-segredo-de-desenvolvimento-local}" \
+  "{\"codigoRastreio\":\"$RASTREIO\"}" /confirmacao)
+echo "confirmação: $(echo "$CONF" | jq -c '{tokensCreditados, replay}')"
+conferir "conclusão por confirmação da transportadora" "CONCLUIDA" \
+  "$("${PSQL[@]}" "SELECT status FROM missao WHERE id = '$M4';")"
 
 E2=$(total)
 SALDO_PATRO_DEPOIS=$("${PSQL[@]}" \

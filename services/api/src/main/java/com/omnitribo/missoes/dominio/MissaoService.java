@@ -22,6 +22,7 @@ import com.omnitribo.identidade.api.ResultadoProgressao;
 import com.omnitribo.identidade.api.UsuarioSistema;
 import com.omnitribo.logistica.api.BaixaCustodia;
 import com.omnitribo.missoes.api.AtualizarMissaoRequest;
+import com.omnitribo.missoes.api.ConfirmacaoRetirada;
 import com.omnitribo.missoes.api.ConversaoEntregaFalida;
 import com.omnitribo.missoes.api.CriarMissaoRequest;
 import com.omnitribo.missoes.api.MissaoFiltroRequest;
@@ -60,7 +61,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /** Orquestra o ciclo de vida de missões. Toda mudança de status passa pela máquina de estados. */
 @Service
-public class MissaoService implements ConversaoEntregaFalida {
+public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirada {
 
   private static final Logger log = LoggerFactory.getLogger(MissaoService.class);
 
@@ -792,6 +793,37 @@ public class MissaoService implements ConversaoEntregaFalida {
   @Transactional
   public MissaoResponse confirmar(UUID missaoId, AtorMissao ator) {
     return concluirComCredito(missaoId, EventoMissao.CONFIRMAR, ator, null);
+  }
+
+  /**
+   * Implementa {@link ConfirmacaoRetirada}: a transportadora confirma que a encomenda chegou.
+   *
+   * <p>Reusa {@link #confirmar} inteiro — mesmo evento, mesma transição, mesmo crédito. O que muda
+   * é só QUEM assina o ato, e nem isso exigiu mexer na autorização: o criador da missão de retirada
+   * é o usuário-sistema, e {@code AtorMissao.ehMesmo} compara identidade, então este ator satisfaz
+   * {@code AtorEsperado.CRIADOR} por construção. É o mesmo ator de PUBLICAR em {@code
+   * abrirMissaoDeRetirada}, e o conjunto de transições continua o mesmo.
+   *
+   * <p><b>Não generaliza para missão criada por humano</b>, e a garantia não está aqui: está em
+   * quem chama. {@code logistica} resolve o {@code missaoId} a partir de uma linha de {@code
+   * entrega_falida}, então esta porta só alcança missão de retirada. Uma missão criada por gente
+   * continua exigindo o criador de carne e osso.
+   *
+   * <p>A justificativa vai para a trilha porque destravar-por-terceiro precisa de motivo
+   * registrado: quem lê {@code missao_evento} meses depois tem de saber que não foi o criador
+   * humano que confirmou.
+   */
+  @Override
+  @Transactional
+  public long confirmarRetirada(UUID missaoId) {
+    MissaoResponse confirmada =
+        concluirComCredito(
+            missaoId,
+            EventoMissao.CONFIRMAR,
+            new AtorMissao(UsuarioSistema.ID, AtorMissao.PapelAtor.SISTEMA),
+            payloadJustificativa(
+                "Transportadora confirmou o recebimento pelo destinatário, por webhook."));
+    return confirmada.tokensRecompensa();
   }
 
   /**

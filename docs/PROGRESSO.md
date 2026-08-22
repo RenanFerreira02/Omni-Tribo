@@ -41,16 +41,50 @@ ponto de custódia (ADR 0020), trava de reputação por nível mínimo, notifica
 consentimento e teto por hora, e baixa da custódia na conclusão. `tools/carrier-mock/enviar.sh`
 exercita o caminho feliz e cinco negativos.
 
-O que continua faltando é a carteira de PATROCINADOR — o que fecharia a Pendência #1 e faria ENTREGA
-e AJUDA pararem de cunhar token. Com o webhook em pé, essa lacuna ficou mais visível: cada entrega
-falida convertida cunha tokens. O caminho está montado — `entrega_falida.valor_ofertado_brl` já
-guarda o que a transportadora oferece, e a mecânica de pote existe em `FinanciamentoMissao`.
+> **Atualizado.** O parágrafo abaixo descrevia o que faltava quando a F8 foi escrita, e já não vale:
+> a carteira de patrocinador chegou (ADR 0024), AJUDA passou a pagar do pote (ADR 0025) e a
+> confirmação por webhook fechou o ciclo (ADR 0026). Fica como registro do que a fase entregou e do
+> que ela deixou em aberto na época.
 
 **As fases de mobile foram auditadas em 2026-08-09**, por dois agentes independentes que mediram
 contra o sistema em execução. Quatro defeitos; dois corrigidos no mesmo dia, dois em aberto nas
 Pendências do CLAUDE.md.
 
 ## Notas de manutenção
+
+- **2026-08-22 (2)** — **A transportadora passou a confirmar a retirada, e o ciclo do produto fecha
+  no mesmo minuto.**
+
+  A missão de retirada tem o usuário-sistema como criador, e `AtorEsperado.CRIADOR` compara
+  IDENTIDADE, não papel — nenhum humano confirmava, nem ADMIN. O desfecho já era correto (a varredura
+  conclui pagando o executor), mas ele esperava 72 h, e numa demonstração ao vivo o fluxo principal
+  do produto não terminava. Agora existe `POST /api/v1/webhooks/transportadora/confirmacao`, com o
+  mesmo HMAC sobre o corpo bruto e a mesma idempotência do webhook de reporte.
+
+  **Por que a transportadora e não autoconfirmação no check-in** (ADR 0026): o check-in prova
+  PRESENÇA, não RECEBIMENTO. Autoconfirmar ali faria o executor confirmar a si mesmo, e uma
+  confirmação emitida pela parte interessada não distingue entrega feita de entrega alegada. A
+  transportadora é a contraparte com interesse oposto — é o token do patrocinador dela que sai. É o
+  mesmo princípio que `AtorEsperado.CANDIDATO` já aplica ao proibir o criador de aceitar a própria
+  missão.
+
+  **Três coisas que a tarefa mostrou:**
+
+  1. **Nenhum ajuste de autorização foi necessário, e nenhuma transição nova.** `AtorMissao.ehMesmo`
+     compara `usuarioId`, e o criador da missão de retirada É `UsuarioSistema.ID` — então
+     `AtorMissao(UsuarioSistema.ID, SISTEMA)` já satisfazia `CRIADOR`. As transições continuam
+     **17**. A pendência era de ALCANCE (não havia quem chamasse), não de regra.
+  2. **O `RegrasArquiteturaTest` pegou um erro real durante a implementação.** `@Auditavel` num
+     método que devolve `long` faria o aspecto gravar `entidade_id` nulo. A auditoria do ato ficou
+     em `ConfirmacaoRetiradaService`, que tem a entrega falida em mãos; a trilha da missão continua
+     em `missao_evento`.
+  3. **Sumiu o único `UPDATE` manual da evidência da F14.** O ciclo 4 recuava `estado_desde` por SQL
+     e exigia subir o servidor com a varredura acelerada — tudo por causa desta lacuna. Reexecutado
+     e regravado: fecha por HTTP, sem override nenhum.
+
+  Evidência: `./mvnw verify` com **662 testes, 0 falhas**; `tools/carrier-mock/enviar.sh` levando a
+  entrega falida até o crédito (**alice 41 → 107 tokens, +66**) com replay no-op e os negativos
+  (401, 404, 409); e a F14 reexecutada com Δ=0 nas quatro categorias.
 
 - **2026-08-22** — **A Pendência #1 fechou pelos dois lados, e agora existe evidência executada
   disso.**
