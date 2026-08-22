@@ -94,7 +94,8 @@ Módulo só fala com módulo por porta em `api/`. As de hoje:
   precisa ser GRAVADA), `EstornoPote`, `ProvisionamentoCarteira`,
   `AporteToken` (o ÚNICO ponto de emissão de token do sistema — ver Economia)
 - `missoes/api/` — `ConversaoEntregaFalida` (o webhook de transportadora cria a missão de retirada
-  por aqui; `logistica` não pode importar `missoes.dominio`)
+  por aqui; `logistica` não pode importar `missoes.dominio`), `ConfirmacaoRetirada` (a contraparte:
+  a transportadora confirma o recebimento e a missão conclui pagando o executor — ADR 0026)
 - `logistica/api/` — `BaixaCustodia` (a contraparte: a conclusão da missão libera a vaga). São DUAS
   classes de serviço em `logistica/dominio` de propósito — juntas fechariam o ciclo de beans
   `MissaoService → EntregaFalidaService → MissaoService`
@@ -356,6 +357,14 @@ A proteção é composta, nesta ordem: **cache → disjuntor → bulkhead → re
 retry fica POR DENTRO do disjuntor para que uma rajada de tentativas conte como UMA falha; e a
 checagem do `{"erro":true}` do ViaCEP fica FORA da região protegida, porque o provedor respondeu 200
 — movê-la para dentro faria CEP errado digitado abrir o circuito de um provedor saudável.
+
+`POST /api/v1/webhooks/transportadora/confirmacao` — a transportadora confirma que a encomenda
+chegou ao destinatário, e o executor é creditado NA HORA. Mesmo HMAC, mesma idempotência por
+`(transportadora, codigoRastreio)`. Existe porque o criador da missão de retirada é o
+usuário-sistema e `AtorEsperado.CRIADOR` compara IDENTIDADE — nenhum humano confirma, nem ADMIN.
+**A varredura de prazo continua** como rede de segurança para quando a transportadora não confirma.
+Rastreio desconhecido ou entrega que nunca virou missão é **404**, não 200: ao contrário do ponto
+lotado, aqui não há fato novo a gravar. Ver ADR 0026.
 
 `POST /api/v1/webhooks/transportadora` — entrada de entregas falidas. **Único endpoint de escrita
 sem JWT**, autenticado por HMAC-SHA256 sobre o CORPO BRUTO (cabeçalhos `X-Transportadora`,
@@ -671,25 +680,14 @@ Seção para armadilhas diagnosticadas e ainda não corrigidas. Ao resolver uma,
 > - `EM_ANDAMENTO` e `AGUARDANDO_CONFIRMACAO` sem saída — ver a máquina de estados, que agora tem
 >   **17 transições** e varredura por prazo mais porta de ADMIN.
 
-**1. Missão de entrega falida só conclui pela varredura de prazo.** O criador dela é o
-usuário-sistema (`status = 'INATIVO'`, nunca autentica), e `CONFIRMAR` exige `AtorEsperado.CRIADOR`
-— que compara IDENTIDADE, não papel. Nenhum humano pode confirmar, nem um ADMIN.
-
-Na prática o desfecho é correto e já projetado: `EXPIRAR_CONFIRMACAO` conclui **pagando o executor**,
-porque o check-in geolocalizado é a evidência que o sistema aceita. Mas o executor espera
-`app.missoes.expiracao.prazo-confirmacao` para receber, em vez de ser pago ao entregar. As saídas
-plausíveis são um segundo endpoint de webhook em que a transportadora confirma o recebimento pelo
-destinatário (ela é a contraparte real), ou autoconfirmação no check-in para missões de origem
-SISTEMA. **Não decida isso sozinho** — muda quando o token é cunhado.
-
-**2. Transferência exige digitar um UUID.** Não existe endpoint que liste membros da tribo, então a
+**1. Transferência exige digitar um UUID.** Não existe endpoint que liste membros da tribo, então a
 tela pede o identificador do destinatário como texto. Funciona e é inutilizável na prática.
 **Não é esquecimento**: o javadoc de `identidade/api/TriboController` documenta a omissão como
 decisão de privacidade —
 listar membros daria a qualquer autenticado um mapa social do bairro. A saída não é expor a lista;
 é algo como busca por handle exato ou convite. Não decida isso sozinho.
 
-**3. A outbox abandona evento em silêncio, e não há carta-morta.** `DrenadorOutboxService` tenta no
+**2. A outbox abandona evento em silêncio, e não há carta-morta.** `DrenadorOutboxService` tenta no
 máximo `app.outbox.maximo-tentativas` (5) vezes; depois disso o predicado de
 `OutboxRepository.buscarPendentesParaPublicar` deixa de enxergar a linha e o evento **nunca mais é
 tentado**. Ele fica na tabela, com `publicado_em` nulo e `ultimo_erro` preenchido, e **nada o
@@ -706,7 +704,7 @@ dizer a verdade; **a lacuna em si continua aberta de propósito**, porque fechá
 projeto: uma consulta de esgotados exposta a ADMIN, um contador, ou aceitar a perda explicitamente.
 Não decida sozinho — muda o contrato de entrega de notificação.
 
-**4. Nada acha pote imobilizado.** Token preso em missão não-terminal parada (`EM_ANDAMENTO`,
+**3. Nada acha pote imobilizado.** Token preso em missão não-terminal parada (`EM_ANDAMENTO`,
 `AGUARDANDO_CONFIRMACAO`, `EM_DISPUTA`) viola a CONSERVAÇÃO enquanto a reconciliação segue
 respondendo `integro=true` — são invariantes diferentes, e a primeira passa enquanto a segunda é
 violada. **Não existe consulta, endpoint nem relatório que mostre esses potes.**
@@ -717,5 +715,5 @@ consequência aceita. **Nenhum serviço, endpoint ou teste jamais a chamou.** A 
 como órfã em 2026-08-20 e o ADR 0015 recebeu a retificação, em vez de manter código morto que fazia
 a lacuna parecer coberta. A mitigação real que EXISTE é outra, e é preventiva, não detectiva: a
 varredura por prazo (`ExpiracaoMissoesService`) e a porta de ADMIN (`POST /missoes/{id}/destravar`)
-tiram a missão do limbo. O que falta é o instrumento de DIAGNÓSTICO — ver Pendência #3, que é o
+tiram a missão do limbo. O que falta é o instrumento de DIAGNÓSTICO — ver Pendência #2, que é o
 mesmo formato de problema.

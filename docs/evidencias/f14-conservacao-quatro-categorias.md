@@ -1,6 +1,6 @@
 # Conservação do TOKEN nas quatro categorias — e o que a reconciliação continua não vendo
 
-**Data:** 2026-08-22 · **Fase:** F14 · **Ambiente:** banco recriado do zero (`make reset`), backend
+**Data:** 2026-08-22 (reexecutada após o ADR 0026) · **Fase:** F14 · **Ambiente:** banco recriado do zero (`make reset`), backend
 no perfil `dev`, PostgreSQL 16.9 + PostGIS 3.5 em container (podman).
 
 Esta evidência substitui [`f13-conservacao-por-categoria.md`](./f13-conservacao-por-categoria.md),
@@ -35,7 +35,7 @@ ADR 0009 mantém "quem cria a missão não paga", e é essa separação que os c
 | 1 | TRIBO | bob cria · carol financia · alice executa | `COMUNIDADE` |
 | 2 | COLETA | carol cria · bob financia · alice executa | `COMUNIDADE` |
 | 3 | AJUDA | bob cria · carol financia · alice executa | `COMUNIDADE` |
-| 4 | ENTREGA | webhook HMAC de `transportadora-dev` · alice executa | `PATROCINADOR` |
+| 4 | ENTREGA | webhook HMAC de `transportadora-dev` · alice executa · **transportadora confirma** | `PATROCINADOR` |
 | 5 | ENTREGA | webhook de `transportadora-sem-saldo`, sem aporte | — (recusa) |
 
 O ciclo 4 é a ENTREGA que **tem** financiador: a de entrega falida, em que o patrocinador da
@@ -49,12 +49,10 @@ não entra aqui — ver "o que isto não prova".
 export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock   # só em máquina com podman
 make reset
 
-# 2. Backend em dev, com a varredura de expiração acelerada.
-#    O ciclo 4 depende dela: o criador da missão de retirada é o usuário-sistema, e nenhum humano
-#    pode confirmá-la. Sem o override, a evidência esperaria as 72 h de prazo-confirmacao.
-cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev \
-  -Dspring-boot.run.arguments="--app.missoes.expiracao.intervalo=PT10S \
-                               --app.missoes.expiracao.atraso-inicial=PT5S"
+# 2. Backend em dev. Sem override nenhum desde o ADR 0026: o ciclo 4 fecha pela confirmação da
+#    transportadora, por HTTP. Antes dele a evidência precisava acelerar a varredura e recuar
+#    `estado_desde` por SQL, porque nenhum humano confirma missão do usuário-sistema.
+cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 
 # 3. A medição
 bash tools/evidencias/conservacao-por-categoria.sh
@@ -77,7 +75,7 @@ reconciliação inicial: {"integro":true,"divergencias":0}
 
 ############ CICLO 1 — TRIBO (bob cria, carol financia, alice executa) ############
 prévia: 38 tokens, 114 XP
-criada: f19708aa-e463-4805-96c0-cc37a527b3ee status=RASCUNHO pote=0
+criada: 60cd5a92-49bb-44b7-9554-c31da2881e58 status=RASCUNHO pote=0
 financiado: {"poteTokens":38,"saldoTokensRestante":34}
     ✓ financiar não cria nem destrói: 10845
 publicar: ABERTA
@@ -91,7 +89,7 @@ confirmar:CONCLUIDA
 
 ############ CICLO 2 — COLETA (carol cria, bob financia, alice executa) ############
 prévia: 35 tokens, 105 XP
-criada: a901353d-ec9d-49b8-b717-49e415b20681 status=RASCUNHO pote=0
+criada: 6e5c05c6-c0bc-4051-b87e-3a8c395fa021 status=RASCUNHO pote=0
 financiado: {"poteTokens":35,"saldoTokensRestante":143}
     ✓ financiar não cria nem destrói: 10845
 publicar: ABERTA
@@ -105,7 +103,7 @@ confirmar:CONCLUIDA
 
 ############ CICLO 3 — AJUDA (bob cria, carol financia, alice executa) ############
 prévia: 30 tokens, 90 XP
-criada: 375f5541-5ce0-463b-a187-5b1180b42a92 status=RASCUNHO pote=0
+criada: b2e2ca31-599f-4837-b441-c68cf43966f9 status=RASCUNHO pote=0
 financiado: {"poteTokens":30,"saldoTokensRestante":4}
     ✓ financiar não cria nem destrói: 10845
 publicar: ABERTA
@@ -119,7 +117,7 @@ confirmar:CONCLUIDA
 
 ############ CICLO 4 — ENTREGA via webhook (patrocinador financia o pote) ############
 saldo do patrocinador antes: 5000
-webhook: {"desfecho":"CONVERTIDA","missaoId":"c7846131-5cf7-45d3-b3c6-c0e0f5ff93b2","replay":false}
+webhook: {"desfecho":"CONVERTIDA","missaoId":"00f55b94-98e5-4bb4-908c-03c8fe92eb1c","replay":false}
     ✓ desfecho: CONVERTIDA
 missão: fonte_pote|recompensa|pote = PATROCINADOR|66|66
     ✓ fonte do pote: PATROCINADOR
@@ -128,9 +126,8 @@ missão: fonte_pote|recompensa|pote = PATROCINADOR|66|66
 aceitar:  ACEITA
 iniciar:  EM_ANDAMENTO
 checkin:  AGUARDANDO_CONFIRMACAO
--- recuando estado_desde e aguardando a varredura (o criador é o usuário-sistema) --
-status após a varredura: CONCLUIDA
-    ✓ conclusão pela varredura: CONCLUIDA
+confirmação: {"tokensCreditados":66,"replay":false}
+    ✓ conclusão por confirmação da transportadora: CONCLUIDA
 saldo do patrocinador depois: 4934  (pagou 66)
 --> conservação antes=10845 depois=10845 Δ=0  (recompensa: 66)
     ✓ Δ do ciclo ENTREGA: 0
@@ -173,6 +170,8 @@ Todas as conferências passaram.
 - **Δ = 0 nas quatro categorias.** A soma sai de `10845` e volta a `10845` depois de cada ciclo, e a
   medição intermediária mostra o token mudando de lugar sem mudar de quantidade: no ciclo 1, carol
   vai de 72 para 34 tokens e o pote da missão recebe 38.
+- **O ciclo 4 fecha o ciclo inteiro por HTTP**, incluindo a confirmação da transportadora: a missão
+  vai a CONCLUIDA no mesmo minuto, sem nenhum `UPDATE` manual e sem esperar as 72 h da varredura.
 - **O ciclo 4 mostra a tese do produto fechando o caixa.** O patrocinador sai de `5000` para `4934`
   — pagou exatamente os 66 tokens da recompensa —, e quem recebeu foi a vizinha que buscou a
   encomenda. Nenhum token foi criado para isso acontecer.
@@ -191,13 +190,10 @@ Todas as conferências passaram.
 - **Não prova conservação sob concorrência.** Estes cinco ciclos são sequenciais, um usuário por vez.
   Quem cobre corrida por saldo é a suíte (`ConclusaoConcorrenteTest`, `CarteiraConcorrenteTest`,
   `TransferenciaDeadlockTest`, `PatrocinadorAdminTest`), com 100 threads e asserções de ledger.
-- **O ciclo 4 usa um `UPDATE` manual**, o único do script: recuar `missao.estado_desde` em 96 horas.
-  Ele **não toca dinheiro nenhum** — só antecipa o relógio da missão para que a varredura a alcance.
-  Existe porque `AtorEsperado.CRIADOR` compara IDENTIDADE, não papel, e o criador de uma missão de
-  retirada é o usuário-sistema: nem um ADMIN consegue chamar `/confirmar`. É pendência conhecida,
-  registrada no `CLAUDE.md`.
-- **A varredura acelerada não é a configuração de produção.** `PT10S` existe só para a medição caber
-  numa execução; o valor real é `PT5M`, e o prazo é `PT72H`.
+- **Não prova nada sobre a varredura de prazo.** O ciclo 4 fecha pela confirmação da transportadora
+  (ADR 0026); `EXPIRAR_CONFIRMACAO` continua existindo como rede de segurança e **não é exercitado
+  aqui**. Quem o cobre é `ExpiracaoMissoesServiceTest` e o ciclo de expiração de
+  `FinanciamentoControllerTest`.
 - **`integro=true` não é prova de conservação.** É a afirmação central deste documento e vale
   repetir: a reconciliação compara projeção contra ledger, e cunhar escreve os dois. Ela responderia
   `integro=true` mesmo com token sendo criado do nada — foi o que fez durante várias fases.
