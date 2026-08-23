@@ -1,3 +1,4 @@
+import { useEffect as mockUseEffect } from 'react';
 import { screen } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 
@@ -10,6 +11,10 @@ import { useSessao } from '@/stores/sessao';
 const BASE = 'http://api.teste/api/v1';
 
 jest.mock('expo-router', () => ({
+  // `useFocusEffect` entra no dublê porque `TituloTela` o usa para mover o foco do leitor de tela
+  // ao entrar na rota. Aqui ele roda como um `useEffect` comum: numa árvore de teste não há pilha
+  // de navegação, e o comportamento que interessa — disparar uma vez na montagem — é o mesmo.
+  useFocusEffect: (efeito: () => void) => mockUseEffect(efeito, [efeito]),
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn() }),
   useLocalSearchParams: () => ({}),
 }));

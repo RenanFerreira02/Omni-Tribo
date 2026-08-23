@@ -1,5 +1,6 @@
 import { Redirect, Stack } from 'expo-router';
 
+import { useMovimentoReduzido } from '@/lib/movimento';
 import { useSessao } from '@/stores/sessao';
 import { cores } from '@/theme';
 
@@ -21,11 +22,19 @@ import { cores } from '@/theme';
  */
 export default function LayoutApp() {
   const accessToken = useSessao((estado) => estado.accessToken);
+  const movimentoReduzido = useMovimentoReduzido();
 
   if (!accessToken) return <Redirect href="/(auth)/login" />;
 
   return (
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: cores.papel } }}>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: cores.papel },
+        // Mesma razão do layout raiz: com "reduzir movimento" ligado, a tela aparece sem deslizar.
+        animation: movimentoReduzido ? 'none' : 'default',
+      }}
+    >
       <Stack.Screen name="beneficios" />
       <Stack.Screen name="impacto" options={{ headerShown: true, title: 'Impacto' }} />
       <Stack.Screen name="missao/criar" />

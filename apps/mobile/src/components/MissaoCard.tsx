@@ -5,7 +5,7 @@ import { Chip } from './Chip';
 import { SaldoToken } from './SaldoToken';
 import type { MissaoResponse } from '@/api/tipos';
 import { formatarDistancia, rotuloCategoria } from '@/lib/formatar';
-import { cores, coresCategoria, espaco, textoAcessivel, tipografia } from '@/theme';
+import { cores, coresCategoria, espaco, glifoCategoria, textoAcessivel, tipografia } from '@/theme';
 
 interface Props {
   missao: MissaoResponse;
@@ -37,11 +37,16 @@ export function MissaoCard({ missao, distanciaM, onPress, testID }: Props) {
       // "Pinheiros", "69", "XP", "23 tokens" — sete paradas para entender um card.
       accessible
       accessibilityLabel={rotuloAcessivel(missao, distanciaM)}
+      // Sem isto o card decorativo (sem `onPress`) continuava anunciado como "botão" — o leitor de
+      // tela oferecia uma ação que não existe. O `disabled` do Pressable não chega sozinho à árvore
+      // de acessibilidade.
+      accessibilityState={{ disabled: !onPress }}
     >
       <Card>
         <View style={estilos.topo}>
           <Chip
             rotulo={rotuloCategoria(missao.categoria)}
+            glifo={glifoCategoria[missao.categoria]}
             corFundo={paleta.fundo}
             corTexto={paleta.texto}
           />
@@ -50,11 +55,13 @@ export function MissaoCard({ missao, distanciaM, onPress, testID }: Props) {
           ) : null}
         </View>
 
-        <Text style={estilos.titulo} numberOfLines={2}>
+        {/* 3 e 2 linhas, e não 2 e 1: com a fonte do sistema no máximo, dois terços dos títulos
+            truncavam no meio de uma palavra. O card cresce — é o que deve acontecer. */}
+        <Text style={estilos.titulo} numberOfLines={3}>
           {missao.titulo}
         </Text>
 
-        <Text style={estilos.local} numberOfLines={1}>
+        <Text style={estilos.local} numberOfLines={2}>
           {missao.bairro}, {missao.cidade}
         </Text>
 

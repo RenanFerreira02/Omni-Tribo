@@ -111,6 +111,34 @@ export const coresCategoria = {
 } as const;
 
 /**
+ * GLIFO por categoria — o segundo canal, ao lado da cor.
+ *
+ * <b>Por que existe.</b> As quatro categorias se distinguiam por matiz, e o javadoc de
+ * `coresCategoria` registra que a F12 quase apagou essa distinção: ao escurecer o texto de ENTREGA
+ * para atingir contraste, ENTREGA e TRIBO ficariam idênticas. A correção de então foi inverter
+ * TRIBO para fundo escuro — resolveu, e manteve a cor como único canal.
+ *
+ * Com o glifo, a categoria continua legível para daltonismo, sob luz forte e em impressão em preto
+ * e branco. E resolve de graça o mapa, onde os quatro pinos eram indistinguíveis entre si por não
+ * haver texto ao lado.
+ *
+ * <b>Formas, e não emoji.</b> Emoji varia de desenho entre aparelhos, pesa no bundle quando
+ * embarcado e é lido em voz alta pelo leitor de tela com um nome que ninguém escolheu. Estas quatro
+ * formas geométricas já existem em qualquer fonte de sistema — é a mesma decisão dos glifos das
+ * abas e do ★/☆ das conquistas.
+ *
+ * O glifo é DECORATIVO: quem o renderiza precisa escondê-lo da árvore de acessibilidade
+ * (`importantForAccessibility="no"`), senão o leitor de tela passa a anunciar "losango, Entrega".
+ * O `Chip` já faz isso.
+ */
+export const glifoCategoria = {
+  ENTREGA: '\u25C6',
+  COLETA: '\u25CF',
+  TRIBO: '\u25B2',
+  AJUDA: '\u25A0',
+} as const;
+
+/**
  * Cor por STATUS de missão, para o chip do detalhe e da lista.
  *
  * Antes o chip de status saía sem cor nenhuma, e os nove estados eram indistinguíveis à distância —

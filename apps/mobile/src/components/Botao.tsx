@@ -17,6 +17,14 @@ interface Props {
   onPress: () => void;
   variante?: VarianteBotao;
   carregando?: boolean;
+  /**
+   * A CONSEQUÊNCIA da ação, quando ela não é óbvia pelo rótulo.
+   *
+   * Opcional de propósito, e não obrigatória: dica em "Voltar" ou "Fechar" é ruído que atrasa quem
+   * navega por voz. Ela é para o caso oposto — "Fazer check-in" não diz que vai ler o GPS nem que é
+   * o ato que credita a recompensa, e "Transferir" não diz que não tem volta.
+   */
+  hint?: string;
   disabled?: boolean;
   estilo?: StyleProp<ViewStyle>;
   testID?: string;
@@ -32,6 +40,7 @@ export function Botao({
   onPress,
   variante = 'primario',
   carregando = false,
+  hint,
   disabled = false,
   estilo,
   testID,
@@ -47,6 +56,7 @@ export function Botao({
       accessibilityRole="button"
       accessibilityState={{ disabled: inativo, busy: carregando }}
       accessibilityLabel={titulo}
+      accessibilityHint={hint}
       style={({ pressed }) => [
         estilos.base,
         visual.container,

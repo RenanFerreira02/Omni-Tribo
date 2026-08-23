@@ -7,6 +7,7 @@ import { mensagemDe } from '@/api/erros';
 import type { CategoriaMissao, MissaoResponse } from '@/api/tipos';
 import { Botao } from '@/components/Botao';
 import { Chip } from '@/components/Chip';
+import { TituloTela } from '@/components/TituloTela';
 import { EsqueletoMissaoCard } from '@/components/Esqueleto';
 import { EstadoVazio } from '@/components/EstadoVazio';
 import { JustificativaLocalizacao } from '@/components/JustificativaLocalizacao';
@@ -14,7 +15,7 @@ import { MissaoCard } from '@/components/MissaoCard';
 import { useMissoesInfinitas, useMissoesProximas } from '@/features/missoes/hooks';
 import { useLocalizacao } from '@/features/missoes/useLocalizacao';
 import { rotuloCategoria } from '@/lib/formatar';
-import { cores, coresCategoria, espaco, textoAcessivel, tipografia } from '@/theme';
+import { cores, coresCategoria, glifoCategoria, espaco, textoAcessivel, tipografia } from '@/theme';
 
 const CATEGORIAS: CategoriaMissao[] = ['ENTREGA', 'COLETA', 'TRIBO', 'AJUDA'];
 
@@ -67,9 +68,7 @@ export default function TelaMissoes() {
     <SafeAreaView style={estilos.tela} edges={['top']}>
       <View style={estilos.cabecalho}>
         <View style={estilos.linhaTitulo}>
-          <Text style={estilos.titulo} accessibilityRole="header">
-            Missões
-          </Text>
+          <TituloTela>Missões</TituloTela>
           <Botao
             titulo="Criar"
             onPress={() => router.push('/missao/criar')}
@@ -77,7 +76,11 @@ export default function TelaMissoes() {
             testID="botao-criar-missao"
           />
         </View>
-        <View style={estilos.modos}>
+        <View
+          style={estilos.modos}
+          accessibilityRole="radiogroup"
+          accessibilityLabel="Recorte da lista"
+        >
           <Chip
             rotulo="Perto de mim"
             selecionado={modoEfetivo === 'perto'}
@@ -93,12 +96,18 @@ export default function TelaMissoes() {
         </View>
       </View>
 
-      <View style={estilos.filtros}>
+      {/* Escolha única entre categorias. Sem o papel, são cinco botões sem relação aparente. */}
+      <View
+        style={estilos.filtros}
+        accessibilityRole="radiogroup"
+        accessibilityLabel="Filtrar por categoria"
+      >
         <Chip rotulo="Todas" selecionado={!categoria} onPress={() => setCategoria(undefined)} />
         {CATEGORIAS.map((item) => (
           <Chip
             key={item}
             rotulo={rotuloCategoria(item)}
+            glifo={glifoCategoria[item]}
             selecionado={categoria === item}
             onPress={() => setCategoria(categoria === item ? undefined : item)}
             corFundo={coresCategoria[item].fundo}

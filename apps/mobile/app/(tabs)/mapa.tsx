@@ -18,7 +18,7 @@ import { useLocalizacao } from '@/features/missoes/useLocalizacao';
 import { usePerfil } from '@/features/perfil/hooks';
 import { useCallbackComDebounce } from '@/lib/debounce';
 import { formatarDistancia, rotuloCategoria } from '@/lib/formatar';
-import { cores, coresCategoria, espaco, textoAcessivel, tipografia } from '@/theme';
+import { cores, coresCategoria, espaco, glifoCategoria, textoAcessivel, tipografia } from '@/theme';
 
 /** Fallback final: centro de São Paulo, quando não há nem GPS nem tribo com missões. */
 const CENTRO_PADRAO = { lat: -23.5505, lon: -46.6333 };
@@ -86,6 +86,9 @@ export default function TelaMapa() {
           lon: origemLon,
           cor: coresCategoria[item.missao.categoria].texto,
           forma: 'pino',
+          // A forma da categoria dentro do pino: sem ela, as quatro categorias no mapa se
+          // distinguiam só por matiz, e não há texto ao lado para desempatar.
+          glifo: glifoCategoria[item.missao.categoria],
           rotulo: item.missao.titulo,
         },
       ];
@@ -165,7 +168,11 @@ export default function TelaMapa() {
           degradação prevista não pode virar mensagem de erro na cara do usuário. Ver ADR 0011. */}
       {clima.data ? (
         <View style={estilos.faixa} testID="card-clima">
-          <Card estilo={estilos.clima}>
+          <Card
+            estilo={estilos.clima}
+            accessible
+            accessibilityLabel={`Clima agora: ${Math.round(clima.data.temperaturaC)} graus, ${clima.data.descricao}, sensação de ${Math.round(clima.data.sensacaoC)} graus`}
+          >
             <Text style={estilos.temperatura}>{Math.round(clima.data.temperaturaC)}°</Text>
             <View style={estilos.climaTexto}>
               <Text style={estilos.climaDescricao}>{clima.data.descricao}</Text>

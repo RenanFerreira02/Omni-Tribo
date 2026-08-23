@@ -27,6 +27,14 @@ export interface MarcadorMapa {
   cor: string;
   /** `pino` para missão, `quadrado` para ponto de custódia. Forma, e não só cor: ver comentário. */
   forma: 'pino' | 'quadrado';
+  /**
+   * Forma da CATEGORIA, desenhada dentro do pino.
+   *
+   * `forma` distingue missão de ponto de custódia; não distinguia as quatro categorias de missão
+   * entre si, que eram todas `pino` e diferiam só no matiz. Num mapa não há texto ao lado para
+   * desempatar, então a cor era canal único — o mesmo glifo do chip resolve os dois lugares.
+   */
+  glifo?: string;
   rotulo: string;
 }
 
@@ -147,8 +155,12 @@ export function MapaLeaflet({
         setSupportMultipleWindows={false}
         source={{ html }}
         onMessage={aoReceberMensagem}
-        // O mapa é conteúdo visual sem equivalente textual útil para leitor de tela. A lista de
-        // missões é a rota acessível para a mesma informação, e existe desde a F10.
+        // O mapa é conteúdo visual sem equivalente textual útil para leitor de tela.
+        //
+        // A lista de missões (`(tabs)/index.tsx`) é a rota acessível para as MISSÕES — mas não para
+        // os PONTOS DE CUSTÓDIA, que só existem aqui e só são alcançáveis tocando um marcador. Este
+        // comentário afirmava equivalência completa, e a auditoria de acessibilidade mostrou que
+        // ela cobre metade. A outra metade exige uma tela de pontos, que não existe.
         accessibilityLabel="Mapa das missões próximas"
         style={estilos.webview}
         // Sem indicador de scroll nem bounce: dentro da WebView eles competem com o gesto do mapa.
@@ -176,7 +188,11 @@ function paginaLeaflet(centro: { lat: number; lon: number }, mostrarUsuario: boo
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<!-- SEM user-scalable=no. Ele, somado ao zoomControl:false de baixo, deixava o mapa sem
+     NENHUMA forma de ampliar que não fosse a pinça de dois dedos — e a WCAG 2.5.1 existe
+     justamente para quem não executa gesto multitoque. Ampliar um mapa não é conveniência: é
+     como se lê o nome da rua. -->
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
@@ -186,15 +202,24 @@ function paginaLeaflet(centro: { lat: number; lon: number }, mostrarUsuario: boo
         crossorigin=""></script>
 <style>
   html, body, #mapa { height: 100%; margin: 0; padding: 0; background: ${cores.papel}; }
-  .omni-pino { border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid ${cores.branco}; }
-  .omni-quadrado { border-radius: 3px; border: 2px solid ${cores.branco}; }
+  /* Caixa de toque de 44x44 (WCAG 2.5.5) com o desenho de 18 centrado. Transparente: o que cresce
+     é o alvo, não a mancha no mapa. */
+  .omni-alvo { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+  .omni-pino { width: 18px; height: 18px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid ${cores.branco}; }
+  .omni-quadrado { width: 18px; height: 18px; border-radius: 3px; border: 2px solid ${cores.branco}; }
+  /* A forma da categoria, para os quatro pinos não dependerem de matiz. Contra-rotacionado porque
+     o pino é girado -45deg e o glifo herdaria o giro. */
+  .omni-glifo { display: block; color: ${cores.branco}; font-size: 10px; line-height: 18px;
+                text-align: center; transform: rotate(45deg); }
   .omni-usuario { border-radius: 50%; border: 3px solid ${cores.branco}; background: ${cores.verdeEscuro}; }
 </style>
 </head>
 <body>
 <div id="mapa"></div>
 <script>
-  var mapa = L.map('mapa', { zoomControl: false, attributionControl: true })
+  // Botões +/− LIGADOS: são a alternativa não-gestual ao pinch. Ficam no canto e custam o espaço
+  // de dois quadrados de 30 px — barato perto de tornar o mapa operável sem multitoque.
+  var mapa = L.map('mapa', { zoomControl: true, attributionControl: true })
               .setView([${numero(centro.lat)}, ${numero(centro.lon)}], 15);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19, attribution: '© OpenStreetMap'
@@ -207,13 +232,24 @@ function paginaLeaflet(centro: { lat: number; lon: number }, mostrarUsuario: boo
     window.ReactNativeWebView.postMessage(JSON.stringify(payload));
   }
 
+  // ALVO DE 44, DESENHO DE 18.
+  //
+  // O marcador tinha 18x18 — menos de 17% da área que a WCAG 2.5.5 pede, e é o único caminho para
+  // abrir um ponto de custódia. Crescer o desenho encheria o mapa de manchas; o que cresce é a área
+  // SENSÍVEL, com o pino centrado numa caixa transparente de 44. É o mesmo raciocínio do hitSlop
+  // do Chip, que aqui não existe por ser HTML dentro da WebView.
   function icone(m) {
     var classe = m.forma === 'quadrado' ? 'omni-quadrado' : 'omni-pino';
+    var glifo = m.glifo
+      ? '<span class="omni-glifo">' + m.glifo + '</span>'
+      : '';
     return L.divIcon({
       className: '',
-      html: '<div class="' + classe + '" style="width:18px;height:18px;background:' + m.cor + '"></div>',
-      iconSize: [18, 18],
-      iconAnchor: [9, 9]
+      html: '<div class="omni-alvo">' +
+              '<div class="' + classe + '" style="background:' + m.cor + '">' + glifo + '</div>' +
+            '</div>',
+      iconSize: [44, 44],
+      iconAnchor: [22, 22]
     });
   }
 
