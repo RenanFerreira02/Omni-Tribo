@@ -94,7 +94,7 @@ Antes de terminar qualquer tarefa: `./mvnw verify`, e cole a saída real. Compil
   até o push real do mobile. O consumidor tem de tolerar duplicata, porque a entrega não é
   exactly-once. **Mas NÃO diga que é at-least-once**: na quinta falha o evento sai do predicado do
   lote e nunca mais é tentado, sem carta-morta, sem endpoint e sem métrica — zero entregas, e
-  ninguém fica sabendo. Ver Pendência #2 do `CLAUDE.md` da raiz.
+  ninguém fica sabendo. Ver Pendência #1 do `CLAUDE.md` da raiz.
 - Cache de proximidade (`CacheMissoesProximas`, Caffeine, TTL 30s, chave por geohash de precisão 7 +
   raio + categoria + limite) é invalidado **depois do commit**, via
   `TransactionSynchronization.afterCommit` — invalidar dentro da transação deixaria uma leitura

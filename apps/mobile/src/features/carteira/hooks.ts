@@ -1,12 +1,14 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { buscarCarteira, listarLancamentos, transferirTokens } from '@/api/carteira';
+import { buscarPorHandle } from '@/api/usuarios';
 import type { ErroApi } from '@/api/erros';
 import type {
   CarteiraResponse,
   LancamentoResponse,
   PaginaResponse,
   TransferenciaResponse,
+  UsuarioBuscaResponse,
 } from '@/api/tipos';
 
 export const chavesCarteira = {
@@ -26,6 +28,22 @@ export const chavesCarteira = {
  * A chave de idempotência vem de fora, gerada junto com a intenção, para que um retry de rede
  * repita a mesma chave em vez de transferir duas vezes.
  */
+/**
+ * Busca do destinatário pelo `@`.
+ *
+ * `useMutation`, e não `useQuery`, apesar de ser um GET — a escolha é deliberada. A busca acontece
+ * quando a pessoa TOCA em "buscar", não enquanto digita: um `useQuery` reagindo ao texto dispararia
+ * uma requisição por tecla, o que consumiria o teto próprio do endpoint em segundos e seria busca
+ * por prefixo na prática, que é justamente o que o ADR 0028 recusa. Mutation modela "eu pedi isto
+ * agora" melhor do que query modela "isto é derivado do estado".
+ */
+export function useBuscarPorHandle() {
+  return useMutation<UsuarioBuscaResponse, ErroApi, string>({
+    mutationFn: (handle) => buscarPorHandle(handle),
+    throwOnError: false,
+  });
+}
+
 export function useTransferirTokens() {
   const queryClient = useQueryClient();
 

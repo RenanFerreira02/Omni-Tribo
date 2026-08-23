@@ -86,6 +86,11 @@ app:
     login-por-minuto: 5          # tentativas de login por IP+email antes de 429
     escrita-por-minuto: 100      # POST/PUT/PATCH/DELETE por usuário autenticado
     leitura-por-minuto: 300      # GET por usuário autenticado
+    # Teto PRÓPRIO de GET /usuarios/busca, e não um recorte do de leitura: aquele endpoint responde
+    # "este @ está na minha tribo?", o que o torna um oráculo de existência por natureza. No balde
+    # geral seriam 18 mil tentativas por hora — o bastante para colher handles em massa. Doze por
+    # minuto é folgado para gente digitando um @ e conferindo o nome. Ver ADR 0028.
+    busca-handle-por-minuto: 12
     falhas-para-bloqueio: 10     # falhas consecutivas antes de bloqueio progressivo
     janela-falhas-minutos: 15    # janela de observação para contar falhas
     duracao-bloqueio-minutos: 15 # duração do bloqueio após atingir o limiar

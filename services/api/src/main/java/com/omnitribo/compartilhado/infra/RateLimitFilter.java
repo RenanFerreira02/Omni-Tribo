@@ -42,6 +42,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
   private static final Logger log = LoggerFactory.getLogger(RateLimitFilter.class);
 
+  /** Rota EXATA, não prefixo: só a busca tem teto próprio, e `/usuarios/me` não pode cair nele. */
+  private static final String BUSCA_HANDLE = "/api/v1/usuarios/busca";
+
   private final JwtService jwtService;
 
   @Value("${app.rate-limit.escrita-por-minuto:100}")
@@ -49,6 +52,20 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
   @Value("${app.rate-limit.leitura-por-minuto:300}")
   private int leituraPorMinuto;
+
+  /**
+   * Teto PRÓPRIO da busca por handle, muito abaixo do de leitura.
+   *
+   * <p>{@code GET /usuarios/busca} responde uma pergunta de sim ou não sobre existência — "este @
+   * está na minha tribo?" — e é, por natureza, um oráculo. Nenhum código de status muda isso; o que
+   * limita o dano é a taxa. No balde geral de leitura seriam 300 por minuto, 18 mil por hora: o
+   * bastante para colher handles em massa e correlacionar contas.
+   *
+   * <p>Doze por minuto é folgado para gente: o fluxo legítimo é digitar um @, conferir o nome e
+   * transferir. Quem erra a digitação três vezes seguidas continua passando.
+   */
+  @Value("${app.rate-limit.busca-handle-por-minuto:12}")
+  private int buscaHandlePorMinuto;
 
   /**
    * Buckets por userId (autenticado) ou IP (anônimo), com DESPEJO por ociosidade.
@@ -66,6 +83,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
       Caffeine.newBuilder().expireAfterAccess(Duration.ofMinutes(10)).build();
 
   private final Cache<String, Bucket> bucketsLeitura =
+      Caffeine.newBuilder().expireAfterAccess(Duration.ofMinutes(10)).build();
+
+  private final Cache<String, Bucket> bucketsBuscaHandle =
       Caffeine.newBuilder().expireAfterAccess(Duration.ofMinutes(10)).build();
 
   public RateLimitFilter(JwtService jwtService) {
@@ -107,6 +127,20 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     String chave = resolverChave(request);
+
+    // Rota com teto PRÓPRIO, checada ANTES do balde geral e substituindo-o — não somando a ele.
+    // Somar os dois faria a busca consumir também a cota de leitura do usuário, e uma varredura
+    // barrada aqui deixaria a pessoa sem conseguir abrir a carteira pelo minuto seguinte.
+    if (BUSCA_HANDLE.equals(request.getRequestURI())) {
+      Bucket balde = bucketsBuscaHandle.get(chave, k -> criarBucket(buscaHandlePorMinuto));
+      if (!balde.tryConsume(1)) {
+        responder429(response, request, 60L, buscaHandlePorMinuto);
+        return;
+      }
+      chain.doFilter(request, response);
+      return;
+    }
+
     boolean ehEscrita = ehMetodoEscrita(request.getMethod());
 
     Bucket bucket =

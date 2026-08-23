@@ -16,6 +16,7 @@ import type {
   PreviaRecompensaResponse,
   ResgateResponse,
   TriboResponse,
+  UsuarioBuscaResponse,
 } from '@/api/tipos';
 
 export const TOKENS: LoginResponse = {
@@ -289,6 +290,14 @@ export const RESGATE: ResgateResponse = {
   utilizadoEm: null,
   saldoTokensRestante: 26,
   replay: false,
+};
+
+/** O vizinho que a busca por `@` devolve — mesma tribo da fixture `PERFIL`. */
+export const VIZINHO: UsuarioBuscaResponse = {
+  id: 'bbbbbbbb-0000-0000-0000-000000000003',
+  handle: 'marlene',
+  nome: 'Marlene Souza',
+  tribo: 'Tribo Pinheiros',
 };
 
 export function problema(

@@ -346,6 +346,19 @@ export interface CriarMissaoRequest {
   pontoCustodiaId?: string;
 }
 
+/**
+ * O vizinho encontrado pela busca por `@`.
+ *
+ * Quatro campos e nada mais — o servidor não devolve e-mail, XP nem saldo. Existem para a pessoa
+ * CONFERIR que acertou o destinatário antes de uma transferência que não tem volta.
+ */
+export interface UsuarioBuscaResponse {
+  id: string;
+  handle: string;
+  nome: string;
+  tribo: string | null;
+}
+
 export interface TransferenciaResponse {
   lancamentoSaidaId: string;
   /** Nulo num replay de idempotência. */
