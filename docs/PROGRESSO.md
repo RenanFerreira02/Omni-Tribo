@@ -52,6 +52,46 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-08-24 (2)** — **O radar deixou de ter uma porta só.**
+
+  O mapa é WebView + Leaflet (ADR 0012), e não expõe semântica nenhuma. A auditoria mediu o pior
+  efeito disso como **A2, BLOQUEIA**: o ponto de custódia só existia dentro da WebView, alcançável
+  apenas tocando um quadrado — para leitor de tela, ele não existia em lugar nenhum do app.
+
+  A saída não foi remendar o WebView, e o ADR 0030 registra por quê: o `alt` que já passamos ao
+  marcador **é descartado hoje** (o `Marker._initIcon` do Leaflet só o aplica em `<img>`, e usamos
+  `divIcon`), sobraria o `title`, e passaríamos a manter uma árvore de acessibilidade dentro de uma
+  biblioteca de terceiro. Além disso, mapa é conteúdo espacial: mesmo perfeitamente anotado,
+  percorrer 40 pinos por varredura linear não equivale a vê-lo.
+
+  A saída foi **uma segunda apresentação do mesmo destino de rota** — alternador `Mapa | Lista`, com
+  a escolha lembrada entre sessões. Nenhuma consulta nova, nenhum endpoint novo, nenhuma rota nova.
+
+  **O que a exploração mudou no desenho.** A aba Missões, em "Perto de mim", **já era** a lista que
+  o pedido descrevia: mesma chamada a `/missoes/proximas`, já ordenada por distância pelo servidor
+  (`ORDER BY distancia_m ASC`), com `MissaoCard` acessível. Construí-la de novo no radar teria criado
+  duas listas de missões próximas para divergir — a mesma armadilha que a regra de rota única existe
+  para evitar. Então a lista do radar é o conteúdo do MAPA em texto: missões **e pontos de
+  custódia**, que é o que só existe ali.
+
+  **O rótulo mudou de ordem, e a ordem é o conteúdo.** `MissaoCard` passou a anunciar categoria,
+  recompensa, distância e prazo antes do título — quem navega por voz decide no primeiro terço da
+  frase, e o título é o que menos separa uma missão da outra. O **prazo é novo**: sem ele, a pessoa
+  só descobria que a janela ia fechar depois de abrir o detalhe. Vale nas duas abas, porque é o mesmo
+  componente.
+
+  **Armadilha de ambiente que custou dez minutos:** `unmount()` da RNTL 14 é **assíncrono**, como
+  `render` e `fireEvent`. Sem o `await`, o segundo `render` do mesmo teste **trava o processo
+  inteiro** — não falha, não estoura o `testTimeout`, apenas para. Está comentado no arquivo de
+  teste, junto das outras quatro armadilhas que o `CLAUDE.md` do mobile lista.
+
+  Verificado: typecheck limpo, lint com 0 erros, **221 testes** (eram 209). O percurso login → lista
+  → detalhe → aceitar roda consultando **só por papel e nome acessível**, sem um único `testID`.
+
+  **O que continua aberto e não foi verificado:** nenhuma passada de TalkBack. Não há `adb`,
+  emulador nem aparelho nesta máquina — é a LACUNA L4, e o teste automatizado prova a condição
+  necessária (todo passo tem papel e rótulo), não a experiência com o leitor ligado.
+
 - **2026-08-24 — F18** — **Acessibilidade semântica, com o lint como fronteira.**
 
   A F12 tinha resolvido contraste. A semântica ficava por conta de quem lembrasse — e neste projeto

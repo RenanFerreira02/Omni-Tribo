@@ -1,11 +1,18 @@
 # Inventário de acessibilidade — `apps/mobile`
 
-> **STATUS (2026-08-24): a F18 fechou a maior parte deste inventário.** Corrigidos: A4, A5, A6, A7,
-> A8, A9, A10, A11, A12, A13, A14, A15, A16, A17, A18, A19, A21 — e, no mapa, A1 e A3. **Seguem
-> abertos:** **A2** (ponto de custódia só é alcançável pelo mapa — exige tela própria, que é trabalho
-> de produto), **A20** e **A22** (contraste de borda e de barra, ambos COSMÉTICO). A LACUNA L4
-> continua aberta: **nenhuma passada de TalkBack foi executada até hoje.** O documento abaixo fica
-> como está — é o levantamento que originou a fase, e reescrevê-lo apagaria a medição.
+> **STATUS (2026-08-24): fechado, menos dois cosméticos.** A F18 corrigiu A1, A3, A4, A5, A6, A7,
+> A8, A9, A10, A11, A12, A13, A14, A15, A16, A17, A18, A19 e A21. **O A2 fechou depois**, com o
+> radar em lista (ADR 0030): o ponto de custódia deixou de existir só dentro da WebView. **Seguem
+> abertos só A20 e A22**, ambos COSMÉTICO — contraste de borda de chip e de preenchimento de barra,
+> nenhum dos dois com perda de informação.
+>
+> **A LACUNA L4 continua aberta: nenhuma passada de TalkBack foi executada até hoje.** Não há `adb`,
+> emulador nem aparelho Android nesta máquina. O que existe é
+> `app/__tests__/radarLista.test.tsx`, que percorre login → lista → detalhe → aceitar consultando só
+> por papel e nome acessível — condição necessária, não a verificação com leitor de tela.
+>
+> O documento abaixo fica como está — é o levantamento que originou as correções, e reescrevê-lo
+> apagaria a medição.
 
 
 **Data:** 2026-08-23

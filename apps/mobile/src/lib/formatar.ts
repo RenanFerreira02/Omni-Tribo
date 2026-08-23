@@ -52,3 +52,34 @@ export function formatarDataHora(iso: string): string {
     minute: '2-digit',
   });
 }
+
+/**
+ * Quanto falta até a janela da missão fechar — em texto que se lê em voz alta.
+ *
+ * <b>Relativo, e não absoluto.</b> `formatarDataHora` já existe e devolve "24/08 18:30", que é o
+ * certo para um extrato: ali interessa QUANDO aconteceu. Aqui interessa outra coisa — se dá tempo de
+ * ir. Ouvir "termina em 40 minutos" responde a pergunta; ouvir "24/08 18:30" obriga a pessoa a
+ * calcular de cabeça, e mais ainda se ela está andando na rua.
+ *
+ * Granularidade decrescente de propósito: minutos enquanto a decisão é urgente, horas depois, dias
+ * quando falta muito. "termina em 2.847 minutos" é tecnicamente exato e inútil.
+ *
+ * @param agora injetável para o teste não depender do relógio da máquina
+ */
+export function formatarPrazo(janelaFimIso: string, agora: Date = new Date()): string {
+  const fim = new Date(janelaFimIso);
+  if (Number.isNaN(fim.getTime())) return '—';
+
+  const minutos = Math.round((fim.getTime() - agora.getTime()) / 60000);
+
+  // Passado é "encerrada", não "termina em -30 minutos". O radar só devolve missão aberta, mas a
+  // tela pode estar parada há um tempo — e um número negativo lido em voz alta não significa nada.
+  if (minutos <= 0) return 'encerrada';
+  if (minutos < 60) return `termina em ${minutos} min`;
+
+  const horas = Math.round(minutos / 60);
+  if (horas < 24) return `termina em ${horas} h`;
+
+  const dias = Math.round(horas / 24);
+  return dias === 1 ? 'termina em 1 dia' : `termina em ${dias} dias`;
+}
