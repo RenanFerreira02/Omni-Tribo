@@ -179,6 +179,25 @@ export default function TelaPerfil() {
           <Conquista key={conquista.codigo} conquista={conquista} />
         ))}
 
+        {/* ─── Administração ─────────────────────────────────────────────────────────────── */}
+        {/*
+          Só aparece para ADMIN, mas ESCONDER NÃO É PROTEGER: a rota é comum e quem protege é o 403
+          de `GET /api/v1/admin/impacto`. O `papel` daqui vem do perfil, que vem do servidor — não é
+          decisão do cliente, é reflexo dela. A tela existe fora das abas justamente para não ocupar
+          espaço permanente numa navegação que todo usuário vê.
+        */}
+        {p.papel === 'ADMIN' ? (
+          <>
+            <Text style={estilos.subtitulo}>Administração</Text>
+            <Botao
+              titulo="Painel de impacto"
+              variante="secundario"
+              onPress={() => router.push('/impacto')}
+              testID="botao-impacto"
+            />
+          </>
+        ) : null}
+
         {/* ─── Privacidade ───────────────────────────────────────────────────────────────── */}
         <Text style={estilos.subtitulo}>Privacidade e dados</Text>
         <Botao

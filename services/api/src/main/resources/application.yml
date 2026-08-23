@@ -94,6 +94,19 @@ app:
     falhas-para-bloqueio: 10     # falhas consecutivas antes de bloqueio progressivo
     janela-falhas-minutos: 15    # janela de observação para contar falhas
     duracao-bloqueio-minutos: 15 # duração do bloqueio após atingir o limiar
+  impacto:
+    # PREMISSA, NÃO MEDIÇÃO — e o painel diz isso em texto, na tela.
+    #
+    # Quanto se ASSUME que custa à transportadora re-entregar uma encomenda que falhou. Este
+    # projeto não mediu esse número e não tem como medi-lo: não existe operação real, logo não
+    # existe série de custo para observar. Ele mora aqui, e não num literal em Java, exatamente
+    # para que a natureza de premissa fique visível — número no meio de um cálculo parece
+    # resultado, e é assim que suposição vira "dado" no slide de alguém.
+    #
+    # GET /api/v1/admin/impacto devolve a mesma conta com este valor pela METADE e por UMA VEZ E
+    # MEIA. A afirmação defensável não é o total: é a ordem de grandeza que sobrevive à faixa. Se a
+    # conclusão muda quando a premissa varia 50%, ela nunca foi sobre o dado. Ver ADR 0029.
+    custo-reentrega-brl: 25.00
   agendamento:
     # Desligado no perfil de teste: um job mudando status em paralelo tornaria as assertions
     # intermitentes. A regra de expiração continua testada chamando ExpiracaoMissoesJob.varrer().

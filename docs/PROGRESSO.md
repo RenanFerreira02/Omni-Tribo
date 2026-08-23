@@ -52,6 +52,58 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-08-23** — **O sistema passou a responder a pergunta de VALOR, e dois testes desmentiram o
+  código no caminho.**
+
+  O projeto provava integridade, geolocalização e conservação. Não provava **impacto**: não havia
+  lugar que respondesse *quanto a tese economizou*, que é a pergunta que um parceiro faria.
+  `GET /api/v1/admin/impacto` responde, agregando na hora tabelas que já existem — sem migration,
+  sem tabela de agregação e sem cache (ADR 0029 §6: segunda fonte de verdade para número que existe
+  para ser conferido é pior que a consulta a mais).
+
+  **Onde mora e por quê.** O painel cruza quatro módulos, então ganhou **uma porta por dono do
+  dado** e o montador em `compartilhado` — precedente de `DrenadorOutboxService`, que já injeta
+  `notificacoes/api`. Hospedá-lo em `logistica`, cuja tese ele mede, teria somado `carteira` e
+  `geolocalizacao` a um nó que já tem dependência mútua com `missoes` — o mesmo nó por causa do qual
+  aquele módulo tem duas classes de serviço em vez de uma. O `RegrasArquiteturaTest` não precisou de
+  uma linha.
+
+  **Duas coisas que o código afirmava e não eram verdade.** As duas foram achadas por execução, não
+  por leitura, e as duas viraram campo do painel em vez de comentário corrigido:
+
+  1. *"Os três desfechos do webhook somam as entregas recebidas."* `ImpactoTest.funilBateComOBanco`
+     reprovou com **6 contra 22**. Existe um QUARTO estado que o webhook não produz mas o schema
+     permite e o seed V901 usa: `missao_id` nulo *e* `motivo_recusa` nulo — encomenda na custódia
+     que nunca virou missão. Sem contá-la, o painel teria publicado uma conversão de 27% sobre um
+     denominador com um grupo invisível dentro, e a leitura natural ("o bairro só responde a um
+     quarto das falhas") seria falsa. Virou `pendentes`.
+  2. *"`criadas` deve bater com `convertidas`; divergirem é conversão gravada pela metade."* Ao
+     vivo deu **4 contra 10**. A causa é legítima: as entregas falidas do seed apontam para missões
+     que a V900 criou com criador HUMANO, porque o seed é anterior ao usuário-sistema da V21. O
+     javadoc estava errado, não o banco — e a tela agora mostra `criadas` como degrau próprio do
+     funil, com a explicação, em vez de deixar o leitor concluir que algo quebrou.
+
+  **Uma terceira, no mobile.** O schema tipava os valores em BRL como `string`, e passou nos testes
+  porque a **fixture também mentia**. Quem desmentiu foi a resposta real do servidor: Jackson
+  serializa `BigDecimal` como número JSON (`25.00`), como já acontece em `valorBrl` e `saldoBrl`.
+  Fixture que não espelha o servidor não testa contrato — testa a si mesma.
+
+  **A premissa, que é o ponto que uma banca ataca.** `app.impacto.custo-reentrega-brl` não foi
+  medido e não há como medi-lo aqui. Então: vem de configuração (nunca de literal), a resposta
+  **ecoa** o valor usado, e traz a mesma conta com ele em **±50%**. Meia linha de aritmética que
+  troca um total frágil por uma faixa — a afirmação defensável é a ordem de grandeza que sobrevive
+  à variação, não o número do meio. A evidência mostra o painel recalculando quando a premissa é
+  sobrescrita para 42,90 com o banco intacto.
+
+  E o painel diz, em texto na tela, que **"re-entrega evitada" é a missão concluída renomeada** —
+  interpretação, não segunda medição. Apresentá-las como confirmação mútua seria a fraude
+  estatística mais fácil de cometer aqui, porque os números batem por construção.
+
+  Evidência: `docs/evidencias/impacto-conferido-por-sql.md`, com endpoint e SQL manual lado a lado,
+  métrica a métrica, e a mediana conferida contra o `percentile_cont` do PostgreSQL — duas
+  implementações independentes do mesmo número. `./mvnw verify` com **703 testes**; `npm test` com
+  **188**.
+
 - **2026-08-22 (4)** — **A transferência deixou de exigir UUID digitado, sem abrir diretório de
   membros.**
 
