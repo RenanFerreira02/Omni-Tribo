@@ -49,6 +49,19 @@
   O glifo é decorativo (`importantForAccessibility="no"`) e por isso o `Chip` carrega
   `accessibilityLabel` explícito — sem ele o leitor de tela anunciaria "losango Entrega". Vale
   também no marcador do mapa, onde as quatro categorias eram indistinguíveis sem texto ao lado.
+- **O radar tem DUAS apresentações da mesma rota** (ADR 0030): `Mapa | Lista`, com a escolha
+  persistida em `src/features/mapa/apresentacao.ts`. A lista existe porque a WebView do Leaflet não
+  expõe semântica — e o ponto de custódia só existia lá dentro. **Não é tela separada**: duas rotas
+  divergiriam, e a que menos gente usa é a que fica para trás, que aqui seria justamente a acessível.
+  - **O cliente NÃO reordena.** A ordem por distância vem do servidor (`ORDER BY distancia_m ASC`
+    sobre `geography`), e recalcular aqui daria um segundo valor, ocasionalmente diferente do que o
+    mapa desenha.
+  - `ItemPontoCustodia` não reusa `MissaoCard` de propósito: ponto de custódia não tem recompensa
+    nem prazo, e "0 XP e 0 tokens, encerrada" para um armário seria pior que a assimetria.
+- **A ordem do rótulo é a ordem da DECISÃO**: categoria, recompensa, distância, prazo — título e
+  local por último. Quem navega por voz decide no primeiro terço da frase, e o título é o que menos
+  separa uma missão da outra. `formatarPrazo` é relativo ("termina em 40 min"), não absoluto: a
+  pergunta é "dá tempo de ir?", não "quando foi?".
 - **`useLocalizacao()` NÃO pede permissão ao montar, e o default é esse de propósito.** Quem quiser
   o pedido automático passa `true` explicitamente — e precisa ter mostrado a justificativa antes.
   Use `JustificativaLocalizacao`: o diálogo do sistema é de uma via só, e negado uma vez não volta.
@@ -168,6 +181,10 @@ Custaram tempo e não aparecem em lugar nenhum da documentação do Expo:
   dublês. Por isso o teste de integração roda em `testEnvironment: 'node'`
   (`jest.e2e.config.js`), com stub de `react-native`; sob o preset do RN toda chamada volta como
   `semRede`, indistinguível de backend desligado.
+- **`unmount()` da RNTL 14 também é ASSÍNCRONO.** Sem `await`, um segundo `render` no mesmo teste
+  **trava o processo inteiro** — não falha, não estoura o `testTimeout` de 30 s, apenas para. O
+  sintoma é o `npm test` pendurado sem nenhuma linha vermelha. Aparece em teste de percurso, que
+  monta e desmonta telas em sequência.
 - **O PRIMEIRO teste de uma suíte de tela é ordens de grandeza mais caro que os outros**, e os 5 s
   de default do jest não cabiam nele no CI. O `react-native` exporta componentes por getters
   preguiçosos: o grafo de módulos só carrega no primeiro `render()`, dentro do primeiro teste. Com

@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { Linking, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Linking, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { mensagemDe } from '@/api/erros';
@@ -8,11 +8,17 @@ import type { MissaoProximaResponse, PontoCustodiaResponse } from '@/api/tipos';
 import { Aviso } from '@/components/Aviso';
 import { Botao } from '@/components/Botao';
 import { Card } from '@/components/Card';
+import { Chip } from '@/components/Chip';
+import { EstadoVazio } from '@/components/EstadoVazio';
+import { ItemPontoCustodia } from '@/components/ItemPontoCustodia';
+import { MissaoCard } from '@/components/MissaoCard';
+import { TituloTela } from '@/components/TituloTela';
 import { FolhaInferior } from '@/components/FolhaInferior';
 import { JustificativaLocalizacao } from '@/components/JustificativaLocalizacao';
 import { MapaLeaflet, type MarcadorMapa, type RegiaoMapa } from '@/components/MapaLeaflet';
 import { SaldoToken } from '@/components/SaldoToken';
 import { useClima, usePontosCustodiaProximos, useTribo } from '@/features/mapa/hooks';
+import { useApresentacaoRadar } from '@/features/mapa/useApresentacaoRadar';
 import { useMissoesProximas } from '@/features/missoes/hooks';
 import { useLocalizacao } from '@/features/missoes/useLocalizacao';
 import { usePerfil } from '@/features/perfil/hooks';
@@ -32,6 +38,15 @@ export default function TelaMapa() {
 
   const perfil = usePerfil();
   const tribo = useTribo(perfil.data?.tribo?.id);
+
+  /**
+   * Mapa ou lista — a MESMA rota, a mesma consulta, outra apresentação.
+   *
+   * Duas rotas divergiriam com o tempo: a correção de uma chegaria na outra meses depois, ou nunca.
+   * E a lista não é "o mapa degradado": é a única forma de alcançar um ponto de custódia sem tocar
+   * num quadrado de 44 pt dentro de uma WebView — ver ADR 0030.
+   */
+  const [apresentacao, trocarApresentacao] = useApresentacaoRadar();
 
   const [regiao, setRegiao] = useState<RegiaoMapa | null>(null);
   const [selecionado, setSelecionado] = useState<MissaoProximaResponse | null>(null);
@@ -184,14 +199,44 @@ export default function TelaMapa() {
         </View>
       ) : null}
 
-      <MapaLeaflet
-        centro={centro}
-        marcadores={marcadores}
-        mostrarUsuario={coordenada !== null}
-        aoTocarMarcador={aoTocarMarcador}
-        aoMudarRegiao={aoMudarRegiao}
-        testID="mapa"
-      />
+      {/* Escolha única, no mesmo par que a aba Missões usa para "Perto de mim / Todas". */}
+      <View
+        style={estilos.alternador}
+        accessibilityRole="radiogroup"
+        accessibilityLabel="Como ver o radar"
+      >
+        <Chip
+          rotulo="Mapa"
+          selecionado={apresentacao === 'mapa'}
+          onPress={() => trocarApresentacao('mapa')}
+          testID="apresentacao-mapa"
+        />
+        <Chip
+          rotulo="Lista"
+          selecionado={apresentacao === 'lista'}
+          onPress={() => trocarApresentacao('lista')}
+          testID="apresentacao-lista"
+        />
+      </View>
+
+      {apresentacao === 'mapa' ? (
+        <MapaLeaflet
+          centro={centro}
+          marcadores={marcadores}
+          mostrarUsuario={coordenada !== null}
+          aoTocarMarcador={aoTocarMarcador}
+          aoMudarRegiao={aoMudarRegiao}
+          testID="mapa"
+        />
+      ) : (
+        <ListaDoRadar
+          missoes={missoes.data ?? []}
+          pontos={pontos.data ?? []}
+          carregando={missoes.isLoading || pontos.isLoading}
+          aoAbrirMissao={(id: string) => router.push(`/missao/${id}`)}
+          aoAbrirPonto={setPontoSelecionado}
+        />
+      )}
 
       {missoes.error ? (
         <View style={estilos.faixaFlutuante}>
@@ -258,12 +303,105 @@ export default function TelaMapa() {
   );
 }
 
+/**
+ * O radar em texto: as mesmas missões e os mesmos pontos que o mapa desenha.
+ *
+ * <b>Uma FlatList só, com as duas seções.</b> Duas listas empilhadas dariam duas áreas roláveis
+ * dentro da mesma tela — quem navega por voz teria de descobrir que existe uma segunda depois de
+ * chegar ao fim da primeira. `ListHeaderComponent` e `ListFooterComponent` mantêm um rolo contínuo.
+ *
+ * <b>NÃO reordena nada.</b> A ordem por distância crescente vem do servidor
+ * (`ConsultasGeoespaciaisPostgis` faz `ORDER BY distancia_m ASC` sobre `geography`), e reordenar
+ * aqui com um segundo cálculo produziria uma ordem quase igual e ocasionalmente diferente da que o
+ * mapa desenha — a mesma razão pela qual `formatarDistancia` só formata o número que chega.
+ */
+function ListaDoRadar({
+  missoes,
+  pontos,
+  carregando,
+  aoAbrirMissao,
+  aoAbrirPonto,
+}: {
+  missoes: MissaoProximaResponse[];
+  pontos: PontoCustodiaResponse[];
+  carregando: boolean;
+  aoAbrirMissao: (id: string) => void;
+  aoAbrirPonto: (ponto: PontoCustodiaResponse) => void;
+}) {
+  return (
+    <FlatList
+      testID="lista-radar"
+      data={missoes}
+      keyExtractor={(item) => item.missao.id}
+      contentContainerStyle={estilos.lista}
+      ListHeaderComponent={
+        <TituloTela nivel="secao">
+          {missoes.length > 0 ? `Missões próximas (${missoes.length})` : 'Missões próximas'}
+        </TituloTela>
+      }
+      renderItem={({ item }) => (
+        <MissaoCard
+          missao={item.missao}
+          distanciaM={item.distanciaM}
+          // Direto ao detalhe, sem a folha intermediária que o mapa usa: no mapa o pino não cabe
+          // texto e a folha é o que informa; aqui o item já disse tudo, e uma parada a mais só
+          // atrasaria quem navega por voz.
+          onPress={() => aoAbrirMissao(item.missao.id)}
+          testID={`radar-missao-${item.missao.id}`}
+        />
+      )}
+      ListEmptyComponent={
+        carregando ? null : (
+          <EstadoVazio
+            titulo="Nenhuma missão por aqui"
+            descricao="Não há missões abertas nesta região. Arraste o mapa ou volte mais tarde."
+            testID="radar-sem-missoes"
+          />
+        )
+      }
+      ListFooterComponent={
+        <View style={estilos.secao}>
+          <TituloTela nivel="secao">
+            {pontos.length > 0 ? `Pontos de custódia (${pontos.length})` : 'Pontos de custódia'}
+          </TituloTela>
+          {pontos.length === 0 && !carregando ? (
+            <EstadoVazio
+              titulo="Nenhum ponto por perto"
+              descricao="Pontos de custódia guardam encomendas que falharam na entrega."
+              testID="radar-sem-pontos"
+            />
+          ) : (
+            pontos.map((ponto) => (
+              <ItemPontoCustodia
+                key={ponto.id}
+                ponto={ponto}
+                // Mesma folha que o marcador abre. Não há outro destino para um ponto, e reusá-la
+                // mantém UMA descrição só dele no app.
+                onPress={() => aoAbrirPonto(ponto)}
+                testID={`radar-ponto-${ponto.id}`}
+              />
+            ))
+          )}
+        </View>
+      }
+    />
+  );
+}
+
 const estilos = StyleSheet.create({
   raiz: { flex: 1, backgroundColor: cores.papel },
   justificativa: { flex: 1, justifyContent: 'center', padding: espaco.lg },
   tituloJustificativa: { ...tipografia.subtitulo, color: cores.tinta },
   textoJustificativa: { ...tipografia.corpo, color: cores.tinta70 },
   faixa: { paddingHorizontal: espaco.lg, paddingBottom: espaco.sm, gap: espaco.xs },
+  alternador: {
+    flexDirection: 'row',
+    gap: espaco.sm,
+    paddingHorizontal: espaco.lg,
+    paddingBottom: espaco.sm,
+  },
+  lista: { padding: espaco.lg, gap: espaco.sm, flexGrow: 1 },
+  secao: { paddingTop: espaco.sm },
   faixaFlutuante: { position: 'absolute', bottom: espaco.lg, left: espaco.lg, right: espaco.lg },
   clima: { flexDirection: 'row', alignItems: 'center', gap: espaco.md },
   temperatura: { ...tipografia.titulo, color: cores.verdeEscuro },
