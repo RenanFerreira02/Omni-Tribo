@@ -346,6 +346,16 @@ publicaria a cotação token→real que o ADR 0009 §6 recusa.
 `/api/v1/admin/resgates/{id}` — `PATCH`, só ADMIN. `PENDENTE → UTILIZADO`, idempotente. **Sem caminho
 de volta**: reverter ressuscitaria token queimado.
 
+`/api/v1/admin/impacto` — `GET`, só ADMIN. **A única resposta do sistema sobre VALOR**, e não sobre
+estado: funil da entrega falida (recebidas → convertidas → concluídas), tempo mediano até o check-in
+do executor, custo evitado estimado e circulação do token. Tudo agregado na hora — **sem migration,
+sem tabela de agregação e sem cache**, porque uma segunda fonte de verdade para números que existem
+para serem conferidos é pior que a consulta a mais. Mora em `compartilhado` e compõe uma porta nova
+de cada módulo dono do dado. Três coisas que o painel diz em voz alta e o código trava por teste:
+`app.impacto.custo-reentrega-brl` é **PREMISSA, não medição** (por isso a resposta ecoa o valor e
+traz a mesma conta com ele em **±50%**); **"re-entrega evitada" é a missão concluída RENOMEADA**, não
+uma segunda medição; e **taxa com denominador zero é `null`, nunca 0%**. Ver ADR 0029.
+
 `/api/v1/admin/carteiras/reconciliacao` — `GET`, só ADMIN.
 
 `/api/v1/admin/patrocinadores` — `POST` (cadastra titular + carteira + relação com o slug) · `GET`
@@ -398,6 +408,9 @@ lotado, aqui não há fato novo a gravar. Ver ADR 0026.
 sem JWT**, autenticado por HMAC-SHA256 sobre o CORPO BRUTO (cabeçalhos `X-Transportadora`,
 `X-Timestamp`, `X-Assinatura`). Idempotente por `(transportadora, codigoRastreio)`. **Três desfechos, todos 200:** `CONVERTIDA`,
 `RECUSADA` (ponto lotado) e `SEM_PATROCINIO` (sem patrocinador ativo ou sem saldo para o pote).
+Existe um QUARTO estado na tabela que o webhook **não** produz: `missao_id` nulo *e* `motivo_recusa`
+nulo — encomenda na custódia que nunca virou missão. É o formato do seed V901 (16 das 28 linhas do
+banco de dev), e o painel de impacto o conta como `pendentes` em vez de deixá-lo sumir num resto.
 Nenhum é erro HTTP — devolver 4xx faria a transportadora reenviar em laço contra uma condição que o
 reenvio não muda. Ver ADR 0021 e ADR 0024.
 

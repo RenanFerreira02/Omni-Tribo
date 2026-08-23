@@ -369,6 +369,51 @@ export const resgateResponseSchema = z.object({
   replay: z.boolean(),
 });
 
+/**
+ * Painel de impacto (ADMIN).
+ *
+ * As taxas e a mediana são `nullable` porque o servidor devolve `null` — e não zero — quando não há
+ * denominador ou amostra. Aceitar só `number` aqui faria `validarEmDev` gritar num sistema
+ * recém-instalado, que é exatamente quando os nulos aparecem.
+ *
+ * Os valores em BRL são `number`, como `valorBrl` e `saldoBrl` do resto do app: o servidor os
+ * serializa como NÚMERO JSON. A primeira versão deste schema pedia `string` — e passou nos testes
+ * porque a FIXTURE também mentia. Quem desmentiu foi a resposta real do servidor. Fixture que não
+ * espelha o servidor não testa contrato nenhum; testa a si mesma.
+ */
+export const impactoResponseSchema = z.object({
+  geradoEm: z.string(),
+  entregasFalidas: z.object({
+    recebidas: z.number(),
+    convertidas: z.number(),
+    pendentes: z.number(),
+    recusadasPontoLotado: z.number(),
+    recusadasSemPatrocinio: z.number(),
+    taxaConversao: z.number().nullable(),
+  }),
+  missoesDeRetirada: z.object({
+    criadas: z.number(),
+    concluidas: z.number(),
+    taxaConclusao: z.number().nullable(),
+    medianaAteCheckinSegundos: z.number().nullable(),
+    amostraMediana: z.number(),
+  }),
+  custoEvitado: z.object({
+    reentregasEvitadas: z.number(),
+    premissaCustoReentregaBrl: z.number(),
+    baseBrl: z.number(),
+    menos50Brl: z.number(),
+    mais50Brl: z.number(),
+  }),
+  tokens: z.object({
+    aportados: z.number(),
+    emCarteiras: z.number(),
+    emPotes: z.number(),
+    emCirculacao: z.number(),
+    resgatados: z.number(),
+  }),
+});
+
 export function paginaSchema<T extends z.ZodTypeAny>(item: T) {
   return z.object({
     conteudo: z.array(item),

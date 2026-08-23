@@ -316,3 +316,48 @@ export function problema(
     ...extra,
   };
 }
+
+/**
+ * Painel de impacto, com números escolhidos para serem CONFERÍVEIS de cabeça na leitura do teste:
+ * 22 = 6 + 12 + 3 + 1, conversão 6/22 = 27,3%, conclusão 3/4 = 75%, custo 3 × 25 = 75.
+ *
+ * `criadas` (4) é MENOR que `convertidas` (6) de propósito: é a forma real do banco, onde entrega
+ * falida do seed histórico aponta para missão criada por humano. A fixture antiga tinha os dois
+ * iguais e escondia o caso que a tela precisa explicar.
+ *
+ * `pendentes` alto de propósito — é o formato do banco de desenvolvimento, onde o seed histórico
+ * domina, e é o caso em que a tela precisa explicar a conversão baixa em vez de deixar concluir que
+ * o bairro não responde.
+ */
+export const IMPACTO = {
+  geradoEm: '2026-08-23T14:02:11Z',
+  entregasFalidas: {
+    recebidas: 22,
+    convertidas: 6,
+    pendentes: 12,
+    recusadasPontoLotado: 3,
+    recusadasSemPatrocinio: 1,
+    taxaConversao: 0.2727,
+  },
+  missoesDeRetirada: {
+    criadas: 4,
+    concluidas: 3,
+    taxaConclusao: 0.75,
+    medianaAteCheckinSegundos: 8100,
+    amostraMediana: 5,
+  },
+  custoEvitado: {
+    reentregasEvitadas: 3,
+    premissaCustoReentregaBrl: 25.0,
+    baseBrl: 75.0,
+    menos50Brl: 37.5,
+    mais50Brl: 112.5,
+  },
+  tokens: {
+    aportados: 40000,
+    emCarteiras: 38200,
+    emPotes: 1200,
+    emCirculacao: 39400,
+    resgatados: 600,
+  },
+};

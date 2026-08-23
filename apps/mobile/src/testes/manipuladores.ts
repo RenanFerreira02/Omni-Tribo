@@ -7,6 +7,7 @@ import {
   CLIMA,
   CONSENTIMENTOS,
   ENDERECO,
+  IMPACTO,
   LANCAMENTO,
   PERFIL,
   PONTO_CUSTODIA,
@@ -90,6 +91,8 @@ export const manipuladores = [
     HttpResponse.json(pagina([BENEFICIO_ALCANCAVEL, BENEFICIO_CARO])),
   ),
   http.post(`${BASE}/resgates`, () => HttpResponse.json(RESGATE, { status: 201 })),
+
+  http.get(`${BASE}/admin/impacto`, () => HttpResponse.json(IMPACTO)),
 
   http.get(`${BASE}/usuarios/busca`, () => HttpResponse.json(VIZINHO)),
 

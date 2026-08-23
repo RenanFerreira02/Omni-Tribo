@@ -441,3 +441,77 @@ export interface FiltroProximas {
   categoria?: CategoriaMissao;
   limite?: number;
 }
+
+/**
+ * O painel de impacto — `GET /api/v1/admin/impacto`, só ADMIN.
+ *
+ * A única resposta do app que fala de VALOR e não de estado: quanto a tese economizou. Tudo aqui é
+ * agregado pelo servidor a cada chamada, sobre tabelas que já existem — não há tabela de agregação
+ * nem cache, então dois pedidos seguidos podem legitimamente diferir.
+ */
+export interface ImpactoResponse {
+  /** Instante da apuração. Exibido porque o número é volátil e um painel sem data é uma afirmação sem validade. */
+  geradoEm: string;
+  entregasFalidas: ImpactoEntregasFalidas;
+  missoesDeRetirada: ImpactoMissoesDeRetirada;
+  custoEvitado: ImpactoCustoEvitado;
+  tokens: ImpactoTokens;
+}
+
+export interface ImpactoEntregasFalidas {
+  recebidas: number;
+  convertidas: number;
+  /**
+   * Recebidas que não viraram missão e não foram recusadas: encomenda parada na custódia.
+   *
+   * É o número que EXPLICA uma taxa de conversão baixa. Sem ele na tela, quem lê conclui que o
+   * bairro não responde — quando a maioria das linhas nunca chegou a ser oferecida a ninguém.
+   */
+  pendentes: number;
+  recusadasPontoLotado: number;
+  recusadasSemPatrocinio: number;
+  /** Fração 0..1, ou `null` quando nada foi recebido. NUNCA renderize `null` como 0%. */
+  taxaConversao: number | null;
+}
+
+export interface ImpactoMissoesDeRetirada {
+  criadas: number;
+  concluidas: number;
+  taxaConclusao: number | null;
+  /** Segundos entre o webhook e o primeiro check-in válido. `null` com amostra vazia. */
+  medianaAteCheckinSegundos: number | null;
+  /** Quantas missões entraram na mediana. Vai para a tela: mediana sem amostra não é interpretável. */
+  amostraMediana: number;
+}
+
+/**
+ * A conta que um parceiro compraria — e a premissa que a sustenta, ao lado dela.
+ *
+ * `reentregasEvitadas` é o MESMO número que `missoesDeRetirada.concluidas`, renomeado. Não são duas
+ * evidências: é a interpretação de que a encomenda teria sido re-entregue. A tela diz isso.
+ */
+export interface ImpactoCustoEvitado {
+  reentregasEvitadas: number;
+  /**
+   * Premissa vigente em BRL, de `app.impacto.custo-reentrega-brl`.
+   *
+   * `number`, como `valorBrl` e `saldoBrl`: são `BigDecimal` no servidor e Jackson os serializa
+   * como NÚMERO JSON (`25.00`), não como string. O cliente só FORMATA — toda aritmética de dinheiro
+   * acontece no servidor, em `BigDecimal`, e nenhuma conta é refeita aqui.
+   */
+  premissaCustoReentregaBrl: number;
+  baseBrl: number;
+  /** Premissa pela metade. */
+  menos50Brl: number;
+  /** Premissa uma vez e meia. */
+  mais50Brl: number;
+}
+
+export interface ImpactoTokens {
+  aportados: number;
+  emCarteiras: number;
+  emPotes: number;
+  /** `emCarteiras + emPotes` — a conservação do ADR 0027 exibida como número. */
+  emCirculacao: number;
+  resgatados: number;
+}

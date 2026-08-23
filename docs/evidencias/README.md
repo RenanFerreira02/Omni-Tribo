@@ -16,6 +16,12 @@ daqui ou de [`../qualidade/`](../qualidade/).
 | [`f14-conservacao-quatro-categorias.md`](f14-conservacao-quatro-categorias.md) | 2026-08-22 | **Δ=0 nas QUATRO categorias**, com o pote de ENTREGA pago pelo patrocinador, e a recusa por falta de saldo respondendo 200 sem criar missão. `integro=true` em todos os pontos | `bash tools/evidencias/conservacao-por-categoria.sh` (ver o doc: o servidor sobe com a varredura acelerada) |
 | [`f13-make-test.md`](f13-make-test.md) | 2026-08-16 | 637 testes no backend e 179 no mobile, verdes. **SpotBugs e os dois gates JaCoCo aparecem executando, mas o console colado traz só os cabeçalhos dos plugins** — as linhas de resultado (`BugInstance size is 0`, *All coverage checks have been met*) estão em [`../qualidade/verificacao-2026-08-15.md`](../qualidade/verificacao-2026-08-15.md), de **outra data** | `make test` |
 | [`f13-ci-github-actions.md`](f13-ci-github-actions.md) | 2026-08-17 | O histórico **real** do GitHub Actions: 113 runs. Gitleaks verde em 48/48; Mobile CI vermelho de 08-09 a 08-13; `Security Scan` reprovado desde `ca328fc` pelo job de dependências | `curl` na API pública — comando no arquivo |
+| [`impacto-conferido-por-sql.md`](impacto-conferido-por-sql.md) | 2026-08-23 | O painel `GET /admin/impacto` **batendo com uma contagem manual por SQL**, métrica a métrica, no mesmo banco e no mesmo instante — inclusive a mediana conferida contra o `percentile_cont` do PostgreSQL. Mostra também a premissa de custo mudando o resultado por configuração | `make reset`, `spring-boot:run`, `bash tools/carrier-mock/enviar.sh`, `curl` e `psql` — todos no doc |
+
+> `impacto-conferido-por-sql.md` é o único arquivo **sem prefixo de fase**: o painel de impacto não
+> foi entregue como uma fase numerada, e inventar um `f15-` criaria contradição com o
+> `PROGRESSO.md`, que é a numeração de verdade. Mesmo motivo pelo qual as duas auditorias do mobile
+> não seguem o padrão `FN.md`.
 
 ## O que **não** está provado aqui
 
