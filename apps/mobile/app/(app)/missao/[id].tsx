@@ -20,7 +20,9 @@ import {
 } from '@/features/missoes/acoes';
 import { usePerfil } from '@/features/perfil/hooks';
 import { useAcaoMissao, useCheckin, useMissao } from '@/features/missoes/hooks';
+import type { AcaoMissao } from '@/api/missoes';
 import { orientacaoDe, type OrientacaoCheckin } from '@/features/missoes/mensagensCheckin';
+import { paraFala, useAnuncio } from '@/lib/anunciar';
 import { ROTULO_COMPLEXIDADE } from '@/features/missoes/rotulos';
 import { useLocalizacao } from '@/features/missoes/useLocalizacao';
 import { usePontoCustodia } from '@/features/mapa/hooks';
@@ -28,6 +30,22 @@ import { formatarDataHora, rotuloCategoria, rotuloStatus } from '@/lib/formatar'
 import { novaChaveIdempotencia } from '@/lib/ids';
 import { useSessao } from '@/stores/sessao';
 import { cores, coresCategoria, coresStatus, espaco, textoAcessivel, tipografia } from '@/theme';
+
+/**
+ * Dica de CONSEQUÊNCIA, só onde o rótulo não a entrega.
+ *
+ * Nem toda ação entra aqui, e a ausência é a decisão: "Publicar" e "Contestar" dizem o que fazem, e
+ * dica redundante atrasa quem navega por voz. As quatro abaixo escondem consequência real — o
+ * check-in lê o GPS e é o ato que credita, desistir devolve a missão ao mercado sem garantia de
+ * recuperá-la, e confirmar e cancelar são terminais.
+ */
+const HINT_ACAO: Partial<Record<AcaoMissao | 'checkin', string>> = {
+  checkin:
+    'Usa a localização do aparelho para confirmar que você chegou. É o que libera a recompensa.',
+  desistir: 'A missão volta para o mercado e outra pessoa pode aceitá-la.',
+  confirmar: 'Encerra a missão e credita a recompensa ao executor. Não tem volta.',
+  cancelar: 'Encerra a missão e devolve os tokens a quem financiou. Não tem volta.',
+};
 
 export default function DetalheMissao() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -41,6 +59,20 @@ export default function DetalheMissao() {
   const { recarregar: obterLocalizacao } = useLocalizacao(false);
 
   const [orientacao, setOrientacao] = useState<OrientacaoCheckin | null>(null);
+  /**
+   * O que dizer em voz alta depois da última operação.
+   *
+   * Estado próprio, e não derivado da missão: o desfecho precisa ser dito UMA vez, no momento em
+   * que acontece. Derivar de `missao.status` faria o anúncio se repetir a cada refetch da tela.
+   */
+  const [anuncio, setAnuncio] = useState<string | null>(null);
+
+  // ANTES dos early returns de carregamento e erro: hook em caminho condicional muda a contagem
+  // entre renderizações e o React aborta com "Rendered more hooks than during the previous render".
+  //
+  // O leitor de tela não vê o chip de status mudar nem o botão sumir. Sem isto, a operação central
+  // do produto — o check-in que credita a recompensa — acontecia em silêncio absoluto.
+  useAnuncio(anuncio);
   const [aConfirmar, setAConfirmar] = useState<AcaoDisponivel | null>(null);
 
   /**
@@ -115,13 +147,21 @@ export default function DetalheMissao() {
         chaveIdempotencia: chaveCheckin.current,
       },
       {
-        onSuccess: () => {
+        onSuccess: (atualizada) => {
           chaveCheckin.current = novaChaveIdempotencia();
           setOrientacao(null);
+          setAnuncio(
+            atualizada.status === 'CONCLUIDA'
+              ? `Check-in confirmado e missão concluída. Você recebeu ${atualizada.xpRecompensa} XP e ${atualizada.tokensRecompensa} tokens.`
+              : 'Check-in confirmado. Agora é aguardar a confirmação de quem criou a missão.',
+          );
         },
         onError: (erro: ErroApi) => {
           const guia = orientacaoDe(erro);
           setOrientacao(guia);
+          // `paraFala` troca "180 m" por "180 metros": a instrução é acionável só se o número vier
+          // com unidade, e motor de TTS trata abreviação de unidade de forma inconsistente.
+          setAnuncio(`${guia.titulo}. ${paraFala(guia.instrucao)}`);
           // Sem rede, a requisição pode nem ter chegado — manter a chave é o que permite ao retry
           // ser reconhecido como a MESMA tentativa. Com veredito do servidor, chave nova.
           if (erro.tipo !== 'semRede') {
@@ -139,7 +179,17 @@ export default function DetalheMissao() {
     }
     // Sem ` as AcaoMissao`: o early return acima já estreita o tipo, e a asserção só silenciaria
     // um erro real se `AcaoMissao` mudasse.
-    acao.mutate({ acao: item.acao });
+    acao.mutate(
+      { acao: item.acao },
+      {
+        // Diz o ESTADO NOVO, não "pronto": depois de aceitar, o que a pessoa precisa saber é que a
+        // missão agora é dela e qual é o próximo passo — e isso está no status.
+        onSuccess: (atualizada) =>
+          setAnuncio(
+            `${item.rotulo} concluído. Missão ${rotuloStatus(atualizada.status).toLowerCase()}.`,
+          ),
+      },
+    );
   }
 
   function aoTocar(item: AcaoDisponivel) {
@@ -262,6 +312,7 @@ export default function DetalheMissao() {
           />
         ) : null}
 
+        {/* O `Aviso` abaixo já é região viva — mas só no Android. O anúncio explícito cobre iOS. */}
         {erroAcao ? (
           <Aviso
             tom={erroAcao.tipo === 'transicaoInvalida' ? 'atencao' : 'erro'}
@@ -285,6 +336,7 @@ export default function DetalheMissao() {
                 variante={item.variante}
                 carregando={ocupado && item.variante === 'primario'}
                 disabled={ocupado || item.bloqueio !== undefined}
+                hint={HINT_ACAO[item.acao]}
                 onPress={() => aoTocar(item)}
                 testID={`acao-${item.acao}`}
               />

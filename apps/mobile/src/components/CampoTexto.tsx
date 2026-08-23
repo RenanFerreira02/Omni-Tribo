@@ -20,7 +20,14 @@ export function CampoTexto({ rotulo, erro, ...resto }: Props) {
         // O rótulo visual não chega ao leitor de tela sozinho: TextInput não é associado a <Text>
         // como um <label for> da web. Sem isto o campo é anunciado só como "caixa de edição".
         accessibilityLabel={rotulo}
-        accessibilityHint={erro ?? undefined}
+        // O ERRO SAIU DAQUI, e a troca é o conserto.
+        //
+        // `accessibilityHint` NÃO é região viva: ele é lido depois do rótulo, com pausa, e só
+        // quando o campo recebe foco de novo. Com o erro pendurado nele, o formulário rejeitava em
+        // SILÊNCIO — a pessoa tocava "Entrar", nada acontecia, e a explicação só apareceria se ela
+        // voltasse ao campo por conta própria. A mensagem agora vive na `<Text>` abaixo, que
+        // anuncia sozinha quando surge.
+        accessibilityState={{ disabled: resto.editable === false }}
         placeholderTextColor={textoAcessivel.suave}
         onFocus={() => setFocado(true)}
         onBlur={() => setFocado(false)}
@@ -32,7 +39,17 @@ export function CampoTexto({ rotulo, erro, ...resto }: Props) {
         ]}
         {...resto}
       />
-      {temErro ? <Text style={estilos.erro}>{erro}</Text> : null}
+      {temErro ? (
+        <Text
+          style={estilos.erro}
+          // O padrão que `criar.tsx` e `SeletorDataHora` já usavam e que o campo — que concentra
+          // TODOS os formulários do app — não usava.
+          accessibilityLiveRegion="polite"
+          accessibilityRole="alert"
+        >
+          {erro}
+        </Text>
+      ) : null}
     </View>
   );
 }

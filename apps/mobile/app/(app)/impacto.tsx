@@ -6,6 +6,7 @@ import type { ImpactoResponse } from '@/api/tipos';
 import { Aviso } from '@/components/Aviso';
 import { BarraProgresso } from '@/components/BarraProgresso';
 import { Card } from '@/components/Card';
+import { TituloTela } from '@/components/TituloTela';
 import { Esqueleto } from '@/components/Esqueleto';
 import { useImpacto } from '@/features/impacto/hooks';
 import { cores, espaco, textoAcessivel, tipografia } from '@/theme';
@@ -32,9 +33,7 @@ export default function TelaImpacto() {
   return (
     <SafeAreaView style={estilos.tela} edges={['bottom']}>
       <ScrollView contentContainerStyle={estilos.conteudo}>
-        <Text style={estilos.titulo} accessibilityRole="header">
-          Impacto
-        </Text>
+        <TituloTela>Impacto</TituloTela>
         <Text style={estilos.legenda}>
           Apurado no servidor a cada consulta, sobre os dados de produção. Não há cache: dois
           pedidos seguidos podem diferir.
@@ -69,9 +68,7 @@ function Painel({ dados }: { dados: ImpactoResponse }) {
   return (
     <View style={estilos.secoes}>
       {/* ─── Custo evitado, e a premissa logo abaixo ────────────────────────────────────── */}
-      <Text style={estilos.subtitulo} accessibilityRole="header">
-        Custo evitado
-      </Text>
+      <TituloTela nivel="secao">Custo evitado</TituloTela>
 
       <Card>
         <Text
@@ -106,9 +103,7 @@ function Painel({ dados }: { dados: ImpactoResponse }) {
       />
 
       {/* ─── Funil ──────────────────────────────────────────────────────────────────────── */}
-      <Text style={estilos.subtitulo} accessibilityRole="header">
-        Entregas falidas
-      </Text>
+      <TituloTela nivel="secao">Entregas falidas</TituloTela>
 
       <Card>
         <Numero rotulo="Recebidas" valor={ef.recebidas} testID="ef-recebidas" />
@@ -168,9 +163,7 @@ function Painel({ dados }: { dados: ImpactoResponse }) {
       </Card>
 
       {/* ─── Tempo de resposta ──────────────────────────────────────────────────────────── */}
-      <Text style={estilos.subtitulo} accessibilityRole="header">
-        Tempo de resposta do bairro
-      </Text>
+      <TituloTela nivel="secao">Tempo de resposta do bairro</TituloTela>
 
       <Card>
         <Text
@@ -196,9 +189,7 @@ function Painel({ dados }: { dados: ImpactoResponse }) {
       </Card>
 
       {/* ─── Token ──────────────────────────────────────────────────────────────────────── */}
-      <Text style={estilos.subtitulo} accessibilityRole="header">
-        Token em circulação
-      </Text>
+      <TituloTela nivel="secao">Token em circulação</TituloTela>
 
       <Card>
         <Numero

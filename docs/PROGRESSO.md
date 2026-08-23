@@ -52,6 +52,60 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-08-24 — F18** — **Acessibilidade semântica, com o lint como fronteira.**
+
+  A F12 tinha resolvido contraste. A semântica ficava por conta de quem lembrasse — e neste projeto
+  o que não é testado vira comentário desatualizado. O inventário de 2026-08-23 mediu 22 achados
+  sobre 58 pressáveis; esta fase corrigiu 19 deles e, mais importante, **pôs a regra no lint**, que
+  o CI do mobile já executa.
+
+  **O achado que mudou a premissa da tarefa.** O pedido era ligar `has-accessibility-props`. Li o
+  fonte publicado do plugin antes de instalar: **aquela regra reporta ZERO neste código**, e não é
+  bug — ela só dispara quando o elemento já usa `accessibilityTraits`/`accessibilityComponentType`,
+  props depreciadas da era RN 0.56 que o app não usa. O nome engana. A regra que de fato cobra é
+  `has-valid-accessibility-descriptors`. Ligamos as duas, com o comentário dizendo qual é qual —
+  uma regra verde por vácuo é o mesmo "verde por não ter varrido" que o `security.yml` já teve de
+  distinguir com `::warning`.
+
+  **O plugin declara peer `eslint ^3..^8` e o projeto usa 9.39.5.** As regras funcionam (usam
+  `meta.schema`, não tocam API removida na v9); o conflito é só de metadado, e `npm ci` reprovaria
+  no CI. Resolvido com `overrides` no `package.json`, não com `--legacy-peer-deps`.
+
+  **Um único falso positivo, e ele não virou `eslint-disable`.** O fundo da `FolhaInferior` é um
+  pressável deliberadamente escondido. Em vez de silenciar a regra, ganhou `accessibilityRole="none"`
+  — que é a verdade sobre aquele elemento. Silenciar teria deixado o próximo `Pressable` sem rótulo
+  passar junto. **Não há nenhuma exceção inline de acessibilidade no repositório.**
+
+  **O que o lint NÃO acha, e é a maior parte.** O gate pegou uma violação; o inventário tinha
+  achado 22. Regra estática afirma que existe anotação, não que ela diz a coisa certa: que o glifo
+  não entre na fala, que o foco vá para o título, que o sucesso seja anunciado — isso é
+  comportamento, e comportamento se prova com teste. É a mesma divisão do backend, onde o ArchUnit
+  trava a direção da dependência e o teste de integração prova o que ela faz.
+
+  **Os dois consertos que valem mais que a anotação:**
+
+  1. **A `FolhaInferior` não rolava.** Sete dos oito usos injetavam o conteúdo direto numa
+     `Animated.View` sem altura máxima. Com a fonte do sistema no máximo, o botão "Transferir"
+     ficava abaixo da borda **sem gesto que o alcançasse** — a operação deixava de ser executável
+     por causa de uma preferência de acessibilidade. Um `ScrollView` num arquivo consertou os oito.
+  2. **O sucesso era mudo.** O `Aviso` já era região viva, então a FALHA de quase tudo era falada e
+     o SUCESSO de nada era: check-in aceito, transferência concluída, vizinho encontrado. E
+     `accessibilityLiveRegion` **é prop de Android** — no iOS nunca falou nada. `useAnuncio` cobre
+     os dois.
+
+  **Três defeitos que não eram de acessibilidade e apareceram junto:** `definirConsentimento.error`,
+  `marcarLido.error` e `exportar.error` **não eram renderizados em lugar nenhum**. Revogar um
+  consentimento podia falhar, o switch voltava sozinho e a pessoa ficava acreditando que revogou —
+  num controle de LGPD. Agora aparecem e são anunciados.
+
+  **Bug meu, corrigido no caminho:** pus `useAnuncio` depois dos early returns do detalhe da missão
+  e o React abortou com "Rendered more hooks than during the previous render". Hook em caminho
+  condicional muda a contagem entre renderizações — foi o teste que pegou.
+
+  Verificado: `npm run typecheck` limpo, `npm run lint` com **0 erros** (as 10 advertências são as
+  mesmas de antes, conferidas por diff), `npm test` com **209 testes** (eram 188). O gate foi
+  exercitado contra um arquivo de prova com cinco violações e reprovou as cinco.
+
 - **2026-08-23** — **O sistema passou a responder a pergunta de VALOR, e dois testes desmentiram o
   código no caminho.**
 

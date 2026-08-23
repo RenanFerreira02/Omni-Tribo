@@ -9,6 +9,7 @@ import { Aviso } from '@/components/Aviso';
 import { Botao } from '@/components/Botao';
 import { CampoTexto } from '@/components/CampoTexto';
 import { Card } from '@/components/Card';
+import { TituloTela } from '@/components/TituloTela';
 import { Esqueleto } from '@/components/Esqueleto';
 import { EstadoVazio } from '@/components/EstadoVazio';
 import { FolhaInferior } from '@/components/FolhaInferior';
@@ -21,6 +22,7 @@ import {
 } from '@/features/carteira/hooks';
 import { formatarDataHora } from '@/lib/formatar';
 import { errosDoZod } from '@/lib/formulario';
+import { useAnuncio } from '@/lib/anunciar';
 import { novaChaveIdempotencia } from '@/lib/ids';
 import { transferenciaSchema } from '@/schemas';
 import { cores, espaco, textoAcessivel, tipografia } from '@/theme';
@@ -66,6 +68,14 @@ export default function TelaCarteira() {
   const [quantidade, setQuantidade] = useState('');
   const [mensagem, setMensagem] = useState('');
   const [errosForm, setErrosForm] = useState<Record<string, string>>({});
+  /**
+   * O desfecho falado da última operação da folha.
+   *
+   * A busca e a transferência mudavam a tela sem dizer nada: o cartão com o nome do vizinho aparecia
+   * e a folha fechava. Quem usa leitor de tela ficava sem saber se acertou o `@` e sem saber se o
+   * token saiu — num ledger append-only, onde não há desfazer.
+   */
+  const [anuncio, setAnuncio] = useState<string | null>(null);
 
   /**
    * A chave de idempotência nasce com a INTENÇÃO, não com o toque.
@@ -76,6 +86,8 @@ export default function TelaCarteira() {
    */
   const chave = useRef(novaChaveIdempotencia());
   const busca = useBuscarPorHandle();
+
+  useAnuncio(anuncio);
 
   const lancamentos = (extrato.data?.pages ?? []).flatMap((pagina) => pagina.conteudo);
 
@@ -89,7 +101,19 @@ export default function TelaCarteira() {
    */
   function procurarVizinho() {
     setEncontrado(null);
-    busca.mutate(handle.trim().replace(/^@/, ''), { onSuccess: setEncontrado });
+    setAnuncio(null);
+    busca.mutate(handle.trim().replace(/^@/, ''), {
+      onSuccess: (vizinho) => {
+        setEncontrado(vizinho);
+        // O NOME é o ponto da confirmação — é o que distingue um erro de digitação de um estorno
+        // manual. Dizê-lo em voz alta é o equivalente de mostrá-lo no cartão.
+        setAnuncio(
+          `Vizinho encontrado: ${vizinho.nome}, arroba ${vizinho.handle}${vizinho.tribo ? `, ${vizinho.tribo}` : ''}. Confira antes de transferir.`,
+        );
+      },
+      onError: () =>
+        setAnuncio('Nenhum vizinho com esse arroba na sua tribo. Confira a escrita com a pessoa.'),
+    });
   }
 
   function trocarHandle(texto: string) {
@@ -123,7 +147,15 @@ export default function TelaCarteira() {
         chaveIdempotencia: chave.current,
       },
       {
-        onSuccess: () => {
+        onSuccess: (resultado) => {
+          // A quantidade vem do que foi VALIDADO aqui: a resposta traz saldo e ids, não o valor.
+          // E `replay` é dito em voz alta — num retry de rede, "concluída" faria a pessoa acreditar
+          // que transferiu duas vezes.
+          setAnuncio(
+            resultado.replay
+              ? `Esta transferência já havia sido feita. Nada foi enviado de novo. Seu saldo é ${resultado.saldoTokensRemetente} tokens.`
+              : `Transferência concluída. ${analise.data.tokens} tokens enviados para ${encontrado.nome}. Seu saldo agora é ${resultado.saldoTokensRemetente} tokens.`,
+          );
           chave.current = novaChaveIdempotencia();
           setTransferirAberto(false);
           setHandle('');
@@ -159,7 +191,7 @@ export default function TelaCarteira() {
         }}
         ListHeaderComponent={
           <View style={estilos.cabecalho}>
-            <Text style={estilos.titulo}>Carteira</Text>
+            <TituloTela>Carteira</TituloTela>
 
             <Card estilo={estilos.saldo}>
               <Text style={estilos.rotuloSaldo}>Seus tokens</Text>
@@ -216,7 +248,7 @@ export default function TelaCarteira() {
               />
             </View>
 
-            <Text style={estilos.subtitulo}>Extrato</Text>
+            <TituloTela nivel="secao">Extrato</TituloTela>
           </View>
         }
         ListEmptyComponent={
@@ -333,6 +365,7 @@ export default function TelaCarteira() {
 
         <Botao
           titulo={encontrado ? `Transferir para ${encontrado.nome}` : 'Transferir'}
+          hint="A transferência é imediata e não pode ser desfeita."
           carregando={transferir.isPending}
           // Sem destinatário confirmado não há o que transferir. O botão desabilitado é a segunda
           // metade da confirmação: ele só acorda depois que a pessoa viu o nome.
@@ -361,11 +394,18 @@ function LinhaLancamento({ lancamento }: { lancamento: LancamentoResponse }) {
             atendia. Ver a regra em `src/theme/tokens.ts`. */}
         <Text
           style={[estilos.sinal, { color: entrada ? cores.verdeEscuro : textoAcessivel.coral }]}
+          // O sinal vive no rótulo do SaldoToken ao lado; aqui ele é só a marca visual.
+          accessibilityElementsHidden
+          importantForAccessibility="no"
         >
           {entrada ? '+' : '−'}
         </Text>
         <SaldoToken
           tokens={lancamento.valorTokens}
+          // O "+"/"−" ao lado é uma <Text> com um único caractere de pontuação, e motor de TTS
+          // costuma não pronunciá-lo — crédito e débito ficavam indistinguíveis por voz, no extrato,
+          // onde a direção do lançamento é a informação principal.
+          prefixoAcessivel={entrada ? 'mais ' : 'menos '}
           cor={entrada ? cores.verdeEscuro : textoAcessivel.coral}
         />
       </View>

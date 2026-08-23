@@ -15,6 +15,40 @@
   `coral` 3,20:1, contra o mínimo de 4,5:1. Onze dos vinte e dois pares texto/fundo do app
   reprovavam. `textoAcessivel` traz as mesmas cores escurecidas até o limiar, preservando o matiz.
   Verde como texto é `verdeEscuro`, que já atendia. Um `color: cores.ambar` novo é regressão.
+- **Acessibilidade é LINT, não boa vontade** (F18). `eslint-plugin-react-native-a11y` roda no
+  `npm run lint`, que o CI do mobile já executa. Onze regras ligadas uma a uma em `eslint.config.js`,
+  com o comentário de cada decisão. **Nenhuma exceção inline sem justificativa** — e hoje não há
+  nenhuma: o único falso positivo (o fundo da `FolhaInferior`) foi resolvido declarando
+  `accessibilityRole="none"`, que é a verdade sobre aquele elemento, em vez de silenciar a regra.
+  - O gate real é **`has-valid-accessibility-descriptors`**: todo `Pressable` e todo `TextInput`
+    precisa de papel, rótulo ou ação. **`has-accessibility-props`, apesar do nome, é INERTE aqui** —
+    ela só dispara sobre `accessibilityTraits`/`accessibilityComponentType`, depreciadas e ausentes
+    do app. Fica ligada como trava de regressão; não conte com ela para cobrar anotação nova.
+  - `has-accessibility-hint` NÃO é ligada: exige dica sempre que existe rótulo, e dica em "Voltar"
+    ou no número do saldo é ruído. **Hint é para quando a consequência não é óbvia** — check-in,
+    transferência, exclusão de conta —, e isso é julgamento, não regra.
+  - A lista `touchables` NÃO inclui `Botao`/`Chip`/`MissaoCard`: eles já emitem semântica por
+    dentro, e listá-los obrigaria os pontos de uso a repetir o que o componente entrega.
+- **Resultado assíncrono é ANUNCIADO** (`useAnuncio`, em `src/lib/anunciar.ts`). O `Aviso` já era
+  região viva, então a FALHA falava e o SUCESSO não — check-in aceito, transferência concluída e
+  vizinho encontrado mudavam a tela em silêncio. E `accessibilityLiveRegion` **é prop de Android**:
+  no iOS ela não faz nada, então o anúncio explícito entra mesmo onde já existe `Aviso`.
+  `paraFala()` troca "180 m" por "180 metros", porque TTS trata abreviação de unidade de forma
+  inconsistente e instrução sem unidade não orienta.
+- **`TituloTela` é o cabeçalho de toda tela e seção.** Ele dá `accessibilityRole="header"` (a
+  navegação por títulos do TalkBack depende disso) e move o foco para si na troca de rota — sem
+  isso, cada navegação joga a pessoa no topo da árvore. Só o título de TELA puxa foco; o de seção
+  não, senão dois competiriam e a leitura sairia na ordem de montagem.
+- **`maxFontSizeMultiplier` SÓ em controle compacto** — hoje só no `Chip`, onde a barra de cinco
+  filtros quebra em duas linhas. **Nunca em corpo de texto**, que é justamente o que precisa
+  crescer. Altura de controle é `minHeight`, nunca `height`.
+- **`useMovimentoReduzido()`** (`src/lib/movimento.ts`) desliga o pulso do `Esqueleto` e as
+  transições do Expo Router. Com movimento reduzido o esqueleto não tem `Animated.Value` nenhum na
+  árvore — é opacidade fixa, não animação parada.
+- **Categoria tem GLIFO além de cor** (`glifoCategoria`): ◆ entrega · ● coleta · ▲ tribo · ■ ajuda.
+  O glifo é decorativo (`importantForAccessibility="no"`) e por isso o `Chip` carrega
+  `accessibilityLabel` explícito — sem ele o leitor de tela anunciaria "losango Entrega". Vale
+  também no marcador do mapa, onde as quatro categorias eram indistinguíveis sem texto ao lado.
 - **`useLocalizacao()` NÃO pede permissão ao montar, e o default é esse de propósito.** Quem quiser
   o pedido automático passa `true` explicitamente — e precisa ter mostrado a justificativa antes.
   Use `JustificativaLocalizacao`: o diálogo do sistema é de uma via só, e negado uma vez não volta.

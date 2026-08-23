@@ -9,6 +9,7 @@ import type { BeneficioResponse } from '@/api/tipos';
 import { BarraProgresso } from '@/components/BarraProgresso';
 import { Botao } from '@/components/Botao';
 import { Card } from '@/components/Card';
+import { TituloTela } from '@/components/TituloTela';
 import { Esqueleto } from '@/components/Esqueleto';
 import { EstadoVazio } from '@/components/EstadoVazio';
 import { FolhaInferior } from '@/components/FolhaInferior';
@@ -131,9 +132,7 @@ export default function TelaBeneficios() {
     <SafeAreaView style={estilos.raiz} testID="tela-beneficios">
       <ScrollView contentContainerStyle={estilos.corpo}>
         <View style={estilos.cabecalho}>
-          <Text style={estilos.titulo} accessibilityRole="header">
-            Resgatar no bairro
-          </Text>
+          <TituloTela>Resgatar no bairro</TituloTela>
           <Botao
             titulo="Voltar"
             variante="texto"

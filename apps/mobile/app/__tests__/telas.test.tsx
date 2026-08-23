@@ -1,4 +1,6 @@
-import { fireEvent, screen } from '@testing-library/react-native';
+import { useEffect as mockUseEffect } from 'react';
+import { AccessibilityInfo } from 'react-native';
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 
 import TelaCarteira from '../(tabs)/carteira';
@@ -19,6 +21,10 @@ const mockEmpurrar = jest.fn();
 const mockSubstituir = jest.fn();
 
 jest.mock('expo-router', () => ({
+  // `useFocusEffect` entra no dublê porque `TituloTela` o usa para mover o foco do leitor de tela
+  // ao entrar na rota. Aqui ele roda como um `useEffect` comum: numa árvore de teste não há pilha
+  // de navegação, e o comportamento que interessa — disparar uma vez na montagem — é o mesmo.
+  useFocusEffect: (efeito: () => void) => mockUseEffect(efeito, [efeito]),
   useRouter: () => ({ push: mockEmpurrar, replace: mockSubstituir, back: jest.fn() }),
   useLocalSearchParams: () => ({}),
 }));
@@ -215,6 +221,84 @@ describe('carteira', () => {
     await screen.findByTestId('saldo-tokens');
     expect(chave).toBeTruthy();
     expect((chave as unknown as string).length).toBeGreaterThanOrEqual(8);
+  });
+
+  it('a busca e a transferência são ANUNCIADAS — o leitor de tela não vê a folha mudar', async () => {
+    // Duas coisas em silêncio antes desta fase: o cartão com o nome do vizinho aparecendo (que é a
+    // confirmação inteira, num ledger append-only sem desfazer) e a folha fechando no sucesso.
+    servidor.use(
+      http.post(`${BASE}/carteira/transferencias`, () =>
+        HttpResponse.json(
+          {
+            lancamentoSaidaId: 'eeeeeeee-0000-0000-0000-000000000002',
+            lancamentoEntradaId: 'eeeeeeee-0000-0000-0000-000000000003',
+            saldoTokensRemetente: 31,
+            replay: false,
+          },
+          { status: 201 },
+        ),
+      ),
+    );
+
+    await render(<TelaCarteira />);
+    await fireEvent.press(await screen.findByTestId('botao-abrir-transferencia'));
+    await fireEvent.changeText(screen.getByLabelText('@ do vizinho'), '@marlene');
+    await fireEvent.press(screen.getByRole('button', { name: 'Buscar vizinho' }));
+
+    await waitFor(() =>
+      expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
+        expect.stringContaining(VIZINHO.nome),
+      ),
+    );
+
+    await fireEvent.changeText(screen.getByTestId('campo-tokens'), '10');
+    await fireEvent.press(screen.getByRole('button', { name: `Transferir para ${VIZINHO.nome}` }));
+
+    await waitFor(() =>
+      expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
+        `Transferência concluída. 10 tokens enviados para ${VIZINHO.nome}. Seu saldo agora é 31 tokens.`,
+      ),
+    );
+  });
+
+  it('replay NÃO é anunciado como transferência nova', async () => {
+    // Num retry de rede o servidor devolve o replay. Dizer "concluída" faria a pessoa acreditar que
+    // enviou duas vezes — e ela não tem como conferir o extrato sem sair da folha.
+    servidor.use(
+      http.post(`${BASE}/carteira/transferencias`, () =>
+        HttpResponse.json(
+          {
+            lancamentoSaidaId: 'eeeeeeee-0000-0000-0000-000000000002',
+            lancamentoEntradaId: null,
+            saldoTokensRemetente: 31,
+            replay: true,
+          },
+          { status: 200 },
+        ),
+      ),
+    );
+
+    await render(<TelaCarteira />);
+    await fireEvent.press(await screen.findByTestId('botao-abrir-transferencia'));
+    await fireEvent.changeText(screen.getByLabelText('@ do vizinho'), '@marlene');
+    await fireEvent.press(screen.getByRole('button', { name: 'Buscar vizinho' }));
+    expect(await screen.findByText(VIZINHO.nome)).toBeTruthy();
+    await fireEvent.changeText(screen.getByTestId('campo-tokens'), '10');
+    await fireEvent.press(screen.getByRole('button', { name: `Transferir para ${VIZINHO.nome}` }));
+
+    await waitFor(() =>
+      expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
+        expect.stringContaining('já havia sido feita'),
+      ),
+    );
+  });
+
+  it('o extrato diz a DIREÇÃO do lançamento na fala, não só na cor', async () => {
+    // "+"/"−" é uma <Text> com um único caractere de pontuação, que a maioria dos motores de TTS
+    // não pronuncia. Sem o sinal no rótulo, crédito e débito soam idênticos.
+    await render(<TelaCarteira />);
+
+    expect(await screen.findByLabelText(/^mais \d+ tokens$/)).toBeTruthy();
   });
 
   it('sem destinatário confirmado, o botão de transferir não age', async () => {
@@ -423,6 +507,28 @@ describe('perfil', () => {
 });
 
 // ─── Notificações ─────────────────────────────────────────────────────────────────────────────
+
+it('falha ao alterar consentimento DEIXA DE SER SILENCIOSA', async () => {
+  // Não era só invisível para leitor de tela: o erro não era renderizado em lugar NENHUM. O
+  // switch voltava sozinho e a pessoa ficava acreditando que havia revogado — num controle de
+  // LGPD, onde acreditar errado é o pior desfecho possível.
+  servidor.use(
+    http.put(`${BASE}/usuarios/me/consentimentos/:tipo`, () =>
+      HttpResponse.json(problema('erro-interno', 500, 'Falha ao gravar.'), { status: 500 }),
+    ),
+  );
+
+  await render(<TelaPerfil />);
+  await fireEvent.press(await screen.findByTestId('botao-privacidade'));
+  await fireEvent(screen.getByTestId('consentimento-NOTIFICACAO'), 'valueChange', false);
+
+  expect(await screen.findByTestId('erro-consentimento')).toBeTruthy();
+  await waitFor(() =>
+    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
+      expect.stringContaining('não foi salvo'),
+    ),
+  );
+});
 
 describe('notificações', () => {
   it('lista os avisos e destaca os não lidos', async () => {

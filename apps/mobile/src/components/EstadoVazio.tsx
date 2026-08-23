@@ -13,7 +13,11 @@ interface Props {
 export function EstadoVazio({ titulo, descricao, acao, testID }: Props) {
   return (
     <View style={estilos.caixa} testID={testID}>
-      <Text style={estilos.titulo}>{titulo}</Text>
+      {/* Cabeçalho: é o que a navegação por títulos do TalkBack usa para pular direto ao estado
+          vazio em vez de varrer a lista inteira para descobrir que ela está vazia. */}
+      <Text style={estilos.titulo} accessibilityRole="header">
+        {titulo}
+      </Text>
       {descricao ? <Text style={estilos.descricao}>{descricao}</Text> : null}
       {acao ? (
         <Botao

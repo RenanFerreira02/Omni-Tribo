@@ -1,4 +1,6 @@
-import { screen, fireEvent } from '@testing-library/react-native';
+import { useEffect as mockUseEffect } from 'react';
+import { AccessibilityInfo } from 'react-native';
+import { screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 
 import DetalheMissao from '../(app)/missao/[id]';
@@ -12,6 +14,10 @@ const EU = 'bbbbbbbb-0000-0000-0000-000000000002';
 const OUTRO = 'bbbbbbbb-0000-0000-0000-000000000009';
 
 jest.mock('expo-router', () => ({
+  // `useFocusEffect` entra no dublê porque `TituloTela` o usa para mover o foco do leitor de tela
+  // ao entrar na rota. Aqui ele roda como um `useEffect` comum: numa árvore de teste não há pilha
+  // de navegação, e o comportamento que interessa — disparar uma vez na montagem — é o mesmo.
+  useFocusEffect: (efeito: () => void) => mockUseEffect(efeito, [efeito]),
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn() }),
   useLocalSearchParams: () => ({ id: 'dddddddd-0000-0000-0000-000000000003' }),
 }));
@@ -418,5 +424,86 @@ describe('detalhe da missão', () => {
 
     // Exibir "1.00× por risco" em toda missão comum seria informação sem conteúdo.
     expect(screen.queryByTestId('multiplicador-risco')).toBeNull();
+  });
+  // ─── Anúncio: o leitor de tela não vê o chip de status mudar ────────────────────────────────
+
+  describe('desfecho anunciado', () => {
+    it('check-in aceito anuncia a recompensa creditada', async () => {
+      // O achado mais caro do inventário de acessibilidade: a operação central do produto trocava o
+      // estado da tela e seguia em silêncio. Quem usa leitor de tela tocava, o botão sumia, e nada
+      // dizia se o token havia entrado.
+      comMissao({ status: 'EM_ANDAMENTO', criadorId: OUTRO, executorId: EU });
+      servidor.use(
+        http.post(`${BASE}/missoes/:id/checkin`, () =>
+          HttpResponse.json(
+            missao({ status: 'CONCLUIDA', xpRecompensa: 69, tokensRecompensa: 23 }),
+          ),
+        ),
+      );
+
+      await render(<DetalheMissao />);
+      await fireEvent.press(await screen.findByTestId('acao-checkin'));
+
+      await waitFor(() =>
+        expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
+          expect.stringContaining('69 XP e 23 tokens'),
+        ),
+      );
+    });
+
+    it('check-in recusado anuncia a instrução, com a unidade por extenso', async () => {
+      // "180 m" na tela e "180 metros" na fala: motor de TTS trata abreviação de unidade de forma
+      // inconsistente, e uma instrução acionável sem unidade não orienta ninguém.
+      comMissao({ status: 'EM_ANDAMENTO', criadorId: OUTRO, executorId: EU });
+      servidor.use(
+        http.post(`${BASE}/missoes/:id/checkin`, () =>
+          HttpResponse.json(
+            problema('checkin-fora-do-raio', 422, 'copy do servidor', {
+              distanciaM: 180.4,
+              raioM: 50,
+            }),
+            { status: 422 },
+          ),
+        ),
+      );
+
+      await render(<DetalheMissao />);
+      await fireEvent.press(await screen.findByTestId('acao-checkin'));
+
+      await waitFor(() =>
+        expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
+          'Você ainda não chegou. Você está a 180 metros do ponto; aproxime-se para até 50 metros e tente de novo.',
+        ),
+      );
+    });
+
+    it('ação concluída anuncia o ESTADO NOVO, não um "pronto"', async () => {
+      comMissao({ status: 'ABERTA', criadorId: OUTRO });
+      servidor.use(
+        http.post(`${BASE}/missoes/:id/aceitar`, () =>
+          HttpResponse.json(missao({ status: 'ACEITA', criadorId: OUTRO, executorId: EU })),
+        ),
+      );
+
+      await render(<DetalheMissao />);
+      await fireEvent.press(await screen.findByTestId('acao-aceitar'));
+
+      await waitFor(() =>
+        expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
+          expect.stringContaining('Missão aceita'),
+        ),
+      );
+    });
+
+    it('o botão de check-in avisa que vai usar a localização', async () => {
+      // Dica de CONSEQUÊNCIA: "Fazer check-in" não diz que lê o GPS nem que é o ato que credita.
+      comMissao({ status: 'EM_ANDAMENTO', criadorId: OUTRO, executorId: EU });
+
+      await render(<DetalheMissao />);
+
+      expect((await screen.findByTestId('acao-checkin')).props.accessibilityHint).toContain(
+        'localização',
+      );
+    });
   });
 });

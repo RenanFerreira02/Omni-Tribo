@@ -7,6 +7,15 @@ interface Props {
   tokens: number;
   tamanho?: 'normal' | 'grande';
   cor?: string;
+  /**
+   * Prefixo do rótulo falado — "+" ou "−" no extrato.
+   *
+   * O sinal existia só como uma `<Text>` irmã com um único caractere de pontuação, e motor de TTS
+   * costuma não pronunciar isso: crédito e débito ficavam indistinguíveis por voz, num extrato onde
+   * a direção do lançamento é a informação principal. Dobrar o sinal aqui resolve sem duplicar
+   * nada na tela.
+   */
+  prefixoAcessivel?: string;
   testID?: string;
 }
 
@@ -19,14 +28,23 @@ interface Props {
  * resgate é em benefício de parceiro do bairro, não em reais (ADR 0009). O separador de milhar
  * entra porque 1.240 é mais legível que 1240, e isso não é formatação monetária.
  */
-export function SaldoToken({ tokens, tamanho = 'normal', cor = cores.verdeEscuro, testID }: Props) {
+export function SaldoToken({
+  tokens,
+  tamanho = 'normal',
+  cor = cores.verdeEscuro,
+  prefixoAcessivel,
+  testID,
+}: Props) {
   const dimensao = tamanho === 'grande' ? 28 : 16;
   const estiloTexto = tamanho === 'grande' ? estilos.grande : estilos.normal;
 
   return (
     <View style={estilos.linha} testID={testID}>
       <IconeToken tamanho={dimensao} cor={cor} />
-      <Text style={[estiloTexto, { color: cor }]} accessibilityLabel={`${tokens} tokens`}>
+      <Text
+        style={[estiloTexto, { color: cor }]}
+        accessibilityLabel={`${prefixoAcessivel ?? ''}${tokens} tokens`}
+      >
         {tokens.toLocaleString('pt-BR')}
       </Text>
     </View>
@@ -41,7 +59,17 @@ export function IconeToken({
   cor?: string;
 }) {
   return (
-    <Svg width={tamanho} height={tamanho} viewBox="0 0 24 24" accessibilityRole="image">
+    <Svg
+      width={tamanho}
+      height={tamanho}
+      viewBox="0 0 24 24"
+      // DECORATIVO. Como `role="image"` sem rótulo, ele era anunciado como "imagem" antes de cada
+      // saldo do app — ruído a cada linha do extrato, a cada card de missão e no topo da carteira.
+      // O número ao lado já carrega a informação inteira.
+      accessibilityElementsHidden
+      importantForAccessibility="no"
+      accessibilityRole="none"
+    >
       <Circle cx={12} cy={12} r={10} stroke={cor} strokeWidth={2} fill="none" />
       {/* Três nós ligados: a moeda comunitária é uma rede de vizinhos, não um cifrão. */}
       <Path

@@ -28,7 +28,18 @@ export function Aviso({ titulo, mensagem, tom = 'informacao', testID }: Props) {
       testID={testID}
       accessible
       accessibilityLiveRegion="polite"
-      accessibilityRole="alert"
+      // O PAPEL acompanha o tom, em vez de ser `alert` sempre.
+      //
+      // Metade dos avisos do app é informativa — "nenhum vizinho com esse @", "mostrando o mapa na
+      // sua tribo" — e anunciá-los com a urgência de um erro gasta a única sinalização de urgência
+      // que existe. Quando tudo é alerta, nada é.
+      accessibilityRole={tom === 'informacao' ? 'text' : 'alert'}
+      // A SEVERIDADE dita em palavra, porque na tela ela é só o matiz do fundo.
+      //
+      // Seis dos doze usos do app não passam `titulo`: neles, "erro" e "informação" chegavam ao
+      // olho pela cor e ao ouvido por nada. O prefixo só entra quando não há título — quando há, ele
+      // já diz do que se trata ("Sem acesso à localização", "Premissa, não medição").
+      accessibilityLabel={`${titulo ? '' : PREFIXO_FALADO[tom]}${titulo ? `${titulo}. ` : ''}${mensagem}`}
       style={[estilos.caixa, { backgroundColor: paleta.fundo, borderColor: paleta.borda }]}
     >
       {titulo ? <Text style={[estilos.titulo, { color: paleta.texto }]}>{titulo}</Text> : null}
@@ -53,6 +64,13 @@ export function Aviso({ titulo, mensagem, tom = 'informacao', testID }: Props) {
  * `textoAcessivel` preserva o matiz e só escurece até o limiar: o aviso continua âmbar e o erro
  * continua coral, agora legíveis.
  */
+/** Só para a fala. Na tela a severidade continua vindo da cor e do título. */
+const PREFIXO_FALADO: Record<TomAviso, string> = {
+  informacao: '',
+  atencao: 'Atenção. ',
+  erro: 'Erro. ',
+};
+
 const PALETA: Record<TomAviso, { fundo: string; borda: string; texto: string }> = {
   informacao: { fundo: cores.verdeClaro, borda: cores.verdePrimario, texto: cores.verdeEscuro },
   atencao: { fundo: cores.ambarClaro, borda: cores.ambar, texto: textoAcessivel.ambar },

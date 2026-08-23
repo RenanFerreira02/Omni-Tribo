@@ -5,11 +5,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { mensagemDe } from '@/api/erros';
 import type { AlertaResponse } from '@/api/tipos';
+import { Aviso } from '@/components/Aviso';
 import { Card } from '@/components/Card';
 import { Chip } from '@/components/Chip';
 import { Esqueleto } from '@/components/Esqueleto';
+import { TituloTela } from '@/components/TituloTela';
 import { EstadoVazio } from '@/components/EstadoVazio';
 import { useAlertasInfinitos, useContagemNaoLidos, useMarcarLido } from '@/features/alertas/hooks';
+import { useAnuncio } from '@/lib/anunciar';
 import { formatarDataHora } from '@/lib/formatar';
 import { cores, espaco, textoAcessivel, tipografia } from '@/theme';
 
@@ -20,13 +23,23 @@ export default function TelaNotificacoes() {
   const alertas = useAlertasInfinitos(apenasNaoLidos);
   const contagem = useContagemNaoLidos();
   const marcarLido = useMarcarLido();
+  const [anuncio, setAnuncio] = useState<string | null>(null);
+
+  useAnuncio(anuncio);
 
   const itens = (alertas.data?.pages ?? []).flatMap((pagina) => pagina.conteudo);
 
   function abrir(alerta: AlertaResponse) {
     // Marcar ao ABRIR, e não num botão separado: é o gesto que significa "eu vi isto". A operação
     // é idempotente no servidor, então tocar duas vezes não é problema.
-    if (!alerta.lido) marcarLido.mutate({ id: alerta.id });
+    if (!alerta.lido) {
+      // A falha não aparecia em lugar nenhum: o ponto de não-lido continuava lá e nada explicava
+      // por quê. Idempotente no servidor, então avisar e deixar a pessoa tocar de novo é seguro.
+      marcarLido.mutate(
+        { id: alerta.id },
+        { onError: () => setAnuncio('Não foi possível marcar como lido. Toque de novo.') },
+      );
+    }
     if (alerta.missaoId) router.push(`/missao/${alerta.missaoId}`);
   }
 
@@ -53,10 +66,17 @@ export default function TelaNotificacoes() {
         }}
         ListHeaderComponent={
           <View style={estilos.cabecalho}>
-            <Text style={estilos.titulo} accessibilityRole="header">
-              Avisos
-            </Text>
-            <View style={estilos.filtros}>
+            <TituloTela>Avisos</TituloTela>
+            {marcarLido.error ? (
+              <Aviso tom="erro" mensagem={mensagemDe(marcarLido.error)} testID="erro-marcar-lido" />
+            ) : null}
+            {/* Grupo de escolha ÚNICA. Sem o papel, o leitor de tela anuncia dois botões soltos e
+                a pessoa não sabe que escolher um desliga o outro. */}
+            <View
+              style={estilos.filtros}
+              accessibilityRole="radiogroup"
+              accessibilityLabel="Filtrar avisos"
+            >
               <Chip
                 rotulo="Todos"
                 selecionado={!apenasNaoLidos}
@@ -105,6 +125,9 @@ export default function TelaNotificacoes() {
             accessibilityRole="button"
             accessible
             accessibilityLabel={`${item.lido ? 'Lido' : 'Não lido'}. ${item.titulo}. ${item.corpo}`}
+            accessibilityHint={
+              item.missaoId ? 'Marca como lido e abre a missão.' : 'Marca este aviso como lido.'
+            }
             testID={`alerta-${item.id}`}
           >
             <Card estilo={item.lido ? undefined : estilos.naoLido}>
