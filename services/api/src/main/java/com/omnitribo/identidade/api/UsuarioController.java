@@ -1,5 +1,6 @@
 package com.omnitribo.identidade.api;
 
+import com.omnitribo.identidade.dominio.BuscaUsuarioService;
 import com.omnitribo.identidade.dominio.ConsentimentoService;
 import com.omnitribo.identidade.dominio.ExclusaoContaService;
 import com.omnitribo.identidade.dominio.ExportacaoDadosService;
@@ -11,6 +12,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -22,6 +25,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -43,16 +47,59 @@ public class UsuarioController {
   private final ConsentimentoService consentimentoService;
   private final ExportacaoDadosService exportacaoDadosService;
   private final ExclusaoContaService exclusaoContaService;
+  private final BuscaUsuarioService buscaUsuarioService;
 
   public UsuarioController(
       PerfilService perfilService,
       ConsentimentoService consentimentoService,
       ExportacaoDadosService exportacaoDadosService,
-      ExclusaoContaService exclusaoContaService) {
+      ExclusaoContaService exclusaoContaService,
+      BuscaUsuarioService buscaUsuarioService) {
     this.perfilService = perfilService;
     this.consentimentoService = consentimentoService;
     this.exportacaoDadosService = exportacaoDadosService;
     this.exclusaoContaService = exclusaoContaService;
+    this.buscaUsuarioService = buscaUsuarioService;
+  }
+
+  @GetMapping("/busca")
+  @Operation(
+      summary = "Encontrar um vizinho pelo @ exato, dentro da sua tribo",
+      description =
+          """
+          Match EXATO e sem distinção de caixa. NÃO existe busca por prefixo, por parte do nome nem
+          por similaridade, e não existe listagem de membros: qualquer uma das três daria a quem
+          está autenticado um mapa social do bairro — e, como a transferência é restrita à mesma
+          tribo, esse mapa também seria uma lista de alvos.
+
+          Só encontra quem está na MESMA TRIBO de quem pergunta, e a identidade de quem pergunta
+          vem do JWT.
+
+          Handle inexistente, handle de outra tribo e conta inutilizável respondem o MESMO 404 —
+          são indistinguíveis de propósito. Tem teto de requisições próprio, bem abaixo do limite
+          geral de leitura, porque o endpoint responde uma pergunta de sim ou não sobre existência
+          e serviria para colher handles em massa. Ver ADR 0028.
+          """)
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Vizinho encontrado"),
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),
+    @ApiResponse(
+        responseCode = "404",
+        description =
+            "Nenhum vizinho ATIVO com esse @ na sua tribo. As três causas são a mesma"
+                + " resposta.",
+        content = @io.swagger.v3.oas.annotations.media.Content),
+    @ApiResponse(responseCode = "429", ref = "#/components/responses/LimiteExcedido")
+  })
+  public UsuarioBuscaResponse buscar(
+      @RequestParam
+          @NotBlank(message = "Informe o @ do vizinho")
+          @Size(max = 50, message = "Handle tem no máximo 50 caracteres")
+          String handle,
+      @AuthenticationPrincipal AutenticadoPrincipal principal) {
+
+    return buscaUsuarioService.porHandle(principal.id(), handle);
   }
 
   @GetMapping("/me")

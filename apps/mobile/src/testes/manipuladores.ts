@@ -15,6 +15,7 @@ import {
   TOKENS,
   TRIBO,
   USUARIO,
+  VIZINHO,
   missao,
   pagina,
   proxima,
@@ -89,6 +90,8 @@ export const manipuladores = [
     HttpResponse.json(pagina([BENEFICIO_ALCANCAVEL, BENEFICIO_CARO])),
   ),
   http.post(`${BASE}/resgates`, () => HttpResponse.json(RESGATE, { status: 201 })),
+
+  http.get(`${BASE}/usuarios/busca`, () => HttpResponse.json(VIZINHO)),
 
   http.get(`${BASE}/usuarios/me`, () => HttpResponse.json(PERFIL)),
   http.get(`${BASE}/usuarios/me/consentimentos`, () => HttpResponse.json(CONSENTIMENTOS)),

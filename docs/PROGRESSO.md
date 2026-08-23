@@ -52,6 +52,49 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-08-22 (4)** — **A transferência deixou de exigir UUID digitado, sem abrir diretório de
+  membros.**
+
+  A Pendência #3 dizia que a tela pedia o UUID do destinatário como texto: "funciona e é
+  inutilizável". A saída óbvia — listar os membros da tribo — estava fechada por decisão anterior, no
+  javadoc de `TriboController`: listar daria a qualquer autenticado um mapa social do bairro, e como
+  a transferência é restrita à mesma tribo, esse mapa seria uma lista de alvos.
+
+  A saída foi **busca por handle EXATO**, restrita à própria tribo (ADR 0028): quem já sabe o `@` do
+  vizinho o encontra; quem não sabe não descobre nada. Um handle é algo que a pessoa te diz — a busca
+  transforma conhecimento prévio em usabilidade sem criar diretório.
+
+  **O argumento que o ADR precisou fazer, e que vale repetir aqui:** perguntaram se handle
+  inexistente devia dar 404 ou resposta vazia. A resposta honesta é que **empatam**. O que protege
+  não é o número — é responder IGUAL nos três casos que precisam ser indistinguíveis (inexistente,
+  outra tribo, conta inativa). A F4 já tinha desmontado o senso comum aqui ao mostrar que quem vaza
+  existência é o 403, não o 404. Escolhemos 404 por CONTRATO, não por segurança: é busca por chave
+  natural, e `naoEncontrado` já está no catálogo de `type` do app. Dizer que 404 esconde algo seria
+  teatro — o sucesso da busca já revela existência, que é para o que ela serve.
+
+  O que de fato protege são três coisas, nenhuma delas um status: mesma tribo, match exato, e teto
+  próprio de 12/min. `BuscaHandleTest.outraTriboEInexistenteSaoIndistinguiveis` compara os dois
+  corpos byte a byte — se alguém "melhorar" a mensagem para distinguir as causas, o build fecha
+  vermelho.
+
+  **Dois detalhes que a implementação obrigou a resolver:**
+
+  1. `uk_usuario_handle` da V2 é case-SENSITIVE, então `alice` e `Alice` podiam coexistir — a busca
+     exata teria duas respostas para o que o usuário digita como uma coisa só. A V27 acrescentou
+     `UNIQUE INDEX (LOWER(handle))`, e a ausência de colisão foi MEDIDA antes de escrever.
+  2. O teto é por usuário e vive dez minutos na Caffeine. Com `busca-handle-por-minuto: 5` em teste, a
+     alice — que aparece em cinco testes da classe — esgotava o balde e os testes seguintes vinham
+     429 conforme a ordem de execução. Subiu para 20, e o teste do teto usa um usuário só dele.
+
+  Na tela, o campo de UUID **saiu**: `destinatarioId` virou dado interno. Busca é ação explícita (não
+  enquanto digita, que seria prefixo na prática e queimaria o teto), o resultado mostra nome e tribo,
+  e editar o `@` derruba o destinatário confirmado.
+
+  Evidência: `./mvnw verify` com **680 testes**, `npm test` com **178**; e ao vivo — busca achando
+  "Marlene Souza · Tribo Cidade Líder", `@alice` (outra tribo) e `@naoexiste123` devolvendo respostas
+  **idênticas** (diff vazio), transferência de 20 tokens sem digitar UUID (renan 124→104, marlene
+  42→62) e a varredura fechando no **429 na 11ª tentativa**.
+
 - **2026-08-22 (3)** — **O TOKEN passou a ter para onde ir: a economia virou ciclo.**
 
   O ADR 0009 §3 dizia desde sempre que o resgate em benefício de parceiro é o sumidouro do token, e

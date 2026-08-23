@@ -8,7 +8,7 @@ import TelaPerfil from '../(tabs)/perfil';
 import Onboarding from '../onboarding';
 import { sacar } from '@/api/carteira';
 import { paraErroApi } from '@/api/erros';
-import { PERFIL, alerta, problema } from '@/testes/fixtures';
+import { PERFIL, VIZINHO, alerta, problema } from '@/testes/fixtures';
 import { render } from '@/testes/render';
 import { servidor } from '@/testes/servidor';
 import { useSessao } from '@/stores/sessao';
@@ -204,16 +204,76 @@ describe('carteira', () => {
     await render(<TelaCarteira />);
     await fireEvent.press(await screen.findByTestId('botao-abrir-transferencia'));
 
-    await fireEvent.changeText(
-      screen.getByTestId('campo-destinatario'),
-      'bbbbbbbb-0000-0000-0000-000000000003',
-    );
+    // NENHUM UUID digitado: a pessoa escreve o @ e confirma pelo nome. Era esta a Pendência #3.
+    await fireEvent.changeText(screen.getByLabelText('@ do vizinho'), '@marlene');
+    await fireEvent.press(screen.getByRole('button', { name: 'Buscar vizinho' }));
+
+    expect(await screen.findByText(VIZINHO.nome)).toBeTruthy();
     await fireEvent.changeText(screen.getByTestId('campo-tokens'), '10');
-    await fireEvent.press(screen.getByTestId('botao-confirmar-transferencia'));
+    await fireEvent.press(screen.getByRole('button', { name: `Transferir para ${VIZINHO.nome}` }));
 
     await screen.findByTestId('saldo-tokens');
     expect(chave).toBeTruthy();
     expect((chave as unknown as string).length).toBeGreaterThanOrEqual(8);
+  });
+
+  it('sem destinatário confirmado, o botão de transferir não age', async () => {
+    let chamou = false;
+    servidor.use(
+      http.post(`${BASE}/carteira/transferencias`, () => {
+        chamou = true;
+        return HttpResponse.json({}, { status: 201 });
+      }),
+    );
+
+    await render(<TelaCarteira />);
+    await fireEvent.press(await screen.findByTestId('botao-abrir-transferencia'));
+    await fireEvent.changeText(screen.getByLabelText('@ do vizinho'), '@marlene');
+    await fireEvent.changeText(screen.getByTestId('campo-tokens'), '10');
+
+    // Sem tocar em "Buscar vizinho": não há nome na tela, então não há o que confirmar.
+    await fireEvent.press(screen.getByRole('button', { name: 'Transferir' }));
+
+    expect(chamou).toBe(false);
+  });
+
+  it('editar o @ derruba o destinatário confirmado', async () => {
+    await render(<TelaCarteira />);
+    await fireEvent.press(await screen.findByTestId('botao-abrir-transferencia'));
+    await fireEvent.changeText(screen.getByLabelText('@ do vizinho'), '@marlene');
+    await fireEvent.press(screen.getByRole('button', { name: 'Buscar vizinho' }));
+    expect(await screen.findByText(VIZINHO.nome)).toBeTruthy();
+
+    // Trocar o texto e transferir mandaria token para quem foi confirmado ANTES. Num ledger
+    // append-only isso vira estorno manual — é o erro que a busca veio evitar.
+    await fireEvent.changeText(screen.getByLabelText('@ do vizinho'), '@jonas');
+
+    expect(screen.queryByText(VIZINHO.nome)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Transferir' })).toBeTruthy();
+  });
+
+  it('@ que não existe na tribo: uma frase só, sem dizer por quê', async () => {
+    servidor.use(
+      http.get(`${BASE}/usuarios/busca`, () =>
+        HttpResponse.json(
+          problema('nao-encontrado', 404, 'Nenhum vizinho com esse @ na sua tribo.'),
+          {
+            status: 404,
+          },
+        ),
+      ),
+    );
+
+    await render(<TelaCarteira />);
+    await fireEvent.press(await screen.findByTestId('botao-abrir-transferencia'));
+    await fireEvent.changeText(screen.getByLabelText('@ do vizinho'), '@ninguem');
+    await fireEvent.press(screen.getByRole('button', { name: 'Buscar vizinho' }));
+
+    // Inexistente, de outra tribo e conta inativa produzem a MESMA frase: distinguir aqui recriaria
+    // no cliente o oráculo de enumeração que o servidor fechou.
+    expect(await screen.findByTestId('erro-busca-handle')).toHaveTextContent(
+      /nenhum vizinho com esse @ na sua tribo/i,
+    );
   });
 
   it('transferência recusada: mostra o motivo do servidor', async () => {
@@ -232,12 +292,12 @@ describe('carteira', () => {
 
     await render(<TelaCarteira />);
     await fireEvent.press(await screen.findByTestId('botao-abrir-transferencia'));
-    await fireEvent.changeText(
-      screen.getByTestId('campo-destinatario'),
-      'bbbbbbbb-0000-0000-0000-000000000003',
-    );
+    await fireEvent.changeText(screen.getByLabelText('@ do vizinho'), '@marlene');
+    await fireEvent.press(screen.getByRole('button', { name: 'Buscar vizinho' }));
+    expect(await screen.findByText(VIZINHO.nome)).toBeTruthy();
+
     await fireEvent.changeText(screen.getByTestId('campo-tokens'), '10');
-    await fireEvent.press(screen.getByTestId('botao-confirmar-transferencia'));
+    await fireEvent.press(screen.getByRole('button', { name: `Transferir para ${VIZINHO.nome}` }));
 
     expect(await screen.findByTestId('erro-transferencia')).toHaveTextContent(/mesma tribo/i);
   });

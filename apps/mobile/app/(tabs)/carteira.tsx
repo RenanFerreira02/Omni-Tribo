@@ -4,7 +4,7 @@ import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { mensagemDe } from '@/api/erros';
-import type { LancamentoResponse } from '@/api/tipos';
+import type { LancamentoResponse, UsuarioBuscaResponse } from '@/api/tipos';
 import { Aviso } from '@/components/Aviso';
 import { Botao } from '@/components/Botao';
 import { CampoTexto } from '@/components/CampoTexto';
@@ -13,7 +13,12 @@ import { Esqueleto } from '@/components/Esqueleto';
 import { EstadoVazio } from '@/components/EstadoVazio';
 import { FolhaInferior } from '@/components/FolhaInferior';
 import { SaldoToken } from '@/components/SaldoToken';
-import { useCarteira, useLancamentos, useTransferirTokens } from '@/features/carteira/hooks';
+import {
+  useBuscarPorHandle,
+  useCarteira,
+  useLancamentos,
+  useTransferirTokens,
+} from '@/features/carteira/hooks';
 import { formatarDataHora } from '@/lib/formatar';
 import { errosDoZod } from '@/lib/formulario';
 import { novaChaveIdempotencia } from '@/lib/ids';
@@ -49,7 +54,15 @@ export default function TelaCarteira() {
   const transferir = useTransferirTokens();
 
   const [transferirAberto, setTransferirAberto] = useState(false);
-  const [destinatario, setDestinatario] = useState('');
+  /**
+   * O `@` digitado e o vizinho ENCONTRADO são estados separados de propósito.
+   *
+   * Editar o texto invalida quem estava confirmado — senão a pessoa procuraria "marlene", conferiria
+   * o nome, trocaria para "jonas" e transferiria para a Marlene. Num ledger append-only isso vira
+   * estorno manual, e é exatamente o erro que a busca veio evitar.
+   */
+  const [handle, setHandle] = useState('');
+  const [encontrado, setEncontrado] = useState<UsuarioBuscaResponse | null>(null);
   const [quantidade, setQuantidade] = useState('');
   const [mensagem, setMensagem] = useState('');
   const [errosForm, setErrosForm] = useState<Record<string, string>>({});
@@ -62,6 +75,7 @@ export default function TelaCarteira() {
    * chave e o backend devolve o replay, em vez de transferir tokens duas vezes.
    */
   const chave = useRef(novaChaveIdempotencia());
+  const busca = useBuscarPorHandle();
 
   const lancamentos = (extrato.data?.pages ?? []).flatMap((pagina) => pagina.conteudo);
 
@@ -73,9 +87,24 @@ export default function TelaCarteira() {
    * vazio ia para a rede, e 9999 tokens passavam por cima do teto de 500 que o schema já
    * declarava. O schema existia desde sempre e nunca havia sido importado.
    */
+  function procurarVizinho() {
+    setEncontrado(null);
+    busca.mutate(handle.trim().replace(/^@/, ''), { onSuccess: setEncontrado });
+  }
+
+  function trocarHandle(texto: string) {
+    setHandle(texto);
+    // Qualquer edição derruba a confirmação: o nome na tela precisa corresponder ao @ que está no
+    // campo, sempre.
+    if (encontrado) setEncontrado(null);
+    if (busca.isError) busca.reset();
+  }
+
   function enviarTransferencia() {
+    if (!encontrado) return;
+
     const analise = transferenciaSchema.safeParse({
-      destinatarioId: destinatario.trim(),
+      destinatarioId: encontrado.id,
       // String vazia vira `undefined`, e não `NaN`: "não informado" e "valor inválido" produzem
       // mensagens diferentes, e `Number('')` é 0, que passaria por um teste de tipo.
       tokens: quantidade.trim() === '' ? undefined : Number(quantidade),
@@ -97,7 +126,9 @@ export default function TelaCarteira() {
         onSuccess: () => {
           chave.current = novaChaveIdempotencia();
           setTransferirAberto(false);
-          setDestinatario('');
+          setHandle('');
+          setEncontrado(null);
+          busca.reset();
           setQuantidade('');
           setMensagem('');
         },
@@ -225,13 +256,58 @@ export default function TelaCarteira() {
         </Text>
 
         <CampoTexto
-          rotulo="Identificador do destinatário"
-          value={destinatario}
-          onChangeText={setDestinatario}
+          rotulo="@ do vizinho"
+          value={handle}
+          onChangeText={trocarHandle}
           autoCapitalize="none"
+          autoCorrect={false}
           erro={errosForm.destinatarioId}
           testID="campo-destinatario"
         />
+
+        {/*
+          Ação EXPLÍCITA, não busca enquanto digita: uma requisição por tecla consumiria em segundos
+          o teto próprio do endpoint, e seria busca por prefixo na prática — que é o que o ADR 0028
+          recusa, porque prefixo é listagem com outro nome.
+        */}
+        <Botao
+          titulo="Buscar vizinho"
+          variante="secundario"
+          carregando={busca.isPending}
+          onPress={procurarVizinho}
+          testID="botao-buscar-handle"
+        />
+
+        {busca.error ? (
+          // Inexistente, de outra tribo e conta inativa chegam como o MESMO `naoEncontrado`.
+          // Distingui-los aqui recriaria no cliente o oráculo de enumeração que o servidor fechou.
+          <Aviso
+            tom="informacao"
+            mensagem="Nenhum vizinho com esse @ na sua tribo. Confira a escrita com a pessoa."
+            testID="erro-busca-handle"
+          />
+        ) : null}
+
+        {encontrado ? (
+          // A CONFIRMAÇÃO pelo nome é o ponto da tarefa: `lancamento` é append-only e a
+          // transferência não tem volta. Ver um UUID não permite conferir nada; ver "Marlene Souza,
+          // Tribo Cidade Líder" permite.
+          <Card estilo={estilos.destinatario}>
+            <Text
+              style={estilos.nomeDestinatario}
+              accessibilityRole="text"
+              accessibilityLabel={`Destinatário confirmado: ${encontrado.nome}, @${encontrado.handle}${
+                encontrado.tribo ? `, ${encontrado.tribo}` : ''
+              }`}
+            >
+              {encontrado.nome}
+            </Text>
+            <Text style={estilos.handleDestinatario}>
+              @{encontrado.handle}
+              {encontrado.tribo ? ` · ${encontrado.tribo}` : ''}
+            </Text>
+          </Card>
+        ) : null}
         <CampoTexto
           rotulo="Quantidade de tokens"
           keyboardType="number-pad"
@@ -256,8 +332,11 @@ export default function TelaCarteira() {
         ) : null}
 
         <Botao
-          titulo="Transferir"
+          titulo={encontrado ? `Transferir para ${encontrado.nome}` : 'Transferir'}
           carregando={transferir.isPending}
+          // Sem destinatário confirmado não há o que transferir. O botão desabilitado é a segunda
+          // metade da confirmação: ele só acorda depois que a pessoa viu o nome.
+          disabled={!encontrado}
           onPress={enviarTransferencia}
           testID="botao-confirmar-transferencia"
         />
@@ -307,6 +386,9 @@ const estilos = StyleSheet.create({
   explicacao: { ...tipografia.legenda, color: cores.tinta70 },
   erro: { ...tipografia.corpo, color: textoAcessivel.coral },
   esqueletos: { gap: espaco.md },
+  destinatario: { gap: 2 },
+  nomeDestinatario: { ...tipografia.subtitulo, color: cores.tinta },
+  handleDestinatario: { ...tipografia.legenda, color: cores.tinta70 },
   linha: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   linhaTexto: { flex: 1, gap: espaco.xs },
   motivo: { ...tipografia.rotulo, color: cores.tinta },

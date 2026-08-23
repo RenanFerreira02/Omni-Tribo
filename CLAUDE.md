@@ -352,6 +352,13 @@ de volta**: reverter ressuscitaria token queimado.
 (lista, SEM saldo de propósito) · `POST /{id}/aportes` (**EMITE token**; exige `Idempotency-Key`) ·
 `DELETE /{id}` (encerra sem apagar). Todos só ADMIN. Ver ADR 0024.
 
+`/api/v1/usuarios` — `GET busca?handle=` (acha um vizinho pelo `@` EXATO, só na MESMA tribo de quem
+pergunta; devolve id, handle, nome e tribo). **Não há listagem de membros e não haverá** — daria um
+mapa social do bairro, e como a transferência é restrita à tribo, uma lista de alvos. Inexistente,
+de outra tribo e conta inativa respondem o MESMO 404, indistinguíveis. Teto PRÓPRIO de 12/min
+(`app.rate-limit.busca-handle-por-minuto`): o endpoint é oráculo de existência por natureza, e o teto
+é o que impede colheita em massa. Ver ADR 0028.
+
 `/api/v1/usuarios` — `GET me` (perfil completo: nome, handle, tribo, XP, nível derivado,
 conquistas) · `GET me/dados` (exportação LGPD) · `GET|PUT me/consentimentos[/{tipo}]` ·
 `DELETE me` (anonimização; exige a senha atual no corpo). **`GET /auth/me` continua existindo e é
@@ -515,8 +522,8 @@ Banco
 - Flyway é a ÚNICA fonte de schema. ddl-auto é sempre validate. Nunca resolva divergência mudando
   ddl-auto — escreva migration.
 - **Versão de migration é sequência GLOBAL, não por diretório.** Duas faixas, separadas de propósito:
-  - `db/migration` — schema, **V1–V8 e V11–V26**; único location do perfil default/prod.
-    Próxima é **V27**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
+  - `db/migration` — schema, **V1–V8 e V11–V27**; único location do perfil default/prod.
+    Próxima é **V28**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
     antes da renomeação para `V900__seed_dev.sql`, então um banco de dev criado antes dela tem as
     versões 9 e 10 gravadas no `flyway_schema_history` com descrição de seed. Um `V9__*.sql` novo em
     `db/migration` passaria em clone novo e falharia em máquina antiga com erro de checksum ou
@@ -703,14 +710,7 @@ Seção para armadilhas diagnosticadas e ainda não corrigidas. Ao resolver uma,
 > - `EM_ANDAMENTO` e `AGUARDANDO_CONFIRMACAO` sem saída — ver a máquina de estados, que agora tem
 >   **17 transições** e varredura por prazo mais porta de ADMIN.
 
-**1. Transferência exige digitar um UUID.** Não existe endpoint que liste membros da tribo, então a
-tela pede o identificador do destinatário como texto. Funciona e é inutilizável na prática.
-**Não é esquecimento**: o javadoc de `identidade/api/TriboController` documenta a omissão como
-decisão de privacidade —
-listar membros daria a qualquer autenticado um mapa social do bairro. A saída não é expor a lista;
-é algo como busca por handle exato ou convite. Não decida isso sozinho.
-
-**2. A outbox abandona evento em silêncio, e não há carta-morta.** `DrenadorOutboxService` tenta no
+**1. A outbox abandona evento em silêncio, e não há carta-morta.** `DrenadorOutboxService` tenta no
 máximo `app.outbox.maximo-tentativas` (5) vezes; depois disso o predicado de
 `OutboxRepository.buscarPendentesParaPublicar` deixa de enxergar a linha e o evento **nunca mais é
 tentado**. Ele fica na tabela, com `publicado_em` nulo e `ultimo_erro` preenchido, e **nada o
@@ -727,7 +727,7 @@ dizer a verdade; **a lacuna em si continua aberta de propósito**, porque fechá
 projeto: uma consulta de esgotados exposta a ADMIN, um contador, ou aceitar a perda explicitamente.
 Não decida sozinho — muda o contrato de entrega de notificação.
 
-**3. Nada acha pote imobilizado.** Token preso em missão não-terminal parada (`EM_ANDAMENTO`,
+**2. Nada acha pote imobilizado.** Token preso em missão não-terminal parada (`EM_ANDAMENTO`,
 `AGUARDANDO_CONFIRMACAO`, `EM_DISPUTA`) viola a CONSERVAÇÃO enquanto a reconciliação segue
 respondendo `integro=true` — são invariantes diferentes, e a primeira passa enquanto a segunda é
 violada. **Não existe consulta, endpoint nem relatório que mostre esses potes.**
@@ -738,5 +738,5 @@ consequência aceita. **Nenhum serviço, endpoint ou teste jamais a chamou.** A 
 como órfã em 2026-08-20 e o ADR 0015 recebeu a retificação, em vez de manter código morto que fazia
 a lacuna parecer coberta. A mitigação real que EXISTE é outra, e é preventiva, não detectiva: a
 varredura por prazo (`ExpiracaoMissoesService`) e a porta de ADMIN (`POST /missoes/{id}/destravar`)
-tiram a missão do limbo. O que falta é o instrumento de DIAGNÓSTICO — ver Pendência #2, que é o
+tiram a missão do limbo. O que falta é o instrumento de DIAGNÓSTICO — ver Pendência #1, que é o
 mesmo formato de problema.

@@ -26,7 +26,17 @@ export const registroSchema = z.object({
   senha: z.string().min(12, 'A senha precisa de ao menos 12 caracteres.'),
 });
 
+export const usuarioBuscaResponseSchema = z.object({
+  id: z.guid(),
+  handle: z.string(),
+  nome: z.string(),
+  tribo: z.string().nullable(),
+});
+
 export const transferenciaSchema = z.object({
+  // Continua validando o formato, mas o valor NÃO é mais digitado: vem do resultado da busca por
+  // handle. A guarda fica porque um id inválido aqui significaria defeito nosso, não erro de quem
+  // preenche — e falhar com mensagem é melhor que mandar lixo para a rede.
   destinatarioId: z.guid('Escolha um membro da sua tribo.'),
   tokens: z
     .number('Informe a quantidade de tokens.')

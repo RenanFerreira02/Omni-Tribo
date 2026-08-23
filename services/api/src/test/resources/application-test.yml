@@ -33,6 +33,14 @@ app:
     # limite apertado só mascararia resultados de outros testes com 429.
     escrita-por-minuto: 10000
     leitura-por-minuto: 10000
+    # BAIXO de propósito, ao contrário dos dois acima. O teto da busca por handle é uma DEFESA, não
+    # um detalhe operacional: sem ele o endpoint vira ferramenta de varredura de @ da tribo. Deixá-lo
+    # em 10000 aqui esconderia a única coisa que o protege. Só BuscaHandleTest bate nesta rota, então
+    # um teto baixo não mascara nada de ninguém — e é ele que torna o 429 testável. Vinte, e não
+    # cinco: o balde é POR USUÁRIO e vive dez minutos, então a alice — que aparece em cinco testes
+    # desta classe — esgotaria um teto de cinco e os testes seguintes viriam 429 conforme a ordem de
+    # execução. O teste do teto usa um usuário só dele.
+    busca-handle-por-minuto: 20
   agendamento:
     # Job de expiração desligado: se disparasse no meio de um teste, mudaria o status de missões
     # entre o arrange e o assert — flakiness intermitente e difícil de reproduzir.
