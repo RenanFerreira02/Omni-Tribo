@@ -52,6 +52,40 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-08-24 (3)** — **Matriz de acessibilidade: o instrumento entregue, a passada NÃO executada.**
+
+  `docs/qualidade/acessibilidade.md` traz a matriz de 12 critérios da WCAG 2.2 AA × 5 apresentações
+  de tela, o roteiro reproduzível com TalkBack e a seção obrigatória do diretório. **37 CONFORME,
+  8 NÃO CONFORME, 14 NÃO VERIFICADO, 1 NÃO APLICÁVEL** — e os 14 não-verificados importam mais que
+  os 37 conformes: são quase um quarto da matriz esperando alguém ligar o leitor de tela.
+
+  **Duas coisas foram medidas antes de escrever, e as duas mudaram a entrega.**
+
+  1. **O "Anexo A do ROADMAP" não existe.** Não há arquivo ROADMAP versionado; as duas ocorrências
+     de "anexo" no repo são um índice de auditorias sem relação, e o PDF da entrega tem zero. Já
+     tinha aparecido na F17 e foi contornado em silêncio; como agora era a espinha do artefato, a
+     lista passou a ser **WCAG 2.2 AA explicitamente**, com o número oficial de cada critério — e o
+     documento diz, na primeira seção, que isso substitui um anexo não encontrado. De quebra vira
+     auditável por terceiro.
+  2. **A passada com TalkBack não é executável nesta máquina**: sem `adb`, sem emulador, sem SDK,
+     sem aparelho. Então **nenhuma célula que dependa de leitor de tela foi marcada CONFORME** — as
+     seis viraram NÃO VERIFICADO, e os prints a 200% estão declarados AUSENTES, com os comandos que
+     os produzem ao lado. Preencher aquela matriz de cabeça seria exatamente o defeito que as
+     auditorias deste projeto existem para achar.
+
+  **Os 8 NÃO CONFORME, e nenhum foi corrigido aqui** (documento que conserta enquanto mede perde o
+  valor de medição):
+
+  - **Radar/mapa reprova em 1.3.1, 2.4.6, 4.1.2 e 2.1.1** — a WebView não expõe árvore de
+    acessibilidade útil, e o `alt` do marcador é descartado pelo Leaflet. **Não é pendência: é a
+    razão de a coluna "Radar/lista" existir** (ADR 0030), e a matriz mostra as duas lado a lado em
+    vez de esconder a diferença numa média.
+  - **1.4.11 reprova em quatro telas** — borda do chip 1,30:1, trilho do `Switch` 1,38:1,
+    `BarraProgresso` 2,46:1, contra o piso de 3. São o A20 e o A22 do inventário, cosméticos por não
+    perderem informação; a norma reprova mesmo assim, e agora está registrado com o número.
+
+  A correção dos três de contraste é um commit no tema. Fica para uma passada própria.
+
 - **2026-08-24 (2)** — **O radar deixou de ter uma porta só.**
 
   O mapa é WebView + Leaflet (ADR 0012), e não expõe semântica nenhuma. A auditoria mediu o pior

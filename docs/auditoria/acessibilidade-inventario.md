@@ -13,6 +13,11 @@
 >
 > O documento abaixo fica como está — é o levantamento que originou as correções, e reescrevê-lo
 > apagaria a medição.
+>
+> **A matriz de conformidade contra a WCAG 2.2 AA está em
+> [`../qualidade/acessibilidade.md`](../qualidade/acessibilidade.md)**, junto do roteiro de
+> verificação com TalkBack. Lá o A20 e o A22 aparecem como **NÃO CONFORME** no critério 1.4.11: são
+> cosméticos por não perderem informação, e a norma reprova mesmo assim.
 
 
 **Data:** 2026-08-23
