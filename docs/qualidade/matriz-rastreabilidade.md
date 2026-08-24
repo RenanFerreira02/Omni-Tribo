@@ -71,8 +71,21 @@ gratuita mas depende de cadastro. O que ficou provado é a fiação: o plugin ex
 supressões e chega à etapa de aquisição de dados — falha só ali. Fica pendente de
 `-Dnvd.api.key=$NVD_API_KEY`.
 
-**O secret também não existe no GitHub, e isso deixou o workflow `Security Scan` vermelho de
-2026-08-15 a 2026-08-17** — quatro execuções, todas reprovadas por este job, enquanto o `gitleaks`
+**Reconferido em 2026-08-24, e a frase acima sobreviveu ao teste** — ver
+[`f21-dependency-check.md`](../evidencias/f21-dependency-check.md). A hipótese era que ela estivesse
+imprecisa: o erro citado é o da string VAZIA, e "sem chave nenhuma" poderia cair em acesso anônimo à
+NVD. Não cai. Com a variável **ausente** do ambiente e nada injetando `nvd.api.key`, o build falha em
+**8,6 s** com o **mesmo** `Invalid API Key, length of 0`.
+
+O fato novo é esse: **ausente e vazia produzem erro idêntico**, porque o plugin normaliza "sem chave"
+para string vazia antes de validar. Ou seja, **a mensagem engana em uma das duas direções** — quem a
+lê procura uma chave errada, e a causa pode ser não haver chave. É por isso que a armadilha do
+`${env.*}` custou duas depurações aqui. Quem for depurar deve ler a SEGUNDA linha do erro,
+`NoDataException: No documents exist`, que é a que diz o que de fato aconteceu.
+
+**O secret também não existia no GitHub, e isso deixou o workflow `Security Scan` vermelho de
+2026-08-15 a 2026-08-17** — estado registrado naquela data e **não reconferido em 2026-08-24**, por
+não haver `gh` nesta máquina — quatro execuções, todas reprovadas por este job, enquanto o `gitleaks`
 passava em todas. Nenhum documento registrava esse efeito até a evidência
 [`f13-ci-github-actions.md`](../evidencias/f13-ci-github-actions.md). O conserto de 2026-08-17 moveu
 o job para agendamento semanal e o condicionou à existência da chave, com aviso explícito quando ela

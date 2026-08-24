@@ -18,6 +18,7 @@
 | F12b | Testes de carga e endurecimento       | ⬜ Pendente  | —         | —          |
 | F12c | Previsão de risco de falha de entrega | ✅ Concluído | [modelo](qualidade/modelo-previsao.md) | 2026-08-15 |
 | F13  | Entrega final                         | ✅ Concluído | [evidências](evidencias/) | 2026-08-16 |
+| F21  | Endurecimento da cadeia de dependências | 🟨 Parcial  | [dependency-check](evidencias/f21-dependency-check.md) | 2026-08-24 |
 
 > **A numeração acima é a dos COMMITS e das auditorias, e foi corrigida em 2026-08-08.** A tabela
 > anterior estava deslocada a partir da F2 (chamava a fase de API de "Identidade e Autenticação") e
@@ -51,6 +52,45 @@ contra o sistema em execução. Quatro defeitos; dois corrigidos no mesmo dia, d
 Pendências do CLAUDE.md.
 
 ## Notas de manutenção
+
+- **2026-08-24 (5) — F21** — **O Dependency-Check continua sem varrer, e agora sabemos por quê com
+  precisão.**
+
+  Duas dívidas de segurança, uma fechada e uma medida.
+
+  **A varredura, e a hipótese que ela derrubou.** A `matriz-rastreabilidade.md` dizia que o plugin
+  "exige uma chave da API da NVD". Eu suspeitei de imprecisão: o erro que ela cita —
+  `Invalid API Key, length of 0` — é o da string VAZIA, o modo de falha do `${env.*}`, e "sem chave
+  nenhuma" poderia cair em acesso anônimo. Rodei sem `-Dnvd.api.key`, com a variável ausente do
+  ambiente e nada injetando a propriedade.
+
+  **A hipótese estava errada e a frase estava certa.** Falha em 8,6 s, com o MESMO erro. Não há
+  acesso anônimo no 13.0.0.
+
+  **O fato novo vale mais que a confirmação:** ausente e vazia produzem erro idêntico, porque o
+  plugin normaliza "sem chave" para string vazia antes de validar. **A mensagem engana numa das duas
+  direções** — quem a lê procura uma chave errada, e a causa pode ser não haver chave. É por isso que
+  a armadilha do `${env.*}` custou duas depurações aqui: os dois sintomas são indistinguíveis pelo
+  log. Quem depurar deve ler a SEGUNDA linha, `NoDataException: No documents exist`.
+
+  **Uma terceira afirmação sem medição, corrigida de passagem.** O `dependency-check-suppressions.xml`
+  dizia que estava vazio porque "nenhuma dependência tem achado de severidade alta ou crítica na
+  varredura desta fase". Nunca houve varredura. O arquivo que existe para impedir supressão
+  silenciosa afirmava, no próprio cabeçalho, um resultado inexistente.
+
+  **O gitleaks ganhou procedimento escrito** no `CONTRIBUTING.md`, na ordem que importa: rotacionar
+  ANTES de mexer no git (reescrever a árvore não desvaza o que já foi ao GitHub), reescrever com
+  `git filter-repo` em vez de `revert` — que mantém o blob alcançável —, quando `.gitleaksignore` é
+  legítimo, e o passo a passo para marcar o check como obrigatório. Esse último fica com o RM: `gh`
+  não está instalado aqui e proteção de branch é configuração do repositório remoto.
+
+  Nota sobre o `dependencias` **não** entrar como check obrigatório: ele roda só no agendamento
+  semanal e sob demanda, então nunca produziria status num PR — e check obrigatório que não roda
+  trava todo merge.
+
+  **Segue pendente:** a varredura em si, à espera da chave. O comando exato está na evidência, e o
+  `Security Scan` continua verde por não ter varrido — o que o `::warning` daquele workflow torna
+  visível de propósito.
 
 - **2026-08-24 (4) — F19** — **Rampa tipográfica e escala de espaçamento, com lint por trás.**
 
