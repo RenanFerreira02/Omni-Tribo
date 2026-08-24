@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Botao } from '@/components/Botao';
 import { IndicadorPaginas } from '@/components/IndicadorPaginas';
 import { marcarOnboardingVisto } from '@/features/onboarding/visto';
-import { cores, espaco, tipografia } from '@/theme';
+import { alvo, cores, espaco, glifo, tipografia } from '@/theme';
 
 interface Slide {
   chave: string;
@@ -117,14 +117,14 @@ export default function Onboarding() {
 
 const estilos = StyleSheet.create({
   raiz: { flex: 1, backgroundColor: cores.branco },
-  topo: { minHeight: 48, paddingHorizontal: espaco.lg, alignItems: 'flex-end' },
+  topo: { minHeight: alvo.confortavel, paddingHorizontal: espaco.lg, alignItems: 'flex-end' },
   slide: {
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: espaco.xl,
     gap: espaco.md,
   },
-  emoji: { fontSize: 64 },
+  emoji: { fontSize: glifo.ilustracao },
   titulo: { ...tipografia.titulo, color: cores.tinta, textAlign: 'center' },
   texto: { ...tipografia.corpo, color: cores.tinta70, textAlign: 'center' },
   rodape: { padding: espaco.lg, gap: espaco.lg },

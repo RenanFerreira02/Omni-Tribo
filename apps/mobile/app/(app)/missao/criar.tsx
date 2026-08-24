@@ -27,6 +27,16 @@ import { rotuloCategoria } from '@/lib/formatar';
 import { criarMissaoSchema, type CriarMissaoForm } from '@/schemas';
 import { cores, coresCategoria, glifoCategoria, espaco, textoAcessivel, tipografia } from '@/theme';
 
+/**
+ * Altura do mapa embutido no seletor de ponto.
+ *
+ * Fora das escalas de propósito, e nomeada em vez de solta: não é respiro nem tipografia — é o
+ * VIEWPORT de um mapa, e o número sai da pergunta "quanto de bairro cabe aqui sem o formulário
+ * sumir de vista". Pôr isso em `espaco` (cujo maior degrau é 32) seria forçar a escala a significar
+ * duas coisas diferentes.
+ */
+const ALTURA_SELETOR_MAPA = 320;
+
 export default function CriarMissao() {
   const router = useRouter();
   const criar = useCriarMissao();
@@ -505,5 +515,5 @@ const estilos = StyleSheet.create({
   cardRecompensa: { backgroundColor: cores.verdeClaro, gap: espaco.xs },
   recompensa: { flexDirection: 'row', alignItems: 'center', gap: espaco.lg },
   xp: { ...tipografia.subtitulo, color: textoAcessivel.ambar },
-  mapaSeletor: { height: 320 },
+  mapaSeletor: { height: ALTURA_SELETOR_MAPA },
 });

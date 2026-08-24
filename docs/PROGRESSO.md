@@ -52,6 +52,50 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-08-24 (4) — F19** — **Rampa tipográfica e escala de espaçamento, com lint por trás.**
+
+  O que faltava não era cor: os 12 hex já tinham passado pelos 22 pares de contraste e pela tabela
+  `textoAcessivel`. Faltava **hierarquia** — o tamanho de cada texto tinha sido decidido tela a
+  tela, que é o que faz um app parecer montado em vez de desenhado.
+
+  **A rampa foi de sete degraus para seis.** Havia `display` a 34 e `destaque` a 32 — dois "números
+  grandes" a dois pixels de distância, e `destaque` com **um** uso em todo o app (a marca do login).
+  Fundidos. Os NÚMEROS dos outros degraus não mudaram: a fase é substituição de valor, não redesenho,
+  e mexer em entrelinha reflui toda tela de uma vez.
+
+  **`espaco` já era base 4** (4·8·12·16·24·32). O que vazava dela eram sete literais espalhados:
+  `gap: 2` em três telas, `paddingVertical: 11` em duas, `fontSize: 64` numa, um ponto de 10 px
+  noutra. Cada um defensável sozinho; juntos, o sintoma.
+
+  **Três valores mostraram que a escala estava errada, não a tela** — e viraram escalas próprias em
+  vez de exceções:
+
+  - **`alvo`** (44 / 48). O `paddingVertical: 11` existia para somar 44 dp: é constante da WCAG
+    2.5.5, não respiro. Dentro de `espaco`, a próxima pessoa "arredondaria para 40" sem saber que
+    estava mexendo em acessibilidade.
+  - **`traco`** (1). Fio de divisor nunca vai ser múltiplo de 4.
+  - **`glifo`** (20 aba, 64 ilustração). Símbolo decorativo não tem peso nem entrelinha — não é
+    texto, e estava dentro de `tipografia` fazendo a rampa parecer ter um degrau a mais.
+
+  O `gap: 2` ganhou um **meio-passo declarado** (`espaco.xxs`) em vez de virar 4: são pares de texto
+  que formam um bloco, e 4 já os separa demais. É o único valor não-múltiplo-de-4 da escala, e está
+  lá escrito que é o único.
+
+  **A regra virou lint**, no molde do que já proíbe hex literal — e ela cobrou duas correções de si
+  mesma na primeira execução: precisou de `[raw=/^-?[0-9]/]` para não reprovar `marginTop: 'auto'`,
+  que é palavra-chave do flexbox, e de `[value!=0]` porque ausência de espaçamento não é um degrau.
+  Vale em `app/` e não em `src/components/`: tela consome a escala, componente pode defini-la.
+
+  **A regra achou um literal que o grep não achou** — `marginTop: 'auto'` em `missao/[id].tsx` não
+  casava com o padrão numérico que eu tinha usado para varrer.
+
+  Verificado: typecheck limpo, lint com 0 erros, 221 testes. Grep de aceite mostrando zero literais
+  de fonte, entrelinha, espaçamento e dimensão nas telas. O gate foi exercitado contra um arquivo de
+  prova com cinco violações e reprovou as cinco, deixando passar o `0` e o `'auto'`.
+
+  **Não entregue: prints antes/depois.** Não há `adb`, emulador nem aparelho nesta máquina — a
+  mesma ausência das duas entregas anteriores. No lugar vai o diff valor a valor, abaixo.
+
 - **2026-08-24 (3)** — **Matriz de acessibilidade: o instrumento entregue, a passada NÃO executada.**
 
   `docs/qualidade/acessibilidade.md` traz a matriz de 12 critérios da WCAG 2.2 AA × 5 apresentações

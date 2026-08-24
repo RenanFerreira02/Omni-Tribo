@@ -102,6 +102,56 @@ module.exports = defineConfig([
     },
   },
   {
+    /**
+     * AS DUAS ESCALAS VIRAM FRONTEIRA DE LINT, pelo mesmo motivo da regra de cor acima: regra que
+     * não é verificada volta na primeira pressa.
+     *
+     * O que estava errado antes não era ninguém ter escolhido mal um número — era cada tela ter
+     * escolhido o seu. `gap: 2` em três telas, `paddingVertical: 11` em duas, `fontSize: 64` numa,
+     * um ponto de 10 px noutra. Cada um defensável sozinho; juntos, é o que faz um app parecer
+     * montado em vez de desenhado.
+     *
+     * <b>Escopo `app/` e não `src/components/`, e a assimetria é a decisão.</b> O design system é
+     * exatamente onde os primitivos PODEM morar: se a regra valesse lá, `Botao` não poderia
+     * declarar os 48 dp que ele define, `IndicadorPaginas` não poderia desenhar o próprio ponto, e
+     * a saída seria uma exceção inline em cada componente — ou seja, a regra desligada com passos
+     * extras. Tela CONSOME a escala; componente PODE defini-la.
+     *
+     * <b>`height` e `width` ficam de fora.</b> Não são espaçamento nem tipografia: são dimensão de
+     * elemento, e um viewport de mapa não tem por que caber numa escala cujo maior degrau é 32.
+     * O que se cobra deles é que sejam NOMEADOS — ver `ALTURA_SELETOR_MAPA` em `missao/criar.tsx`.
+     */
+    files: ['app/**/*.tsx'],
+    ignores: ['app/__tests__/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          // Duas guardas no seletor, e as duas foram cobradas pelo próprio lint na primeira
+          // execução:
+          //   `[raw=/^-?[0-9]/]` — só literal NUMÉRICO. Sem isto, `marginTop: 'auto'` reprovava, e
+          //     'auto' é palavra-chave do flexbox, não uma magnitude de espaçamento.
+          //   `[value!=0]` — zero é permitido: ausência de espaçamento não é um degrau da escala,
+          //     é a falta dele.
+          selector:
+            'Property[key.name=/^(padding|margin|gap|rowGap|columnGap)/] > Literal[raw=/^-?[0-9]/][value!=0]',
+          message:
+            'Espaçamento literal é proibido em tela. Use `espaco.*` de "@/theme" — e se nenhum degrau servir, a escala está errada: fale antes de abrir exceção.',
+        },
+        {
+          selector: 'Property[key.name="fontSize"] > Literal[raw=/^-?[0-9]/]',
+          message:
+            'Tamanho de fonte literal é proibido em tela. Use `tipografia.*` (texto) ou `glifo.*` (decorativo) de "@/theme".',
+        },
+        {
+          selector: 'Property[key.name="lineHeight"] > Literal[raw=/^-?[0-9]/]',
+          message:
+            'Entrelinha literal é proibida em tela: ela vem junto do degrau em `tipografia.*`, e separá-la quebra a razão que a rampa define.',
+        },
+      ],
+    },
+  },
+  {
     files: ['src/theme/**/*.ts'],
     rules: {
       'no-restricted-syntax': 'off',

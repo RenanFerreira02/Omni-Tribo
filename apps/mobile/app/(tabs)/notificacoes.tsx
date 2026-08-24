@@ -162,5 +162,12 @@ const estilos = StyleSheet.create({
   tituloLido: { ...tipografia.corpo, color: cores.tinta70, flexShrink: 1 },
   corpoTexto: { ...tipografia.corpo, color: cores.tinta70 },
   data: { ...tipografia.legenda, color: textoAcessivel.suave },
-  ponto: { width: 10, height: 10, borderRadius: 5, backgroundColor: cores.verdePrimario },
+  // 8 e não 10: o ponto é decoração de estado, e `espaco.sm` é o degrau da escala onde ele cabe.
+  // O raio acompanha a metade, para continuar circular.
+  ponto: {
+    width: espaco.sm,
+    height: espaco.sm,
+    borderRadius: espaco.xs,
+    backgroundColor: cores.verdePrimario,
+  },
 });

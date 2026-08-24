@@ -56,12 +56,59 @@ export type NomeCor = keyof typeof cores;
  * system parar de parecer um sistema depois da quinta tela.
  */
 export const espaco = {
+  /**
+   * MEIO-PASSO, e o único. Existe para um caso só: par de textos que forma um bloco — título e
+   * legenda, nome e handle, descrição e sensação térmica. Ali 4 já separa demais e o par deixa de
+   * ser lido como uma coisa.
+   *
+   * <b>Não é permissão para inventar outros.</b> É o único valor da escala que não é múltiplo de 4,
+   * e está aqui declarado em vez de aparecer como `gap: 2` solto em três telas, que era o estado
+   * anterior.
+   */
+  xxs: 2,
   xs: 4,
   sm: 8,
   md: 12,
   lg: 16,
   xl: 24,
   xxl: 32,
+} as const;
+
+/**
+ * ALVO DE TOQUE — e a razão de ser escala PRÓPRIA, e não parte de `espaco`.
+ *
+ * Estes números não são ritmo visual: são o mínimo da WCAG 2.5.5. Misturá-los com espaçamento
+ * convida a próxima pessoa a "arredondar 44 para 48" ou "44 para 40" como se fosse escolha de
+ * respiro — e 40 reprova a norma. Separando, mexer aqui exige saber o que se está mexendo.
+ *
+ * `confortavel` é o padrão dos controles do app; `minimo` é o piso, usado onde o desenho pede um
+ * alvo visualmente menor e a área sensível cresce por `hitSlop` ou `padding`.
+ */
+export const alvo = {
+  minimo: 44,
+  confortavel: 48,
+} as const;
+
+/**
+ * Fio de 1px: divisor, borda de cartão, trilho.
+ *
+ * Fora da escala de espaçamento de propósito — 1 nunca vai ser múltiplo de 4, e forçá-lo a 4
+ * transformaria um fio numa faixa. É primitivo de traço, não de respiro.
+ */
+export const traco = 1;
+
+/**
+ * Glifos DECORATIVOS — fora da rampa de texto.
+ *
+ * Não são texto: não têm peso, não têm entrelinha, e são sempre marcados com
+ * `importantForAccessibility="no"` porque quem os lê em voz alta atrapalha. Ficavam dentro de
+ * `tipografia`, o que fazia a rampa parecer ter um degrau a mais do que tem.
+ */
+export const glifo = {
+  /** Ícone da barra de abas. */
+  aba: 20,
+  /** Emoji dos slides do onboarding — ilustração, não tipografia. */
+  ilustracao: 64,
 } as const;
 
 export const raio = {
@@ -71,21 +118,46 @@ export const raio = {
   pilula: 999,
 } as const;
 
+/**
+ * A RAMPA. Seis tamanhos, três pesos, e nada fora dela.
+ *
+ * <b>Por que seis e não sete.</b> Havia `display` a 34 e `destaque` a 32 — dois "números grandes" a
+ * dois pixels de distância, que é o sintoma exato de tamanho decidido tela a tela em vez de
+ * desenhado. `destaque` tinha UM uso em todo o app. Fundidos, sobra um degrau para "número que se
+ * lê de longe", que é o papel que os dois disputavam.
+ *
+ * <b>A entrelinha aperta conforme o texto cresce, e isso é regra, não gosto.</b> Título é uma linha
+ * só e ganha densidade; corpo é parágrafo e precisa de ar para o olho achar a linha seguinte. As
+ * razões, do mais apertado ao mais folgado:
+ *
+ * <pre>
+ *   display    34/40 = 1,18   ← título gigante, quase sempre uma linha
+ *   titulo     22/28 = 1,27
+ *   legenda    12/16 = 1,33
+ *   rotulo     13/18 = 1,38
+ *   subtitulo  17/24 = 1,41
+ *   corpo      15/22 = 1,47   ← parágrafo, o mais folgado
+ * </pre>
+ *
+ * <b>Os NÚMEROS não mudaram nesta migração</b>, só a fusão de 34/32 e a saída dos glifos. É
+ * deliberado: a F19 é substituição de valor, não redesenho, e mexer em entrelinha reflui toda tela
+ * do app de uma vez.
+ *
+ * Três pesos: 700 para o que titula, 600 para o que rotula, 400 para o que se lê.
+ */
 export const tipografia = {
   /**
-   * Números grandes que existem para serem lidos de longe: saldo, XP na tela de entrada, glifo de
-   * onboarding. Estavam como `fontSize` solto em quatro telas — a escala existe justamente para que
-   * "o número grande" seja o MESMO número grande em todas elas.
+   * O número que se lê de longe: saldo da carteira, custo evitado no painel, marca do login.
+   *
+   * Absorveu o antigo `destaque` (32). Ver o javadoc acima: dois degraus a 2px um do outro não são
+   * dois degraus, são uma decisão que ninguém tomou.
    */
   display: { fontSize: 34, lineHeight: 40, fontWeight: '700' },
-  destaque: { fontSize: 32, lineHeight: 38, fontWeight: '700' },
   titulo: { fontSize: 22, lineHeight: 28, fontWeight: '700' },
   subtitulo: { fontSize: 17, lineHeight: 24, fontWeight: '600' },
   corpo: { fontSize: 15, lineHeight: 22, fontWeight: '400' },
   rotulo: { fontSize: 13, lineHeight: 18, fontWeight: '600' },
   legenda: { fontSize: 12, lineHeight: 16, fontWeight: '400' },
-  /** Glifo das abas. Decorativo — sempre com `accessibilityElementsHidden`. */
-  icone: { fontSize: 20 },
 } as const;
 
 /**

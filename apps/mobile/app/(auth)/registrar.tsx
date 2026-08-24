@@ -140,6 +140,7 @@ const estilos = StyleSheet.create({
     ...tipografia.corpo,
     color: cores.verdeEscuro,
     fontWeight: '600',
-    paddingVertical: 11,
+    // Ver o comentário idêntico em `login.tsx`: 12 + 22 + 12 = 46, acima de `alvo.minimo`.
+    paddingVertical: espaco.md,
   },
 });
