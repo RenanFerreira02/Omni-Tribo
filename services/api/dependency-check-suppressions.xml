@@ -19,8 +19,16 @@
     <cve>CVE-0000-00000</cve>
   </suppress>
 
-  Vazio hoje, e é o estado desejado: nenhuma dependência do backend tem achado de severidade alta ou
-  crítica na varredura desta fase.
+  VAZIO HOJE PORQUE NENHUMA VARREDURA JAMAIS COMPLETOU — e não porque nada foi encontrado.
+
+  Este comentário afirmava, até 2026-08-24, que "nenhuma dependência do backend tem achado de
+  severidade alta ou crítica na varredura desta fase". Nunca houve varredura: o plugin falha na
+  aquisição da base da NVD por falta de chave, em toda tentativa desde 2026-08-15. A frase descrevia
+  um resultado inexistente, que é o mesmo defeito que este arquivo existe para evitar do lado das
+  supressões.
+
+  Ver docs/evidencias/f21-dependency-check.md. Quando a chave existir e a varredura rodar, este
+  comentário deve dizer o que ela achou — inclusive se for "nada".
 -->
 <suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
 </suppressions>
