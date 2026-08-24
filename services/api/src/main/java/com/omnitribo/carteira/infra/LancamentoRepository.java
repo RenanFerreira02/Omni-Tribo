@@ -54,13 +54,60 @@ public interface LancamentoRepository extends JpaRepository<Lancamento, UUID> {
   /**
    * Financiamentos de uma missão, para o estorno em CANCELADA/EXPIRADA. Uma missão tem poucos
    * financiadores, então {@code List} sem paginação é adequado aqui.
+   *
+   * <p><b>OS DOIS motivos de financiamento, e a lista precisa continuar completa.</b> Enquanto só
+   * existia {@code FINANCIAMENTO_TRIBO} o filtro era por um valor só; a V23 acrescentou {@code
+   * FINANCIAMENTO_PATROCINADOR} e, sem incluí-lo aqui, cancelar ou expirar uma missão de retirada
+   * não devolveria nada ao patrocinador. Os tokens ficariam presos numa missão morta e a
+   * reconciliação seguiria respondendo {@code integro=true}, porque ledger e projeção continuam
+   * batendo — é a Pendência #2 reaparecendo por outro caminho, invisível justamente para o endpoint
+   * que existe para achá-la.
+   *
+   * <p>Motivo de financiamento novo entra NESTA lista no mesmo commit em que entra no enum. Não há
+   * teste que pegue o esquecimento a partir do enum sozinho.
    */
   @Query(
       """
       select l from Lancamento l
       where l.missaoId = :missaoId
-        and l.motivo = com.omnitribo.carteira.dominio.MotivoLancamento.FINANCIAMENTO_TRIBO
+        and l.motivo in (
+              com.omnitribo.carteira.dominio.MotivoLancamento.FINANCIAMENTO_TRIBO,
+              com.omnitribo.carteira.dominio.MotivoLancamento.FINANCIAMENTO_PATROCINADOR)
       order by l.criadoEm asc
       """)
   List<Lancamento> buscarFinanciamentosDaMissao(@Param("missaoId") UUID missaoId);
+
+  /**
+   * As duas pontas do ciclo do TOKEN mais o estoque em carteira (painel de impacto, ADR 0029).
+   *
+   * <p><b>Uma statement, três subconsultas, e nenhuma cláusula {@code FROM} no nível de fora</b> —
+   * as três agregam conjuntos diferentes (duas fatias de {@code lancamento} e a tabela {@code
+   * carteira} inteira) e um {@code GROUP BY} não as junta. O que a statement única compra é o
+   * snapshot: em três consultas, um resgate acontecendo no meio apareceria queimado no total e
+   * ainda presente no saldo.
+   *
+   * <p>Filtra por motivo E por sinal. O motivo sozinho bastaria hoje, porque {@code
+   * APORTE_PATROCINADOR} só existe como crédito e {@code RESGATE} só como débito; o sinal está aqui
+   * para que um estorno futuro com o mesmo motivo não seja somado como se fosse emissão nova.
+   */
+  @Query(
+      value =
+          """
+          SELECT (SELECT COALESCE(SUM(valor_tokens), 0) FROM lancamento
+                   WHERE motivo = 'APORTE_PATROCINADOR' AND sinal = 'CREDITO') AS aportados,
+                 (SELECT COALESCE(SUM(valor_tokens), 0) FROM lancamento
+                   WHERE motivo = 'RESGATE'             AND sinal = 'DEBITO')  AS resgatados,
+                 (SELECT COALESCE(SUM(saldo_tokens), 0) FROM carteira)         AS emCarteiras
+          """,
+      nativeQuery = true)
+  ResumoTokenProjecao resumirTokens();
+
+  /** Projeção de interface — sem entidade no caminho. */
+  interface ResumoTokenProjecao {
+    long getAportados();
+
+    long getResgatados();
+
+    long getEmCarteiras();
+  }
 }

@@ -40,6 +40,12 @@ export type MotivoLancamento =
   | 'TRANSFERENCIA_ENVIADA'
   | 'TRANSFERENCIA_RECEBIDA'
   | 'FINANCIAMENTO_TRIBO'
+  /** Débito do patrocinador ao financiar o pote de uma missão de retirada (V23). */
+  | 'FINANCIAMENTO_PATROCINADOR'
+  /** O ÚNICO motivo que EMITE token. Só aparece no extrato de um patrocinador (V23). */
+  | 'APORTE_PATROCINADOR'
+  /** O ÚNICO motivo que QUEIMA token: resgate de benefício (V26, ADR 0027). */
+  | 'RESGATE'
   | 'SAQUE'
   | 'BONUS'
   | 'ESTORNO';
@@ -340,11 +346,63 @@ export interface CriarMissaoRequest {
   pontoCustodiaId?: string;
 }
 
+/**
+ * O vizinho encontrado pela busca por `@`.
+ *
+ * Quatro campos e nada mais — o servidor não devolve e-mail, XP nem saldo. Existem para a pessoa
+ * CONFERIR que acertou o destinatário antes de uma transferência que não tem volta.
+ */
+export interface UsuarioBuscaResponse {
+  id: string;
+  handle: string;
+  nome: string;
+  tribo: string | null;
+}
+
 export interface TransferenciaResponse {
   lancamentoSaidaId: string;
   /** Nulo num replay de idempotência. */
   lancamentoEntradaId: string | null;
   saldoTokensRemetente: number;
+  replay: boolean;
+}
+
+/**
+ * Um item do catálogo de benefícios — o que o TOKEN compra.
+ *
+ * `tipo` é BEM ou PERCENTUAL e NUNCA um valor em reais: preço em moeda corrente publicaria uma
+ * cotação token→real implícita, que o ADR 0009 §6 recusa ter. O servidor garante isso em duas
+ * camadas (validação na borda e `ck_beneficio_sem_reais`), então o app não precisa filtrar.
+ */
+export interface BeneficioResponse {
+  id: string;
+  titulo: string;
+  descricao: string;
+  custoTokens: number;
+  tipo: 'BEM' | 'PERCENTUAL';
+  parceiroId: string;
+  parceiroNome: string;
+  bairro: string;
+  /** Metros até o parceiro, derivados pelo PostGIS. Ausente no recorte por tribo. */
+  distanciaM?: number | null;
+}
+
+/**
+ * O comprovante de um resgate.
+ *
+ * `codigoRetirada` NÃO é credencial: são 8 caracteres para o humano do balcão casar o papel com a
+ * linha na tela do parceiro. Quem autoriza a baixa é um ADMIN, pelo id.
+ */
+export interface ResgateResponse {
+  id: string;
+  beneficioId: string;
+  custoTokens: number;
+  codigoRetirada: string;
+  status: 'PENDENTE' | 'UTILIZADO';
+  criadoEm: string;
+  utilizadoEm: string | null;
+  saldoTokensRestante: number;
+  /** `true` quando a chave de idempotência já existia e NADA foi queimado nesta chamada. */
   replay: boolean;
 }
 
@@ -382,4 +440,78 @@ export interface FiltroProximas {
   raioMetros?: number;
   categoria?: CategoriaMissao;
   limite?: number;
+}
+
+/**
+ * O painel de impacto — `GET /api/v1/admin/impacto`, só ADMIN.
+ *
+ * A única resposta do app que fala de VALOR e não de estado: quanto a tese economizou. Tudo aqui é
+ * agregado pelo servidor a cada chamada, sobre tabelas que já existem — não há tabela de agregação
+ * nem cache, então dois pedidos seguidos podem legitimamente diferir.
+ */
+export interface ImpactoResponse {
+  /** Instante da apuração. Exibido porque o número é volátil e um painel sem data é uma afirmação sem validade. */
+  geradoEm: string;
+  entregasFalidas: ImpactoEntregasFalidas;
+  missoesDeRetirada: ImpactoMissoesDeRetirada;
+  custoEvitado: ImpactoCustoEvitado;
+  tokens: ImpactoTokens;
+}
+
+export interface ImpactoEntregasFalidas {
+  recebidas: number;
+  convertidas: number;
+  /**
+   * Recebidas que não viraram missão e não foram recusadas: encomenda parada na custódia.
+   *
+   * É o número que EXPLICA uma taxa de conversão baixa. Sem ele na tela, quem lê conclui que o
+   * bairro não responde — quando a maioria das linhas nunca chegou a ser oferecida a ninguém.
+   */
+  pendentes: number;
+  recusadasPontoLotado: number;
+  recusadasSemPatrocinio: number;
+  /** Fração 0..1, ou `null` quando nada foi recebido. NUNCA renderize `null` como 0%. */
+  taxaConversao: number | null;
+}
+
+export interface ImpactoMissoesDeRetirada {
+  criadas: number;
+  concluidas: number;
+  taxaConclusao: number | null;
+  /** Segundos entre o webhook e o primeiro check-in válido. `null` com amostra vazia. */
+  medianaAteCheckinSegundos: number | null;
+  /** Quantas missões entraram na mediana. Vai para a tela: mediana sem amostra não é interpretável. */
+  amostraMediana: number;
+}
+
+/**
+ * A conta que um parceiro compraria — e a premissa que a sustenta, ao lado dela.
+ *
+ * `reentregasEvitadas` é o MESMO número que `missoesDeRetirada.concluidas`, renomeado. Não são duas
+ * evidências: é a interpretação de que a encomenda teria sido re-entregue. A tela diz isso.
+ */
+export interface ImpactoCustoEvitado {
+  reentregasEvitadas: number;
+  /**
+   * Premissa vigente em BRL, de `app.impacto.custo-reentrega-brl`.
+   *
+   * `number`, como `valorBrl` e `saldoBrl`: são `BigDecimal` no servidor e Jackson os serializa
+   * como NÚMERO JSON (`25.00`), não como string. O cliente só FORMATA — toda aritmética de dinheiro
+   * acontece no servidor, em `BigDecimal`, e nenhuma conta é refeita aqui.
+   */
+  premissaCustoReentregaBrl: number;
+  baseBrl: number;
+  /** Premissa pela metade. */
+  menos50Brl: number;
+  /** Premissa uma vez e meia. */
+  mais50Brl: number;
+}
+
+export interface ImpactoTokens {
+  aportados: number;
+  emCarteiras: number;
+  emPotes: number;
+  /** `emCarteiras + emPotes` — a conservação do ADR 0027 exibida como número. */
+  emCirculacao: number;
+  resgatados: number;
 }

@@ -20,9 +20,17 @@ export default function LayoutTabs() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: cores.verdePrimario,
+        // `verdePrimario` sobre branco dá 3,39:1 — reprova em AA para os 12 px do rótulo da aba.
+        // É o MESMO número que o javadoc de `coresStatus` já registrou ao mover o status CONCLUIDA
+        // para `verdeEscuro`; a correção tinha sido aplicada ao caso descoberto e não à causa.
+        tabBarActiveTintColor: cores.verdeEscuro,
         tabBarInactiveTintColor: textoAcessivel.suave,
         tabBarStyle: { backgroundColor: cores.branco, borderTopColor: cores.linha },
+        // SEM teto de escala aqui, e não por esquecimento: `tabBarLabelStyle` é um `TextStyle`, não
+        // as props de um `<Text>`, então `maxFontSizeMultiplier` não é expressável. Impô-lo exigiria
+        // substituir o renderizador do rótulo por um `tabBarLabel` próprio — e junto iria a fiação
+        // de acessibilidade que o React Navigation dá de graça (papel de aba, estado selecionado,
+        // "1 de 5"). Trocar semântica por um teto de fonte seria o oposto do objetivo desta fase.
         tabBarLabelStyle: tipografia.legenda,
       }}
     >
@@ -47,7 +55,17 @@ export default function LayoutTabs() {
           // traz corpo de notificação nenhum. `undefined` esconde o badge — 0 renderizaria uma
           // bolinha com "0" dentro.
           tabBarBadge: naoLidos && naoLidos > 0 ? naoLidos : undefined,
-          tabBarBadgeStyle: { backgroundColor: cores.coral },
+          // O BADGE NÃO CHEGA AO LEITOR DE TELA. O React Navigation o desenha como um nó próprio e
+          // não o inclui no rótulo da aba — a contagem de não lidos, que é a única informação nova
+          // da barra, era puramente visual. O rótulo da aba passa a dizê-la.
+          tabBarAccessibilityLabel:
+            naoLidos && naoLidos > 0
+              ? `Avisos, ${naoLidos} não ${naoLidos === 1 ? 'lido' : 'lidos'}`
+              : 'Avisos',
+          // `coral` como fundo do badge com texto branco dá 3,87:1, abaixo dos 4,5:1 de AA para
+          // texto pequeno. `verdeEscuro` dá 6,2:1 com o mesmo branco, e é o token que o projeto já
+          // usa quando precisa de fundo sólido legível (ver o javadoc de `coresStatus`).
+          tabBarBadgeStyle: { backgroundColor: cores.verdeEscuro },
         }}
       />
       <Tabs.Screen

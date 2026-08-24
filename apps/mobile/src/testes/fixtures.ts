@@ -1,5 +1,6 @@
 import type {
   AlertaResponse,
+  BeneficioResponse,
   CarteiraResponse,
   ClimaResponse,
   ConsentimentoResponse,
@@ -13,7 +14,9 @@ import type {
   PerfilResponse,
   PontoCustodiaResponse,
   PreviaRecompensaResponse,
+  ResgateResponse,
   TriboResponse,
+  UsuarioBuscaResponse,
 } from '@/api/tipos';
 
 export const TOKENS: LoginResponse = {
@@ -72,28 +75,6 @@ export function missao(sobrescrever: Partial<MissaoResponse> = {}): MissaoRespon
     versao: 0,
     ...sobrescrever,
   };
-}
-
-/**
- * A MESMA missão como o servidor a devolve para quem NÃO participa dela.
- *
- * O backend recorta o endereço por participação: criador e executor veem tudo, os demais recebem
- * `cep`/`logradouro` nulos e coordenada com 3 casas (~110 m). É o que `GET /missoes`,
- * `GET /missoes/proximas` e o detalhe de missão alheia devolvem.
- *
- * Existe como fixture SEPARADA em vez de substituir `missao()` porque as duas formas são reais e o
- * app precisa aguentar ambas — e porque trocar a de cima quebraria dezenas de testes de uma vez, sem
- * que nenhum deles fosse sobre isto. Sem esta fixture, a suíte inteira passava verde contra um
- * contrato que o servidor não devolve mais.
- */
-export function missaoDeTerceiro(sobrescrever: Partial<MissaoResponse> = {}): MissaoResponse {
-  return missao({
-    cep: null,
-    logradouro: null,
-    origemLat: -23.564,
-    origemLon: -46.693,
-    ...sobrescrever,
-  });
 }
 
 export function pagina<T>(
@@ -269,6 +250,56 @@ export const PREVIA: PreviaRecompensaResponse = {
 };
 
 /** Corpo RFC 9457 como o backend o emite, incluindo `traceId`. */
+/**
+ * Catálogo de teste, calibrado na fixture `CARTEIRA` (41 tokens) de propósito: o café custa 15
+ * (alcança) e a revisão custa 60 (faltam 19). As duas metades da regra são exercitadas com o mesmo
+ * saldo, sem mock por teste — mesma calibração que a versão hardcoded desta tela usava.
+ */
+export const BENEFICIO_ALCANCAVEL: BeneficioResponse = {
+  id: '33333333-0000-0000-0000-000000000960',
+  titulo: 'Um café coado e um pão na chapa',
+  descricao: 'Retire no balcão apresentando o código. De segunda a sábado, até as 11h.',
+  custoTokens: 15,
+  tipo: 'BEM',
+  parceiroId: '22222222-0000-0000-0000-000000000960',
+  parceiroNome: 'Padaria Pão da Praça',
+  bairro: 'Cidade Líder',
+  distanciaM: 212.4,
+};
+
+export const BENEFICIO_CARO: BeneficioResponse = {
+  id: '33333333-0000-0000-0000-000000000962',
+  titulo: '20% de desconto na revisão da bicicleta',
+  descricao: 'Desconto proporcional sobre a mão de obra. Não acumula com outras ofertas.',
+  custoTokens: 60,
+  tipo: 'PERCENTUAL',
+  parceiroId: '22222222-0000-0000-0000-000000000961',
+  parceiroNome: 'Bicicletaria do Zé',
+  bairro: 'Cidade Líder',
+  distanciaM: 640.1,
+};
+
+export const RESGATE: ResgateResponse = {
+  id: '44444444-0000-0000-0000-000000000001',
+  beneficioId: BENEFICIO_ALCANCAVEL.id,
+  custoTokens: 15,
+  // Alfabeto sem 0/O e sem 1/I/L — o mesmo do GeradorCodigoRetirada.
+  codigoRetirada: 'CVYU5UCH',
+  status: 'PENDENTE',
+  criadoEm: '2026-08-22T12:00:00Z',
+  utilizadoEm: null,
+  saldoTokensRestante: 26,
+  replay: false,
+};
+
+/** O vizinho que a busca por `@` devolve — mesma tribo da fixture `PERFIL`. */
+export const VIZINHO: UsuarioBuscaResponse = {
+  id: 'bbbbbbbb-0000-0000-0000-000000000003',
+  handle: 'marlene',
+  nome: 'Marlene Souza',
+  tribo: 'Tribo Pinheiros',
+};
+
 export function problema(
   type: string,
   status: number,
@@ -285,3 +316,48 @@ export function problema(
     ...extra,
   };
 }
+
+/**
+ * Painel de impacto, com números escolhidos para serem CONFERÍVEIS de cabeça na leitura do teste:
+ * 22 = 6 + 12 + 3 + 1, conversão 6/22 = 27,3%, conclusão 3/4 = 75%, custo 3 × 25 = 75.
+ *
+ * `criadas` (4) é MENOR que `convertidas` (6) de propósito: é a forma real do banco, onde entrega
+ * falida do seed histórico aponta para missão criada por humano. A fixture antiga tinha os dois
+ * iguais e escondia o caso que a tela precisa explicar.
+ *
+ * `pendentes` alto de propósito — é o formato do banco de desenvolvimento, onde o seed histórico
+ * domina, e é o caso em que a tela precisa explicar a conversão baixa em vez de deixar concluir que
+ * o bairro não responde.
+ */
+export const IMPACTO = {
+  geradoEm: '2026-08-23T14:02:11Z',
+  entregasFalidas: {
+    recebidas: 22,
+    convertidas: 6,
+    pendentes: 12,
+    recusadasPontoLotado: 3,
+    recusadasSemPatrocinio: 1,
+    taxaConversao: 0.2727,
+  },
+  missoesDeRetirada: {
+    criadas: 4,
+    concluidas: 3,
+    taxaConclusao: 0.75,
+    medianaAteCheckinSegundos: 8100,
+    amostraMediana: 5,
+  },
+  custoEvitado: {
+    reentregasEvitadas: 3,
+    premissaCustoReentregaBrl: 25.0,
+    baseBrl: 75.0,
+    menos50Brl: 37.5,
+    mais50Brl: 112.5,
+  },
+  tokens: {
+    aportados: 40000,
+    emCarteiras: 38200,
+    emPotes: 1200,
+    emCirculacao: 39400,
+    resgatados: 600,
+  },
+};

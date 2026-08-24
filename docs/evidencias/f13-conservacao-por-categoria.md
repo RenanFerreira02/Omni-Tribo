@@ -1,3 +1,14 @@
+> **SUPERADA em 2026-08-22 por [`f14-conservacao-quatro-categorias.md`](./f14-conservacao-quatro-categorias.md).**
+>
+> Este documento mede um estado que não existe mais. Ele afirma que `MissaoService.pagaTokensDoPote`
+> cobre só TRIBO e COLETA e que AJUDA cunha token na conclusão — as duas coisas deixaram de ser
+> verdade com o [ADR 0024](../adr/0024-carteira-de-patrocinador.md) (patrocinador financia o pote da
+> entrega falida) e o [ADR 0025](../adr/0025-ajuda-paga-do-pote.md) (AJUDA paga do pote como TRIBO).
+> O script que ele cita foi reescrito para cinco ciclos e não reproduz mais esta saída.
+>
+> Fica no repositório como registro histórico: é a medição que documentou a lacuna enquanto ela
+> existia, e é contra ela que a F14 mostra o que mudou.
+
 # Conservação do TOKEN por categoria — e por que a reconciliação não a enxerga
 
 **Data:** 2026-08-16 · **Fase:** F13 · **Ambiente:** banco recriado do zero (`make reset`), backend

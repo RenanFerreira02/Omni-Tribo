@@ -26,7 +26,17 @@ export const registroSchema = z.object({
   senha: z.string().min(12, 'A senha precisa de ao menos 12 caracteres.'),
 });
 
+export const usuarioBuscaResponseSchema = z.object({
+  id: z.guid(),
+  handle: z.string(),
+  nome: z.string(),
+  tribo: z.string().nullable(),
+});
+
 export const transferenciaSchema = z.object({
+  // Continua validando o formato, mas o valor NÃO é mais digitado: vem do resultado da busca por
+  // handle. A guarda fica porque um id inválido aqui significaria defeito nosso, não erro de quem
+  // preenche — e falhar com mensagem é melhor que mandar lixo para a rede.
   destinatarioId: z.guid('Escolha um membro da sua tribo.'),
   tokens: z
     .number('Informe a quantidade de tokens.')
@@ -211,11 +221,18 @@ export const carteiraResponseSchema = z.object({
 export const lancamentoResponseSchema = z.object({
   id: z.guid(),
   sinal: z.enum(['CREDITO', 'DEBITO']),
+  // Espelha o CHECK de `lancamento.motivo` no backend. Os três últimos entraram depois:
+  // FINANCIAMENTO_PATROCINADOR e APORTE_PATROCINADOR na V23, RESGATE na V26. Sem eles aqui, um
+  // extrato que contivesse a linha da queima reprovaria em `validarEmDev` — o app quebraria em
+  // desenvolvimento exatamente quando o usuário resgatasse algo.
   motivo: z.enum([
     'RECOMPENSA_MISSAO',
     'TRANSFERENCIA_ENVIADA',
     'TRANSFERENCIA_RECEBIDA',
     'FINANCIAMENTO_TRIBO',
+    'FINANCIAMENTO_PATROCINADOR',
+    'APORTE_PATROCINADOR',
+    'RESGATE',
     'SAQUE',
     'BONUS',
     'ESTORNO',
@@ -327,6 +344,76 @@ export const transferenciaResponseSchema = z.object({
 });
 
 /** `PaginaResponse<T>` do backend — envelope próprio, não o `Page` do Spring Data. */
+export const beneficioResponseSchema = z.object({
+  id: z.guid(),
+  titulo: z.string(),
+  descricao: z.string(),
+  custoTokens: z.number(),
+  tipo: z.enum(['BEM', 'PERCENTUAL']),
+  parceiroId: z.guid(),
+  parceiroNome: z.string(),
+  bairro: z.string(),
+  // Ausente no recorte por tribo, e nulo é resposta legítima do servidor.
+  distanciaM: z.number().nullish(),
+});
+
+export const resgateResponseSchema = z.object({
+  id: z.guid(),
+  beneficioId: z.guid(),
+  custoTokens: z.number(),
+  codigoRetirada: z.string(),
+  status: z.enum(['PENDENTE', 'UTILIZADO']),
+  criadoEm: z.string(),
+  utilizadoEm: z.string().nullable(),
+  saldoTokensRestante: z.number(),
+  replay: z.boolean(),
+});
+
+/**
+ * Painel de impacto (ADMIN).
+ *
+ * As taxas e a mediana são `nullable` porque o servidor devolve `null` — e não zero — quando não há
+ * denominador ou amostra. Aceitar só `number` aqui faria `validarEmDev` gritar num sistema
+ * recém-instalado, que é exatamente quando os nulos aparecem.
+ *
+ * Os valores em BRL são `number`, como `valorBrl` e `saldoBrl` do resto do app: o servidor os
+ * serializa como NÚMERO JSON. A primeira versão deste schema pedia `string` — e passou nos testes
+ * porque a FIXTURE também mentia. Quem desmentiu foi a resposta real do servidor. Fixture que não
+ * espelha o servidor não testa contrato nenhum; testa a si mesma.
+ */
+export const impactoResponseSchema = z.object({
+  geradoEm: z.string(),
+  entregasFalidas: z.object({
+    recebidas: z.number(),
+    convertidas: z.number(),
+    pendentes: z.number(),
+    recusadasPontoLotado: z.number(),
+    recusadasSemPatrocinio: z.number(),
+    taxaConversao: z.number().nullable(),
+  }),
+  missoesDeRetirada: z.object({
+    criadas: z.number(),
+    concluidas: z.number(),
+    taxaConclusao: z.number().nullable(),
+    medianaAteCheckinSegundos: z.number().nullable(),
+    amostraMediana: z.number(),
+  }),
+  custoEvitado: z.object({
+    reentregasEvitadas: z.number(),
+    premissaCustoReentregaBrl: z.number(),
+    baseBrl: z.number(),
+    menos50Brl: z.number(),
+    mais50Brl: z.number(),
+  }),
+  tokens: z.object({
+    aportados: z.number(),
+    emCarteiras: z.number(),
+    emPotes: z.number(),
+    emCirculacao: z.number(),
+    resgatados: z.number(),
+  }),
+});
+
 export function paginaSchema<T extends z.ZodTypeAny>(item: T) {
   return z.object({
     conteudo: z.array(item),

@@ -172,22 +172,36 @@ public interface MissaoRepository extends JpaRepository<Missao, UUID> {
       @Param("id") UUID id, @Param("status") StatusMissao status);
 
   /**
-   * Missões não-terminais com pote em custódia cujo marco temporal já venceu — o dinheiro que a
-   * reconciliação NÃO acha.
+   * Criadas e concluídas pelo usuário-sistema, numa statement (painel de impacto, ADR 0029).
    *
-   * <p>Reconciliação compara ledger com projeção, e as duas continuam batendo enquanto tokens estão
-   * presos numa missão parada: quem quebra é a CONSERVAÇÃO, que é outra invariante. Esta consulta
-   * existe para dar visibilidade a essa diferença.
+   * <p>Duas contagens juntas pela mesma razão do resumo de entregas falidas: separadas, uma
+   * conclusão acontecendo entre as duas leituras produziria {@code concluidas > criadas} — um
+   * número impossível, causado só pelo instante da consulta.
    */
   @Query(
-      """
-      select m from Missao m
-      where m.poteTokens > 0
-        and m.status in (com.omnitribo.missoes.dominio.StatusMissao.EM_ANDAMENTO,
-                         com.omnitribo.missoes.dominio.StatusMissao.AGUARDANDO_CONFIRMACAO,
-                         com.omnitribo.missoes.dominio.StatusMissao.EM_DISPUTA)
-        and m.estadoDesde < :corte
-      order by m.estadoDesde asc
-      """)
-  List<Missao> potesImobilizados(@Param("corte") Instant corte, Pageable limite);
+      value =
+          """
+          SELECT COUNT(*)                                        AS criadas,
+                 COUNT(*) FILTER (WHERE status = 'CONCLUIDA')    AS concluidas
+          FROM missao
+          WHERE criador_id = :sistema
+          """,
+      nativeQuery = true)
+  ResumoSistemaProjecao contarDoSistema(@Param("sistema") UUID sistema);
+
+  /**
+   * Tokens parados em pote, em qualquer estado — metade da conservação do ADR 0027.
+   *
+   * <p>{@code COALESCE} porque {@code SUM} de conjunto vazio é NULL, e um banco recém-criado
+   * devolveria nulo onde o painel espera zero.
+   */
+  @Query(value = "SELECT COALESCE(SUM(pote_tokens), 0) FROM missao", nativeQuery = true)
+  long somarPotes();
+
+  /** Projeção de interface — sem entidade no caminho. */
+  interface ResumoSistemaProjecao {
+    long getCriadas();
+
+    long getConcluidas();
+  }
 }

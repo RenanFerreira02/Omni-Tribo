@@ -17,11 +17,6 @@ import { z } from 'zod';
 
 /** Tribos, pontos de custódia, clima e CEP — tudo que responde "onde". */
 
-export async function listarTribos(): Promise<TriboResponse[]> {
-  const { data } = await cliente.get<TriboResponse[]>('/tribos');
-  return validarEmDev(z.array(triboResponseSchema), data, 'GET /tribos');
-}
-
 /** Só o detalhe traz o centro geográfico; a lista o omite para não virar N+1 no servidor. */
 export async function buscarTribo(id: string): Promise<TriboResponse> {
   const { data } = await cliente.get<TriboResponse>(`/tribos/${seg(id)}`);

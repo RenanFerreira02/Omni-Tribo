@@ -2,9 +2,14 @@
 # Transportadora de mentira: exercita o webhook do "Fim da Entrega Falida" contra o
 # servidor LOCAL em execução.
 #
-# Dispara o caminho feliz e os CINCO negativos, e confere o resultado de cada um. É a
+# Dispara o CICLO COMPLETO — falha reportada, vizinho executa, transportadora confirma, executor
+# creditado — mais os negativos dos dois webhooks, conferindo o resultado de cada um. É a
 # demonstração ponta a ponta da tese do produto — uma entrega que falhou vira missão
-# comunitária — e o roteiro para defender o módulo oralmente.
+# comunitária REMUNERADA — e o roteiro para defender o módulo oralmente.
+#
+# Até o ADR 0026 este script parava na criação da missão: ninguém conseguia confirmá-la, porque o
+# criador é o usuário-sistema e AtorEsperado.CRIADOR compara identidade. O ciclo só fechava 72 h
+# depois, pela varredura de prazo — que continua existindo como rede de segurança.
 #
 # Uso:
 #   cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev   # noutro terminal
@@ -15,17 +20,22 @@
 #   SEGREDO          precisa bater com app.webhooks.segredos.transportadora-dev
 #   PONTO_CUSTODIA   ponto com vaga (default: Leroy Merlin Pinheiros, do seed)
 #   PONTO_LOTADO     ponto sem vaga (default: Portaria Ed. Aurora, do seed V904)
+#   EXECUTOR         e-mail do vizinho que executa (default: alice, nível 3 — a missão de retirada
+#                    exige nível >= app.missoes.entrega-falida.nivel-minimo, que é 2)
 set -euo pipefail
 
 API="${API:-http://localhost:8080}"
 URL="$API/api/v1/webhooks/transportadora"
+URL_CONFIRMACAO="$URL/confirmacao"
+EXECUTOR="${EXECUTOR:-alice@omnitribo.dev}"
+SENHA_SEED="${SENHA_SEED:-Senha@123}"
 TRANSPORTADORA="${TRANSPORTADORA:-transportadora-dev}"
 # Default idêntico ao de application-dev.yml. Trocar um exige trocar o outro.
 SEGREDO="${SEGREDO:-segredo-de-desenvolvimento-local}"
 PONTO_CUSTODIA="${PONTO_CUSTODIA:-cccccccc-0000-0000-0000-000000000001}"
 PONTO_LOTADO="${PONTO_LOTADO:-cccccccc-0000-0000-0000-000000000904}"
 
-for programa in curl openssl; do
+for programa in curl openssl jq; do
   command -v "$programa" >/dev/null || { echo "Faltando: $programa"; exit 1; }
 done
 
@@ -49,6 +59,27 @@ assinar() { # $1=timestamp  $2=corpo
     | sed 's/^.*= //'
 }
 
+# ── Cliente HTTP autenticado, para a parte do ciclo que é do USUÁRIO ────────────────
+# O mock precisa disto porque aceitar, iniciar e fazer check-in são atos do vizinho, com JWT.
+# Só o reporte e a confirmação são da transportadora, por HMAC.
+login() {
+  curl -s -X POST "$API/api/v1/auth/login" -H 'Content-Type: application/json' \
+    -d "{\"email\":\"$1\",\"senha\":\"$SENHA_SEED\"}" | jq -r '.accessToken'
+}
+
+acao() { # acao TOKEN MISSAO ACAO [CORPO]
+  local extra=()
+  [ -n "${4:-}" ] && extra=(-H 'Content-Type: application/json' -d "$4")
+  curl -s -X POST "$API/api/v1/missoes/$2/$3" \
+    -H "Authorization: Bearer $1" -H "Idempotency-Key: mock-$3-$2" "${extra[@]}"
+}
+
+saldo_de() { # saldo_de EMAIL — lê a projeção direto do banco, que é o número que a banca confere
+  docker compose exec -T db psql -U omnitribo -d omnitribo -tAc \
+    "SELECT c.saldo_tokens FROM carteira c JOIN usuario u ON u.id = c.usuario_id
+      WHERE u.email = '$1';" | tr -d ' \r'
+}
+
 corpo() { # $1=rastreio  $2=ponto
   cat <<JSON
 {"codigoRastreio":"$1","motivo":"Destinatário ausente após 3 tentativas de entrega",
@@ -61,10 +92,11 @@ JSON
 }
 
 # $1=rótulo  $2=status esperado  $3=corpo  $4=assinatura  $5=timestamp  $6=transportadora
+# $7=URL (opcional; default é o webhook de reporte)
 enviar() {
-  local rotulo="$1" esperado="$2" corpo="$3" assinatura="$4" ts="$5" quem="$6"
+  local rotulo="$1" esperado="$2" corpo="$3" assinatura="$4" ts="$5" quem="$6" alvo="${7:-$URL}"
   local resposta status json
-  resposta=$(curl -s -w '\n%{http_code}' -X POST "$URL" \
+  resposta=$(curl -s -w '\n%{http_code}' -X POST "$alvo" \
     -H 'Content-Type: application/json' \
     -H "X-Transportadora: $quem" \
     -H "X-Timestamp: $ts" \
@@ -134,9 +166,89 @@ c=$(corpo "$rastreio" "cccccccc-9999-9999-9999-999999999999")
 ts=$(date +%s)
 enviar "ponto inexistente → 404" 404 "$c" "$(assinar "$ts" "$c")" "$ts" "$TRANSPORTADORA"
 
+# ── 7. CICLO COMPLETO: da falha ao crédito, no mesmo minuto ─────────────────────────
+# Até o ADR 0026 este bloco era impossível: ninguém podia confirmar uma missão cujo criador é o
+# usuário-sistema, e o executor esperava as 72 h de prazo-confirmacao para receber.
+echo
+echo "── Ciclo completo: falha reportada → vizinho executa → transportadora confirma ──"
+
+rastreio="BR${execucao}CICLO"
+c=$(corpo "$rastreio" "$PONTO_CUSTODIA")
+ts=$(date +%s)
+enviar "reporte da falha → vira missão" 200 "$c" "$(assinar "$ts" "$c")" "$ts" "$TRANSPORTADORA"
+MISSAO=$(printf '%s' "$RESPOSTA_JSON" | jq -r '.missaoId')
+
+TOKEN=$(login "$EXECUTOR")
+if [ ${#TOKEN} -lt 20 ]; then
+  echo "${vermelho} FALHOU${normal}  login de $EXECUTOR não devolveu token"
+  falhas=$((falhas + 1))
+else
+  SALDO_ANTES=$(saldo_de "$EXECUTOR")
+  echo "${cinza}        executor: $EXECUTOR  saldo ANTES: ${SALDO_ANTES:-?} tokens${normal}"
+
+  printf '  ..  %-38s %s\n' "aceitar"  "$(acao "$TOKEN" "$MISSAO" aceitar  | jq -r '.status // .detail')"
+  printf '  ..  %-38s %s\n' "iniciar"  "$(acao "$TOKEN" "$MISSAO" iniciar  | jq -r '.status // .detail')"
+  printf '  ..  %-38s %s\n' "check-in" "$(acao "$TOKEN" "$MISSAO" checkin \
+    '{"lat":-23.5640,"lon":-46.6934,"acuraciaM":8.0,"mocked":false}' | jq -r '.status // .detail')"
+
+  cc=$(printf '{"codigoRastreio":"%s"}' "$rastreio")
+  ts=$(date +%s)
+  enviar "confirmação → executor creditado" 200 "$cc" "$(assinar "$ts" "$cc")" "$ts" \
+    "$TRANSPORTADORA" "$URL_CONFIRMACAO"
+
+  SALDO_DEPOIS=$(saldo_de "$EXECUTOR")
+  CREDITADO=$(printf '%s' "$RESPOSTA_JSON" | jq -r '.tokensCreditados')
+  echo "${cinza}        saldo DEPOIS: ${SALDO_DEPOIS:-?} tokens  (creditados: $CREDITADO)${normal}"
+
+  if [ "$((SALDO_DEPOIS - SALDO_ANTES))" = "$CREDITADO" ] && [ "$CREDITADO" -gt 0 ]; then
+    echo "${verde}  OK ${normal}  saldo subiu exatamente a recompensa: +$CREDITADO"
+  else
+    echo "${vermelho} FALHOU${normal}  saldo foi de $SALDO_ANTES para $SALDO_DEPOIS, creditados=$CREDITADO"
+    falhas=$((falhas + 1))
+  fi
+
+  # ── 8. Replay da confirmação: no-op, saldo intacto ────────────────────────────────
+  ts=$(date +%s)
+  enviar "replay da confirmação → no-op" 200 "$cc" "$(assinar "$ts" "$cc")" "$ts" \
+    "$TRANSPORTADORA" "$URL_CONFIRMACAO"
+  SALDO_REPLAY=$(saldo_de "$EXECUTOR")
+  case "$RESPOSTA_JSON" in
+    *'"replay":true'*) ;;
+    *) echo "${vermelho} FALHOU${normal}  replay não foi sinalizado"; falhas=$((falhas + 1)) ;;
+  esac
+  if [ "$SALDO_REPLAY" = "$SALDO_DEPOIS" ]; then
+    echo "${verde}  OK ${normal}  saldo intacto no replay: $SALDO_REPLAY"
+  else
+    echo "${vermelho} FALHOU${normal}  replay mexeu no saldo: $SALDO_DEPOIS → $SALDO_REPLAY"
+    falhas=$((falhas + 1))
+  fi
+fi
+
+# ── 9. Confirmação com assinatura inválida ──────────────────────────────────────────
+cc=$(printf '{"codigoRastreio":"%s"}' "BR${execucao}CICLO")
+ts=$(date +%s)
+enviar "confirmação com assinatura inválida → 401" 401 "$cc" "$(printf '00%.0s' {1..32})" "$ts" \
+  "$TRANSPORTADORA" "$URL_CONFIRMACAO"
+
+# ── 10. Confirmação de rastreio desconhecido ────────────────────────────────────────
+# 404, e não 200: diferente do ponto lotado, aqui não há fato NOVO a gravar. Um 200 diria
+# "confirmado" para uma encomenda que o sistema nunca viu.
+cc=$(printf '{"codigoRastreio":"NAO-EXISTE-%s"}' "$execucao")
+ts=$(date +%s)
+enviar "confirmação de rastreio desconhecido → 404" 404 "$cc" "$(assinar "$ts" "$cc")" "$ts" \
+  "$TRANSPORTADORA" "$URL_CONFIRMACAO"
+
+# ── 11. Confirmação de missão que ninguém executou ──────────────────────────────────
+# A missão do caminho feliz (cenário 1) está ABERTA: sem aceite e sem check-in, CONFIRMAR não cabe.
+# 409 é o contrato do projeto para "não cabe neste estado, caberia em outro".
+cc=$(printf '{"codigoRastreio":"BR%sFELIZ"}' "$execucao")
+ts=$(date +%s)
+enviar "confirmação sem check-in → 409" 409 "$cc" "$(assinar "$ts" "$cc")" "$ts" \
+  "$TRANSPORTADORA" "$URL_CONFIRMACAO"
+
 echo
 if [ "$falhas" -eq 0 ]; then
-  echo "${verde}Todos os 6 cenários responderam como esperado.${normal}"
+  echo "${verde}Todos os cenários responderam como esperado.${normal}"
   echo "Veja a missão criada em: $API/swagger-ui.html  →  GET /api/v1/missoes?categoria=ENTREGA"
 else
   echo "${vermelho}$falhas cenário(s) fora do esperado.${normal}"

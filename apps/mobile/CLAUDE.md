@@ -15,6 +15,53 @@
   `coral` 3,20:1, contra o mínimo de 4,5:1. Onze dos vinte e dois pares texto/fundo do app
   reprovavam. `textoAcessivel` traz as mesmas cores escurecidas até o limiar, preservando o matiz.
   Verde como texto é `verdeEscuro`, que já atendia. Um `color: cores.ambar` novo é regressão.
+- **Acessibilidade é LINT, não boa vontade** (F18). `eslint-plugin-react-native-a11y` roda no
+  `npm run lint`, que o CI do mobile já executa. Onze regras ligadas uma a uma em `eslint.config.js`,
+  com o comentário de cada decisão. **Nenhuma exceção inline sem justificativa** — e hoje não há
+  nenhuma: o único falso positivo (o fundo da `FolhaInferior`) foi resolvido declarando
+  `accessibilityRole="none"`, que é a verdade sobre aquele elemento, em vez de silenciar a regra.
+  - O gate real é **`has-valid-accessibility-descriptors`**: todo `Pressable` e todo `TextInput`
+    precisa de papel, rótulo ou ação. **`has-accessibility-props`, apesar do nome, é INERTE aqui** —
+    ela só dispara sobre `accessibilityTraits`/`accessibilityComponentType`, depreciadas e ausentes
+    do app. Fica ligada como trava de regressão; não conte com ela para cobrar anotação nova.
+  - `has-accessibility-hint` NÃO é ligada: exige dica sempre que existe rótulo, e dica em "Voltar"
+    ou no número do saldo é ruído. **Hint é para quando a consequência não é óbvia** — check-in,
+    transferência, exclusão de conta —, e isso é julgamento, não regra.
+  - A lista `touchables` NÃO inclui `Botao`/`Chip`/`MissaoCard`: eles já emitem semântica por
+    dentro, e listá-los obrigaria os pontos de uso a repetir o que o componente entrega.
+- **Resultado assíncrono é ANUNCIADO** (`useAnuncio`, em `src/lib/anunciar.ts`). O `Aviso` já era
+  região viva, então a FALHA falava e o SUCESSO não — check-in aceito, transferência concluída e
+  vizinho encontrado mudavam a tela em silêncio. E `accessibilityLiveRegion` **é prop de Android**:
+  no iOS ela não faz nada, então o anúncio explícito entra mesmo onde já existe `Aviso`.
+  `paraFala()` troca "180 m" por "180 metros", porque TTS trata abreviação de unidade de forma
+  inconsistente e instrução sem unidade não orienta.
+- **`TituloTela` é o cabeçalho de toda tela e seção.** Ele dá `accessibilityRole="header"` (a
+  navegação por títulos do TalkBack depende disso) e move o foco para si na troca de rota — sem
+  isso, cada navegação joga a pessoa no topo da árvore. Só o título de TELA puxa foco; o de seção
+  não, senão dois competiriam e a leitura sairia na ordem de montagem.
+- **`maxFontSizeMultiplier` SÓ em controle compacto** — hoje só no `Chip`, onde a barra de cinco
+  filtros quebra em duas linhas. **Nunca em corpo de texto**, que é justamente o que precisa
+  crescer. Altura de controle é `minHeight`, nunca `height`.
+- **`useMovimentoReduzido()`** (`src/lib/movimento.ts`) desliga o pulso do `Esqueleto` e as
+  transições do Expo Router. Com movimento reduzido o esqueleto não tem `Animated.Value` nenhum na
+  árvore — é opacidade fixa, não animação parada.
+- **Categoria tem GLIFO além de cor** (`glifoCategoria`): ◆ entrega · ● coleta · ▲ tribo · ■ ajuda.
+  O glifo é decorativo (`importantForAccessibility="no"`) e por isso o `Chip` carrega
+  `accessibilityLabel` explícito — sem ele o leitor de tela anunciaria "losango Entrega". Vale
+  também no marcador do mapa, onde as quatro categorias eram indistinguíveis sem texto ao lado.
+- **O radar tem DUAS apresentações da mesma rota** (ADR 0030): `Mapa | Lista`, com a escolha
+  persistida em `src/features/mapa/apresentacao.ts`. A lista existe porque a WebView do Leaflet não
+  expõe semântica — e o ponto de custódia só existia lá dentro. **Não é tela separada**: duas rotas
+  divergiriam, e a que menos gente usa é a que fica para trás, que aqui seria justamente a acessível.
+  - **O cliente NÃO reordena.** A ordem por distância vem do servidor (`ORDER BY distancia_m ASC`
+    sobre `geography`), e recalcular aqui daria um segundo valor, ocasionalmente diferente do que o
+    mapa desenha.
+  - `ItemPontoCustodia` não reusa `MissaoCard` de propósito: ponto de custódia não tem recompensa
+    nem prazo, e "0 XP e 0 tokens, encerrada" para um armário seria pior que a assimetria.
+- **A ordem do rótulo é a ordem da DECISÃO**: categoria, recompensa, distância, prazo — título e
+  local por último. Quem navega por voz decide no primeiro terço da frase, e o título é o que menos
+  separa uma missão da outra. `formatarPrazo` é relativo ("termina em 40 min"), não absoluto: a
+  pergunta é "dá tempo de ir?", não "quando foi?".
 - **`useLocalizacao()` NÃO pede permissão ao montar, e o default é esse de propósito.** Quem quiser
   o pedido automático passa `true` explicitamente — e precisa ter mostrado a justificativa antes.
   Use `JustificativaLocalizacao`: o diálogo do sistema é de uma via só, e negado uma vez não volta.
@@ -69,20 +116,30 @@ patrocinada futura; nenhuma missão remunera em BRL. Não construa UI que sugira
 **A UI não oferece saque, e o endpoint continua existindo.** `POST /carteira/saques` responde 422 com
 `type` `.../saque-desabilitado` (ADR 0010) — desligado por configuração, não quebrado —, e a camada
 de API mantém `sacar()`, o mapeamento do `type` e o teste do 422. O que saiu foi o botão: a carteira
-agora leva a `app/beneficios.tsx`. O raciocínio antigo ("um botão ausente não ensina nada") valia
+agora leva a `app/(app)/beneficios.tsx`. O raciocínio antigo ("um botão ausente não ensina nada") valia
 enquanto não havia para onde mandar a pessoa; um catálogo mostra o que a moeda É, e isso ensina mais
 que um aviso dizendo o que ela não é.
 
 **Benefício se expressa em BEM ou em PORCENTAGEM. Nunca em reais.** O ADR 0009 §6 é a razão: se o
 token virasse conversível, ele *seria* dinheiro, com KYC e enquadramento regulatório junto. "R$ 20
 em compras" fixa uma cotação token→real exatamente onde o produto recusa ter uma — é a mesma regra
-que faz a carteira nunca imprimir `R$`. Há teste dos dois lados: o catálogo
-(`features/beneficios/__tests__/catalogo.test.ts`) e a tela (`app/__tests__/beneficios.test.tsx`).
+que faz a carteira nunca imprimir `R$`. **A garantia hoje é do SERVIDOR**, em duas camadas
+(`@Pattern` em `CadastrarBeneficioRequest` e `ck_beneficio_sem_reais` na V24); do lado do app sobrou
+o teste de que a tela não reintroduz `R$` por copy própria.
 
-**O catálogo de benefícios é dado LOCAL**, em `src/features/beneficios/catalogo.ts`, e nada nele
-debita saldo. O resgate é o sumidouro do TOKEN (ADR 0009 §3) e o backend não o tem: não há tabela de
-parceiro, endpoint, nem motivo `RESGATE` no ledger. Simular o débito no cliente produziria um saldo
-que o servidor desmente no primeiro `refetch` — a tela diz ao usuário que a baixa ainda não acontece.
+**O catálogo vem da API** — `GET /api/v1/beneficios`, por tribo ou por proximidade. Era dado LOCAL
+enquanto o sumidouro não existia; a F16 (V24-V26, ADR 0027) o trouxe, e `src/features/beneficios/
+catalogo.ts` encolheu para só `estadoDoResgate`.
+
+**O resgate QUEIMA token, e o saldo só muda quando o servidor confirma.** `POST /api/v1/resgates`
+com `Idempotency-Key`, confirmação explícita antes de debitar, e **sem atualização otimista** — a
+mesma doutrina de `useTransferirTokens`, agravada porque token queimado não volta. O sucesso invalida
+`chavesCarteira.todas`, então saldo e extrato se atualizam juntos.
+
+**"Faltam N tokens" é calculado no CLIENTE.** O backend responde saldo insuficiente com
+`422 regra-negocio-violada`, que não traz campos estruturados; a frase sai de `estadoDoResgate(saldo,
+custo)`, com dois números que o app já tem. Parsear o `detail` daria o mesmo texto e violaria a regra
+dura abaixo.
 
 ## Tratamento de erro — regra dura
 
@@ -124,6 +181,10 @@ Custaram tempo e não aparecem em lugar nenhum da documentação do Expo:
   dublês. Por isso o teste de integração roda em `testEnvironment: 'node'`
   (`jest.e2e.config.js`), com stub de `react-native`; sob o preset do RN toda chamada volta como
   `semRede`, indistinguível de backend desligado.
+- **`unmount()` da RNTL 14 também é ASSÍNCRONO.** Sem `await`, um segundo `render` no mesmo teste
+  **trava o processo inteiro** — não falha, não estoura o `testTimeout` de 30 s, apenas para. O
+  sintoma é o `npm test` pendurado sem nenhuma linha vermelha. Aparece em teste de percurso, que
+  monta e desmonta telas em sequência.
 - **O PRIMEIRO teste de uma suíte de tela é ordens de grandeza mais caro que os outros**, e os 5 s
   de default do jest não cabiam nele no CI. O `react-native` exporta componentes por getters
   preguiçosos: o grafo de módulos só carrega no primeiro `render()`, dentro do primeiro teste. Com

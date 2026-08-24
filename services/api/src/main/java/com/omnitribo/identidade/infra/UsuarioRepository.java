@@ -68,6 +68,37 @@ public interface UsuarioRepository extends JpaRepository<Usuario, UUID> {
   Optional<Usuario> buscarParaAtualizar(@Param("id") UUID id);
 
   /**
+   * Busca por handle EXATO, ignorando caixa, restrita a contas utilizáveis.
+   *
+   * <p>Sustenta {@code GET /api/v1/usuarios/busca} (ADR 0028). Três decisões estão dentro desta
+   * query, e nenhuma delas pode migrar para o chamador:
+   *
+   * <ul>
+   *   <li><b>Igualdade, nunca {@code like}.</b> Prefixo ou similaridade transformariam a busca numa
+   *       listagem por outro nome — que é exatamente o que {@code TriboController} recusa expor,
+   *       para não dar a qualquer autenticado um mapa social do bairro.
+   *   <li><b>{@code LOWER(u.handle)} usa o índice funcional da V27</b>, {@code
+   *       uk_usuario_handle_lower}. Sem ele isto seria Seq Scan na tabela de usuários.
+   *   <li><b>Conta inutilizável não é encontrável</b>: {@code status = ATIVO} e {@code
+   *       anonimizado_em IS NULL} — o mesmo predicado de {@code EstadoDaConta.podeUsar()}. Uma
+   *       conta anonimizada tem handle aleatório e não deve aparecer para ninguém; e transferir
+   *       token para conta suspensa criaria saldo que ninguém alcança.
+   * </ul>
+   *
+   * <p>A restrição de TRIBO fica de fora daqui de propósito: ela é do chamador, que a aplica com
+   * {@code ConsultaAfiliacao.mesmaTribo} — a semântica de tribo nula mora lá, num lugar só, com
+   * teste próprio.
+   */
+  @Query(
+      """
+      select u from Usuario u
+       where lower(u.handle) = lower(:handle)
+         and u.status = com.omnitribo.identidade.dominio.StatusUsuario.ATIVO
+         and u.anonimizadoEm is null
+      """)
+  Optional<Usuario> buscarPorHandleExato(@Param("handle") String handle);
+
+  /**
    * Ids, dentre os dados, cujo XP alcança o limiar.
    *
    * <p>Compara XP e não a coluna {@code nivel}: aquela é cache recalculado a cada concessão, e

@@ -16,6 +16,7 @@ import { DialogoConfirmacao } from '@/components/DialogoConfirmacao';
 import { Esqueleto } from '@/components/Esqueleto';
 import { EstadoVazio } from '@/components/EstadoVazio';
 import { FolhaInferior } from '@/components/FolhaInferior';
+import { TituloTela } from '@/components/TituloTela';
 import {
   useConsentimentos,
   useDefinirConsentimento,
@@ -23,6 +24,7 @@ import {
   useExportarDados,
   usePerfil,
 } from '@/features/perfil/hooks';
+import { useAnuncio } from '@/lib/anunciar';
 import { useSessao } from '@/stores/sessao';
 import { cores, espaco, textoAcessivel, tipografia } from '@/theme';
 
@@ -43,6 +45,14 @@ const ROTULO_CONSENTIMENTO: Record<TipoConsentimento, { titulo: string; descrica
 
 export default function TelaPerfil() {
   const router = useRouter();
+  /**
+   * O desfecho falado da última operação de privacidade.
+   *
+   * Consentimento e exportação eram as duas operações do app cuja FALHA não aparecia em lugar
+   * nenhum — nem para leitor de tela, nem para quem enxerga. O switch voltava ao estado anterior
+   * sozinho e a interface seguia como se nada tivesse acontecido.
+   */
+  const [anuncio, setAnuncio] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const encerrar = useSessao((estado) => estado.encerrar);
   const refreshToken = useSessao((estado) => estado.refreshToken);
@@ -58,6 +68,8 @@ export default function TelaPerfil() {
   const [senhaAberta, setSenhaAberta] = useState(false);
   const [senha, setSenha] = useState('');
 
+  useAnuncio(anuncio);
+
   async function sair() {
     if (refreshToken) await logout(refreshToken).catch(() => undefined);
     await encerrar();
@@ -71,7 +83,15 @@ export default function TelaPerfil() {
   }
 
   async function compartilharDados() {
-    const dados = await exportar.mutateAsync();
+    // A falha da exportação também não era renderizada em lugar nenhum: o botão parava de girar e
+    // nada acontecia. Num direito de LGPD, "nada acontecer" é indistinguível de "o app ignorou".
+    let dados;
+    try {
+      dados = await exportar.mutateAsync();
+    } catch {
+      setAnuncio('Não foi possível exportar seus dados. Tente de novo.');
+      return;
+    }
     // `Share` do core, e não gravação em arquivo: exportar é um direito do titular, e o destino é
     // decisão DELE — e-mail, nuvem, outro app. Salvar num diretório do aplicativo devolveria o dado
     // para dentro da mesma caixa de onde ele quer tirá-lo.
@@ -129,9 +149,7 @@ export default function TelaPerfil() {
   return (
     <SafeAreaView style={estilos.raiz} edges={['top']}>
       <ScrollView contentContainerStyle={estilos.conteudo}>
-        <Text style={estilos.titulo} accessibilityRole="header">
-          {p.nome}
-        </Text>
+        <TituloTela>{p.nome}</TituloTela>
         <Text style={estilos.handle}>@{p.handle}</Text>
 
         {/* ─── Progressão ────────────────────────────────────────────────────────────────── */}
@@ -174,13 +192,32 @@ export default function TelaPerfil() {
         </Card>
 
         {/* ─── Conquistas ────────────────────────────────────────────────────────────────── */}
-        <Text style={estilos.subtitulo}>Conquistas</Text>
+        <TituloTela nivel="secao">Conquistas</TituloTela>
         {p.conquistas.map((conquista) => (
           <Conquista key={conquista.codigo} conquista={conquista} />
         ))}
 
+        {/* ─── Administração ─────────────────────────────────────────────────────────────── */}
+        {/*
+          Só aparece para ADMIN, mas ESCONDER NÃO É PROTEGER: a rota é comum e quem protege é o 403
+          de `GET /api/v1/admin/impacto`. O `papel` daqui vem do perfil, que vem do servidor — não é
+          decisão do cliente, é reflexo dela. A tela existe fora das abas justamente para não ocupar
+          espaço permanente numa navegação que todo usuário vê.
+        */}
+        {p.papel === 'ADMIN' ? (
+          <>
+            <TituloTela nivel="secao">Administração</TituloTela>
+            <Botao
+              titulo="Painel de impacto"
+              variante="secundario"
+              onPress={() => router.push('/impacto')}
+              testID="botao-impacto"
+            />
+          </>
+        ) : null}
+
         {/* ─── Privacidade ───────────────────────────────────────────────────────────────── */}
-        <Text style={estilos.subtitulo}>Privacidade e dados</Text>
+        <TituloTela nivel="secao">Privacidade e dados</TituloTela>
         <Botao
           titulo="Gerenciar meus dados"
           variante="secundario"
@@ -208,6 +245,18 @@ export default function TelaPerfil() {
       >
         <ScrollView contentContainerStyle={estilos.folha}>
           <Text style={estilos.rotulo}>Consentimentos</Text>
+          {/*
+            O erro do consentimento NÃO ERA RENDERIZADO EM LUGAR NENHUM. Revogar podia falhar, o
+            switch voltava sozinho e a pessoa ficava acreditando que havia revogado — num controle de
+            LGPD, que é onde a consequência de acreditar errado é maior.
+          */}
+          {definirConsentimento.error ? (
+            <Aviso
+              tom="erro"
+              mensagem={mensagemDe(definirConsentimento.error)}
+              testID="erro-consentimento"
+            />
+          ) : null}
           {(consentimentos.data ?? []).map((item) => (
             <View key={item.tipo} style={estilos.consentimento}>
               <View style={estilos.consentimentoTexto}>
@@ -217,8 +266,23 @@ export default function TelaPerfil() {
               <Switch
                 value={item.concedido}
                 onValueChange={(concedido) =>
-                  definirConsentimento.mutate({ tipo: item.tipo, concedido })
+                  definirConsentimento.mutate(
+                    { tipo: item.tipo, concedido },
+                    {
+                      onSuccess: () =>
+                        setAnuncio(
+                          `${ROTULO_CONSENTIMENTO[item.tipo].titulo}: ${concedido ? 'autorizado' : 'revogado'}.`,
+                        ),
+                      onError: () =>
+                        setAnuncio(
+                          `Não foi possível alterar ${ROTULO_CONSENTIMENTO[item.tipo].titulo}. O ajuste não foi salvo.`,
+                        ),
+                    },
+                  )
                 }
+                // O Switch nativo tem ~31 pt de altura no iOS, abaixo dos 44 da WCAG 2.5.5, e não
+                // aceita padding. `hitSlop` amplia só a área sensível, sem mexer no layout.
+                hitSlop={8}
                 disabled={definirConsentimento.isPending}
                 accessibilityLabel={ROTULO_CONSENTIMENTO[item.tipo].titulo}
                 trackColor={{ true: cores.verdePrimario, false: cores.linha }}
@@ -235,6 +299,9 @@ export default function TelaPerfil() {
             onPress={() => void compartilharDados()}
             testID="botao-exportar"
           />
+          {exportar.error ? (
+            <Aviso tom="erro" mensagem={mensagemDe(exportar.error)} testID="erro-exportacao" />
+          ) : null}
           <Text style={estilos.legenda}>
             Um arquivo com tudo que a plataforma guarda sobre você: cadastro, consentimentos,
             missões, lançamentos e check-ins. Sem senha nem chaves de acesso.
@@ -244,6 +311,7 @@ export default function TelaPerfil() {
           <Botao
             titulo="Excluir minha conta"
             variante="texto"
+            hint="Apaga seu nome, e-mail e arroba, e encerra a conta. Não tem volta."
             onPress={() => setConfirmandoExclusao(true)}
             testID="botao-excluir-conta"
           />

@@ -1,17 +1,22 @@
 import { HttpResponse, http } from 'msw';
 import {
   ALERTA_PAGINA,
+  BENEFICIO_ALCANCAVEL,
+  BENEFICIO_CARO,
   CARTEIRA,
   CLIMA,
   CONSENTIMENTOS,
   ENDERECO,
+  IMPACTO,
   LANCAMENTO,
   PERFIL,
   PONTO_CUSTODIA,
   PREVIA,
+  RESGATE,
   TOKENS,
   TRIBO,
   USUARIO,
+  VIZINHO,
   missao,
   pagina,
   proxima,
@@ -82,6 +87,15 @@ export const manipuladores = [
   ),
 
   // ─── Perfil e LGPD ──────────────────────────────────────────────────────────────────────────
+  http.get(`${BASE}/beneficios`, () =>
+    HttpResponse.json(pagina([BENEFICIO_ALCANCAVEL, BENEFICIO_CARO])),
+  ),
+  http.post(`${BASE}/resgates`, () => HttpResponse.json(RESGATE, { status: 201 })),
+
+  http.get(`${BASE}/admin/impacto`, () => HttpResponse.json(IMPACTO)),
+
+  http.get(`${BASE}/usuarios/busca`, () => HttpResponse.json(VIZINHO)),
+
   http.get(`${BASE}/usuarios/me`, () => HttpResponse.json(PERFIL)),
   http.get(`${BASE}/usuarios/me/consentimentos`, () => HttpResponse.json(CONSENTIMENTOS)),
   http.put(`${BASE}/usuarios/me/consentimentos/:tipo`, async ({ params, request }) => {

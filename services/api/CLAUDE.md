@@ -91,7 +91,10 @@ Antes de terminar qualquer tarefa: `./mvnw verify`, e cole a saída real. Compil
   notifique direto: antes do commit você anuncia o que o rollback desfaz; depois, perde o que falhar.
   O `DrenadorOutboxJob` drena com `SKIP LOCKED` e backoff exponencial (30s, 1min, 2min, 4min, 8min;
   `maximo-tentativas: 5`), e o `DespachanteAlerta` grava uma linha em `alerta` — destino provisório
-  até o push real do mobile. Garantia é **at-least-once**: o consumidor tolera duplicata.
+  até o push real do mobile. O consumidor tem de tolerar duplicata, porque a entrega não é
+  exactly-once. **Mas NÃO diga que é at-least-once**: na quinta falha o evento sai do predicado do
+  lote e nunca mais é tentado, sem carta-morta, sem endpoint e sem métrica — zero entregas, e
+  ninguém fica sabendo. Ver Pendência #1 do `CLAUDE.md` da raiz.
 - Cache de proximidade (`CacheMissoesProximas`, Caffeine, TTL 30s, chave por geohash de precisão 7 +
   raio + categoria + limite) é invalidado **depois do commit**, via
   `TransactionSynchronization.afterCommit` — invalidar dentro da transação deixaria uma leitura
@@ -132,5 +135,20 @@ Antes de terminar qualquer tarefa: `./mvnw verify`, e cole a saída real. Compil
   quando não existem (TRIBO, AJUDA). Declarar junto com peso e volume é 400.
 - **Duas invariantes DIFERENTES, e confundi-las já custou caro:** reconciliação
   (ledger == projeção) e conservação (`SUM(carteiras) + SUM(potes)`). **A primeira passa enquanto a
-  segunda é violada** — foi exatamente esse o buraco do estorno na expiração. Um endpoint de
-  reconciliação respondendo `integro=true` não é prova de que nenhum token se perdeu.
+  segunda muda** — foi esse o buraco do estorno na expiração, foi a cunhagem de ENTREGA, e agora é a
+  queima do resgate, que é intencional. Um endpoint de reconciliação respondendo `integro=true` não
+  é prova de que nenhum token se perdeu.
+- **A conservação é de CICLO, não de estoque** (ADR 0027). `SUM(carteiras) + SUM(potes)` é constante
+  dentro do ciclo de missões e muda nas duas pontas: sobe no `APORTE_PATROCINADOR`, desce no
+  `RESGATE`. Um teste que afirme constância precisa dizer QUAL das duas coisas mede.
+- **Quem paga do pote é `missao.fonte_pote`, não a categoria** (V23 / ADR 0024). `COMUNIDADE` e
+  `PATROCINADOR` pagam do pote; `CUNHAGEM` emite na conclusão e, desde o ADR 0025, é só ENTREGA
+  criada por humano. A coluna é congelada no construtor de `Missao` — não há CHECK de coerência no
+  banco porque ele reprovaria os INSERTs dos seeds, que rodam depois da migration.
+- **Regra que depende da fonte se lê da FONTE, nunca de uma lista de categorias.** `validarEstado`
+  do financiamento listava TRIBO/COLETA e por isso quase ficou fora de sincronia com o construtor
+  quando AJUDA mudou de lado: a missão exigiria pote para publicar e recusaria todo financiamento
+  que o formasse — impublicável e infinanciável ao mesmo tempo, sem erro apontando a causa.
+- **Motivo de financiamento novo entra em `LancamentoRepository.buscarFinanciamentosDaMissao` no
+  mesmo commit em que entra no enum.** Aquela query é o que o estorno enxerga; um motivo fora dela
+  deixa o token preso numa missão morta, e a reconciliação continua verde.

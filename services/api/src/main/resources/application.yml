@@ -86,9 +86,27 @@ app:
     login-por-minuto: 5          # tentativas de login por IP+email antes de 429
     escrita-por-minuto: 100      # POST/PUT/PATCH/DELETE por usuário autenticado
     leitura-por-minuto: 300      # GET por usuário autenticado
+    # Teto PRÓPRIO de GET /usuarios/busca, e não um recorte do de leitura: aquele endpoint responde
+    # "este @ está na minha tribo?", o que o torna um oráculo de existência por natureza. No balde
+    # geral seriam 18 mil tentativas por hora — o bastante para colher handles em massa. Doze por
+    # minuto é folgado para gente digitando um @ e conferindo o nome. Ver ADR 0028.
+    busca-handle-por-minuto: 12
     falhas-para-bloqueio: 10     # falhas consecutivas antes de bloqueio progressivo
     janela-falhas-minutos: 15    # janela de observação para contar falhas
     duracao-bloqueio-minutos: 15 # duração do bloqueio após atingir o limiar
+  impacto:
+    # PREMISSA, NÃO MEDIÇÃO — e o painel diz isso em texto, na tela.
+    #
+    # Quanto se ASSUME que custa à transportadora re-entregar uma encomenda que falhou. Este
+    # projeto não mediu esse número e não tem como medi-lo: não existe operação real, logo não
+    # existe série de custo para observar. Ele mora aqui, e não num literal em Java, exatamente
+    # para que a natureza de premissa fique visível — número no meio de um cálculo parece
+    # resultado, e é assim que suposição vira "dado" no slide de alguém.
+    #
+    # GET /api/v1/admin/impacto devolve a mesma conta com este valor pela METADE e por UMA VEZ E
+    # MEIA. A afirmação defensável não é o total: é a ordem de grandeza que sobrevive à faixa. Se a
+    # conclusão muda quando a premissa varia 50%, ela nunca foi sobre o dado. Ver ADR 0029.
+    custo-reentrega-brl: 25.00
   agendamento:
     # Desligado no perfil de teste: um job mudando status em paralelo tornaria as assertions
     # intermitentes. A regra de expiração continua testada chamando ExpiracaoMissoesJob.varrer().
@@ -191,7 +209,10 @@ app:
   outbox:
     intervalo: PT10S             # varredura frequente: é latência de notificação, não de dados
     atraso-inicial: PT30S
-    maximo-tentativas: 5         # depois disso o evento sai do lote e espera intervenção
+    # Depois da quinta falha o evento sai do predicado do lote e NUNCA mais é tentado. Não existe
+    # consulta, endpoint nem métrica que mostre um evento esgotado — ele fica na tabela, invisível.
+    # Este comentário já dizia "espera intervenção", e não havia com o que intervir (Pendência #4).
+    maximo-tentativas: 5
     backoff-base: PT30S          # exponencial: 30s, 1min, 2min, 4min, 8min
 
   # Webhook de transportadora — a borda do "Fim da Entrega Falida".

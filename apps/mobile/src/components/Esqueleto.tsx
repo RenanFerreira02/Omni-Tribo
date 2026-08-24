@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Animated, Easing, StyleSheet, View, type DimensionValue } from 'react-native';
 
 import { Card } from './Card';
+import { useMovimentoReduzido } from '@/lib/movimento';
 import { cores, espaco, raio } from '@/theme';
 
 interface Props {
@@ -19,13 +20,27 @@ interface Props {
  * efeito, na thread de UI, sem nada disso. Reanimated continua no projeto — o Expo Router o usa nas
  * transições de tela —, só não entra no caminho dos nossos componentes.
  */
+/** Tom de "espaço reservado" quando não há pulso. Entre o mínimo e o máximo do laço. */
+const OPACIDADE_PARADA = 0.7;
+
 export function Esqueleto({ largura = '100%', altura = 14 }: Props) {
+  /**
+   * O pulso é MOVIMENTO PERSISTENTE, não uma transição que passa — ele roda em laço enquanto
+   * qualquer tela carrega. É exatamente o caso que "reduzir movimento" existe para atender, e
+   * ignorá-lo era a única animação do app que ninguém podia interromper.
+   */
+  const movimentoReduzido = useMovimentoReduzido();
   // `useState` com inicializador preguiçoso, e não `useRef(...).current`: o valor precisa ser criado
   // uma vez só, e ler `.current` durante a renderização é justamente o que a regra `react-hooks/refs`
   // proíbe. O setter nunca é usado — o que muda é o interior do Animated.Value, não a referência.
   const [opacidade] = useState(() => new Animated.Value(0.4));
 
   useEffect(() => {
+    // Com movimento reduzido não há laço nenhum para iniciar — e nem `Animated.Value` no estilo,
+    // ver abaixo. Sair aqui é o que evita o laço infinito ficar rodando por trás de uma opacidade
+    // fixa, consumindo quadro sem produzir nada visível.
+    if (movimentoReduzido) return;
+
     const laco = Animated.loop(
       Animated.sequence([
         Animated.timing(opacidade, {
@@ -45,11 +60,23 @@ export function Esqueleto({ largura = '100%', altura = 14 }: Props) {
     laco.start();
     // Parar no unmount: laço infinito sobrevivente mantém o timer vivo depois de a tela sair.
     return () => laco.stop();
-  }, [opacidade]);
+  }, [opacidade, movimentoReduzido]);
 
   return (
     <Animated.View
-      style={[estilos.barra, { width: largura, height: altura, opacity: opacidade }]}
+      testID="esqueleto"
+      style={[
+        estilos.barra,
+        {
+          width: largura,
+          height: altura,
+          // Número puro quando o movimento é reduzido, e não o `Animated.Value` parado: assim não
+          // existe animação nenhuma na árvore — nada para um driver nativo assumir, nada para
+          // inspecionar. O valor é INTERMEDIÁRIO de propósito; em 1 o esqueleto pareceria conteúdo
+          // já carregado em vez de espaço reservado.
+          opacity: movimentoReduzido ? OPACIDADE_PARADA : opacidade,
+        },
+      ]}
     />
   );
 }

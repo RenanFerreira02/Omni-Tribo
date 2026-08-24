@@ -12,8 +12,10 @@ import java.math.RoundingMode;
  * xpRecompensa} e {@code tokensRecompensa}, e o único controle era um {@code @Max}. Medido contra a
  * API: uma missão AJUDA sem peso, sem volume e sem destino foi criada com <b>5.000 XP e 1.000
  * tokens</b> — o teto. Um teto sem fórmula significa que toda missão pode valer o teto, e a única
- * variável é a vontade de quem cria. Com ENTREGA e AJUDA ainda cunhando token (lacuna do §4.4, até
- * o patrocinador da F8), isso era emissão sem contrapartida: 656 → 2.656 tokens em dois ciclos.
+ * variável é a vontade de quem cria. Naquele momento ENTREGA e AJUDA ainda cunhavam token (lacuna
+ * do §4.4), então isso era emissão sem contrapartida: 656 → 2.656 tokens em dois ciclos. Hoje as
+ * duas pagam do pote — ENTREGA pelo patrocinador (ADR 0024) e AJUDA pela tribo (ADR 0025) —, e só
+ * ENTREGA criada por humano ainda cunha.
  *
  * <p>Isto não fecha a cunhagem — fecha o <b>arbítrio sobre o tamanho dela</b>.
  *

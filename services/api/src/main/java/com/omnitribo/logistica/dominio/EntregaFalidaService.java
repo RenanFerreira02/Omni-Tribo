@@ -5,6 +5,7 @@ import com.omnitribo.compartilhado.api.RecursoAuditavel;
 import com.omnitribo.compartilhado.dominio.Auditavel;
 import com.omnitribo.compartilhado.dominio.Coordenadas;
 import com.omnitribo.compartilhado.dominio.RecursoNaoEncontradoException;
+import com.omnitribo.identidade.api.ConsultaPatrocinador;
 import com.omnitribo.logistica.infra.EntregaFalidaRepository;
 import com.omnitribo.logistica.infra.PontoCustodiaRepository;
 import com.omnitribo.missoes.api.ConversaoEntregaFalida;
@@ -55,10 +56,24 @@ public class EntregaFalidaService {
   /** Evento operacional: um ponto está lotado e recusou encomenda. */
   public static final String EVENTO_RECUSADA = "EntregaFalidaRecusada";
 
+  /**
+   * Evento operacional: não havia patrocínio para financiar o pote.
+   *
+   * <p>Tipo PRÓPRIO, e o {@code DespachanteAlertaService} ganhou o case correspondente no mesmo
+   * commit. Publicar um tipo que o despachante não conhece cairia no {@code default} que lança, e a
+   * outbox tentaria cinco vezes antes de abandonar o evento em silêncio — sem carta-morta, sem
+   * métrica, sem endpoint. Ver Pendência #4 do CLAUDE.md.
+   */
+  public static final String EVENTO_SEM_PATROCINIO = "EntregaFalidaSemPatrocinio";
+
   private final EntregaFalidaRepository entregaFalidaRepository;
   private final PontoCustodiaRepository pontoCustodiaRepository;
   private final ConversaoEntregaFalida conversaoEntregaFalida;
   private final PublicadorEventos publicadorEventos;
+
+  // Injetado pela INTERFACE: logistica não pode alcançar identidade.dominio, onde vive
+  // PatrocinadorService. É o tipo declarado no campo que o ArchUnit inspeciona.
+  private final ConsultaPatrocinador consultaPatrocinador;
 
   public EntregaFalidaService(
       EntregaFalidaRepository entregaFalidaRepository,
@@ -66,11 +81,13 @@ public class EntregaFalidaService {
       // Injetado pela INTERFACE, e não pela implementação: o tipo declarado no campo é o que o
       // ArchUnit inspeciona, e nomear MissaoService aqui faria logistica alcançar missoes.dominio.
       ConversaoEntregaFalida conversaoEntregaFalida,
-      PublicadorEventos publicadorEventos) {
+      PublicadorEventos publicadorEventos,
+      ConsultaPatrocinador consultaPatrocinador) {
     this.entregaFalidaRepository = entregaFalidaRepository;
     this.pontoCustodiaRepository = pontoCustodiaRepository;
     this.conversaoEntregaFalida = conversaoEntregaFalida;
     this.publicadorEventos = publicadorEventos;
+    this.consultaPatrocinador = consultaPatrocinador;
   }
 
   /** Desfecho do registro, para o controller traduzir em resposta. */
@@ -78,7 +95,17 @@ public class EntregaFalidaService {
     /** Virou missão de retirada, ABERTA, e a ocupação do ponto subiu. */
     CONVERTIDA,
     /** Ponto sem vaga: o fato foi gravado, mas nenhuma missão nasceu. */
-    RECUSADA
+    RECUSADA,
+
+    /**
+     * Sem patrocinador que financie o pote: o fato foi gravado, e nenhuma missão nasceu.
+     *
+     * <p>Desfecho SEPARADO de RECUSADA, e não um motivo dentro dela, porque a reação da
+     * transportadora é diferente: ponto lotado pode abrir vaga, patrocínio ausente não. Continua
+     * sendo 200 — a requisição foi bem formada, autenticada e processada, e devolver 4xx faria a
+     * transportadora reenviar em laço contra uma condição que o reenvio não muda (ADR 0021).
+     */
+    SEM_PATROCINIO
   }
 
   /**
@@ -134,18 +161,18 @@ public class EntregaFalidaService {
     if (jaRegistrada.isPresent()) {
       EntregaFalida existente = jaRegistrada.get();
       // Nada é reescrito e nada é publicado de novo: a resposta reproduz o primeiro desfecho.
+      // Os TRÊS desfechos precisam ser distinguíveis aqui: um replay que respondesse RECUSADA a uma
+      // recusa por falta de patrocínio diria à transportadora que o ponto estava lotado — e ela
+      // reenviaria esperando que a vaga abrisse.
       return new ResultadoRegistro(
-          existente.getId(),
-          existente.foiRecusada() ? Desfecho.RECUSADA : Desfecho.CONVERTIDA,
-          existente.getMissaoId(),
-          true);
+          existente.getId(), desfechoDe(existente), existente.getMissaoId(), true);
     }
 
     EntregaFalida entrega = new EntregaFalida(UUID.randomUUID(), dados, agora);
 
     // 3. VALIDA. Vaga é regra de negócio, e a recusa é um desfecho normal — não um erro.
     if (!ponto.temVaga()) {
-      entrega.recusar(agora);
+      entrega.recusar(agora, MotivoRecusa.PONTO_LOTADO);
       entregaFalidaRepository.save(entrega);
       publicadorEventos.publicar(
           EVENTO_RECUSADA,
@@ -164,9 +191,23 @@ public class EntregaFalidaService {
       return new ResultadoRegistro(entrega.getId(), Desfecho.RECUSADA, null, false);
     }
 
-    // 4. ESCREVE. A ordem interna importa: a encomenda entra na custódia, a missão é criada
-    // apontando para o ponto, e só então a entrega guarda o id da missão.
-    ponto.registrarEntrada();
+    // 3b. VALIDA o patrocínio, ANTES de escrever qualquer coisa.
+    //
+    // A missão de retirada paga o executor DO POTE desde a V23, e o pote dela é financiado pelo
+    // patrocinador da transportadora. Sem patrocinador ativo não há de onde pagar, e criar a missão
+    // assim seria pior que recusá-la: alguém aceitaria, faria a entrega, e a conclusão falharia com
+    // 422 para sempre — num caminho que só conclui pela varredura de prazo, então nem apareceria
+    // numa requisição.
+    //
+    // Consulta sem lock, e isso é suficiente AQUI: ela responde "existe contrato?", não "tem
+    // saldo?". Quem responde a segunda é a carteira, sob FOR UPDATE, dentro de
+    // abrirMissaoDeRetirada — entre esta leitura e aquele lock caberia outro webhook consumindo o
+    // saldo, e é por isso que a decisão financeira não mora aqui.
+    Optional<UUID> patrocinador =
+        consultaPatrocinador.usuarioIdDoPatrocinadorAtivo(dados.transportadora());
+    if (patrocinador.isEmpty()) {
+      return recusarPorFaltaDePatrocinio(entrega, agora, true);
+    }
 
     // O RETORNO de save() é obrigatório aqui, e não é estilo.
     //
@@ -191,7 +232,7 @@ public class EntregaFalidaService {
         risco.multiplicadorRecompensa(),
         risco.versaoModelo());
 
-    ConversaoEntregaFalida.MissaoDeRetirada missao =
+    Optional<ConversaoEntregaFalida.MissaoDeRetirada> convertida =
         conversaoEntregaFalida.abrirMissaoDeRetirada(
             new ConversaoEntregaFalida.Encomenda(
                 gerenciada.getId(),
@@ -213,7 +254,24 @@ public class EntregaFalidaService {
                 // então a faixa viaja como String e o multiplicador como BigDecimal.
                 risco.multiplicadorRecompensa(),
                 risco.faixaRisco().name(),
+                patrocinador.get(),
                 agora));
+
+    // Patrocinador existe mas não tem saldo — só o lock da carteira podia dizer isso. Nenhuma
+    // missão foi criada e nenhum lançamento existe; a transação segue viva justamente para que a
+    // recusa seja GRAVADA.
+    if (convertida.isEmpty()) {
+      return recusarPorFaltaDePatrocinio(gerenciada, agora, false);
+    }
+
+    ConversaoEntregaFalida.MissaoDeRetirada missao = convertida.get();
+
+    // A ocupação sobe SÓ AQUI, depois de a missão existir. Ela ficava antes da conversão, e a
+    // posição antiga deixou de servir quando a conversão passou a poder não acontecer: um webhook
+    // recusado por falta de saldo teria ocupado uma vaga para uma encomenda sem missão que a
+    // retire, e a invariante `ocupacao = pendentes + convertidas não concluídas` de MigracaoTest
+    // reprovaria — com razão, porque a vaga estaria perdida até alguém reparar à mão.
+    ponto.registrarEntrada();
 
     gerenciada.vincularMissao(missao.missaoId());
 
@@ -236,13 +294,50 @@ public class EntregaFalidaService {
     return new ResultadoRegistro(gerenciada.getId(), Desfecho.CONVERTIDA, missao.missaoId(), false);
   }
 
+  /**
+   * Grava a recusa por falta de patrocínio e anuncia o fato. Os dois pontos de chamada diferem só
+   * em QUANDO a falta foi descoberta.
+   *
+   * @param antesDeGravar {@code true} quando a entrega ainda não foi persistida (patrocinador
+   *     inexistente ou inativo, descoberto antes de qualquer escrita); {@code false} quando ela já
+   *     é entidade gerenciada (saldo insuficiente, descoberto sob o lock da carteira). O {@code
+   *     save} só é necessário no primeiro caso — no segundo o dirty checking já cuida da alteração.
+   */
+  private ResultadoRegistro recusarPorFaltaDePatrocinio(
+      EntregaFalida entrega, Instant agora, boolean antesDeGravar) {
+
+    entrega.recusar(agora, MotivoRecusa.SEM_PATROCINIO);
+    if (antesDeGravar) {
+      entregaFalidaRepository.save(entrega);
+    }
+
+    publicadorEventos.publicar(
+        EVENTO_SEM_PATROCINIO,
+        entrega.getId(),
+        Map.of(
+            "entregaFalidaId", entrega.getId(),
+            "transportadora", entrega.getTransportadora(),
+            "codigoRastreio", entrega.getCodigoRastreio()));
+
+    return new ResultadoRegistro(entrega.getId(), Desfecho.SEM_PATROCINIO, null, false);
+  }
+
+  /**
+   * O desfecho já gravado numa entrega, para o replay reproduzi-lo.
+   *
+   * <p>Lê {@code motivo_recusa} em vez de só {@code recusada_em}: as duas recusas pedem reações
+   * diferentes da transportadora, e responder RECUSADA a uma falta de patrocínio a faria reenviar
+   * esperando uma vaga que não é o problema.
+   */
+  private static Desfecho desfechoDe(EntregaFalida entrega) {
+    if (!entrega.foiRecusada()) {
+      return Desfecho.CONVERTIDA;
+    }
+    return entrega.getMotivoRecusa() == MotivoRecusa.SEM_PATROCINIO
+        ? Desfecho.SEM_PATROCINIO
+        : Desfecho.RECUSADA;
+  }
+
   // A baixa da custódia NÃO mora aqui: vive em BaixaCustodiaService, para quebrar o ciclo de beans
   // MissaoService → BaixaCustodia → ConversaoEntregaFalida → MissaoService. Ver o javadoc de lá.
-
-  /** Só para leitura em teste e diagnóstico. */
-  @Transactional(readOnly = true)
-  public Optional<EntregaFalida> porRastreio(String transportadora, String codigoRastreio) {
-    return entregaFalidaRepository.findByTransportadoraAndCodigoRastreio(
-        transportadora, codigoRastreio);
-  }
 }

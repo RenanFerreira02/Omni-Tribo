@@ -2,6 +2,7 @@ package com.omnitribo.missoes.dominio;
 
 import com.omnitribo.carteira.api.ComandoCreditoConclusao;
 import com.omnitribo.carteira.api.CreditoRecompensa;
+import com.omnitribo.carteira.api.FinanciamentoMissao;
 import com.omnitribo.carteira.api.ResultadoCredito;
 import com.omnitribo.compartilhado.api.ConsultasGeoespaciais;
 import com.omnitribo.compartilhado.api.ConsultasGeoespaciais.AlvoProximo;
@@ -21,6 +22,7 @@ import com.omnitribo.identidade.api.ResultadoProgressao;
 import com.omnitribo.identidade.api.UsuarioSistema;
 import com.omnitribo.logistica.api.BaixaCustodia;
 import com.omnitribo.missoes.api.AtualizarMissaoRequest;
+import com.omnitribo.missoes.api.ConfirmacaoRetirada;
 import com.omnitribo.missoes.api.ConversaoEntregaFalida;
 import com.omnitribo.missoes.api.CriarMissaoRequest;
 import com.omnitribo.missoes.api.MissaoFiltroRequest;
@@ -48,6 +50,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.locationtech.jts.geom.Point;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -57,7 +61,9 @@ import tools.jackson.databind.json.JsonMapper;
 
 /** Orquestra o ciclo de vida de missões. Toda mudança de status passa pela máquina de estados. */
 @Service
-public class MissaoService implements ConversaoEntregaFalida {
+public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirada {
+
+  private static final Logger log = LoggerFactory.getLogger(MissaoService.class);
 
   private static final String NAO_ENCONTRADA = "Missão não encontrada.";
 
@@ -86,6 +92,11 @@ public class MissaoService implements ConversaoEntregaFalida {
   private final PublicadorEventos publicadorEventos;
   private final BaixaCustodia baixaCustodia;
 
+  // Só o financiamento pelo PATROCINADOR passa por aqui. O financiamento comunitário continua em
+  // FinanciamentoService, que é onde vivem as regras de tribo e o endpoint que as expõe — este
+  // serviço não deve ganhar aquelas regras junto.
+  private final FinanciamentoMissao financiamentoMissao;
+
   // Exceção deliberada à regra acima: EstornoFinanciamentoService é do PRÓPRIO módulo missoes, e
   // por isso pode ser injetado como classe concreta.
   private final EstornoFinanciamentoService estornoFinanciamentoService;
@@ -108,6 +119,7 @@ public class MissaoService implements ConversaoEntregaFalida {
       ProgressaoUsuario progressaoUsuario,
       PublicadorEventos publicadorEventos,
       BaixaCustodia baixaCustodia,
+      FinanciamentoMissao financiamentoMissao,
       EstornoFinanciamentoService estornoFinanciamentoService,
       ParametrosRecompensa parametrosRecompensa,
       ParametrosEntregaFalida parametrosEntregaFalida) {
@@ -120,6 +132,7 @@ public class MissaoService implements ConversaoEntregaFalida {
     this.progressaoUsuario = progressaoUsuario;
     this.publicadorEventos = publicadorEventos;
     this.baixaCustodia = baixaCustodia;
+    this.financiamentoMissao = financiamentoMissao;
     this.estornoFinanciamentoService = estornoFinanciamentoService;
     this.parametrosRecompensa = parametrosRecompensa;
     this.parametrosEntregaFalida = parametrosEntregaFalida;
@@ -228,7 +241,7 @@ public class MissaoService implements ConversaoEntregaFalida {
    */
   @Override
   @Transactional
-  public MissaoDeRetirada abrirMissaoDeRetirada(Encomenda encomenda) {
+  public Optional<MissaoDeRetirada> abrirMissaoDeRetirada(Encomenda encomenda) {
     Double distanciaM = null;
     if (encomenda.destinoLat() != null && encomenda.destinoLon() != null) {
       distanciaM =
@@ -258,9 +271,41 @@ public class MissaoService implements ConversaoEntregaFalida {
 
     Instant fimDaJanela = encomenda.agora().plus(parametrosEntregaFalida.prazoRetirada());
 
+    // O id é gerado AQUI, antes da entidade existir, porque o financiamento precisa dele para
+    // gravar `lancamento.missao_id` — e o financiamento precisa acontecer ANTES de a missão ser
+    // salva. A ordem não é estilo: se o patrocinador não puder pagar, nada pode ter sido escrito.
+    UUID missaoId = UUID.randomUUID();
+
+    // FINANCIAMENTO PRIMEIRO. Se voltar vazio, a transação continua viva e o chamador grava a
+    // recusa na entrega falida — nenhuma missão nasce, nenhum lançamento existe, e a ocupação do
+    // ponto de custódia não é incrementada.
+    //
+    // Recompensa zero não financia nada: um lançamento de valor zero consumiria uma chave de
+    // idempotência sem mover moeda, e ck_lancamento_valor_nao_nulo (V13) o recusaria. A missão
+    // nasce
+    // patrocinada do mesmo jeito — pote zero cobrindo recompensa zero é coerente, e a conclusão
+    // pula o débito do pote pela guarda `tokens > 0`.
+    if (recompensa.tokens() > 0
+        && financiamentoMissao
+            .debitarPatrocinador(
+                encomenda.patrocinadorUsuarioId(),
+                missaoId,
+                recompensa.tokens(),
+                ChaveIdempotencia.financiamentoPatrocinador(
+                    encomenda.patrocinadorUsuarioId(), missaoId),
+                encomenda.agora())
+            .isEmpty()) {
+      log.warn(
+          "Entrega falida {} sem conversão: patrocinador {} não tem saldo para {} tokens.",
+          encomenda.entregaFalidaId(),
+          encomenda.patrocinadorUsuarioId(),
+          recompensa.tokens());
+      return Optional.empty();
+    }
+
     Missao missao =
         new Missao(
-            UUID.randomUUID(),
+            missaoId,
             // O criador é o próprio sistema. É o que destrava a publicação sem inventar evento
             // novo: AtorEsperado.CRIADOR compara identidade, e AtorMissao aceita usuarioId com
             // papel SISTEMA.
@@ -290,6 +335,15 @@ public class MissaoService implements ConversaoEntregaFalida {
 
     missao.exigirNivelMinimo(parametrosEntregaFalida.nivelMinimo());
     missao.registrarFaixaRisco(encomenda.faixaRisco());
+
+    // A missão passa a PATROCINADOR e o pote recebe o que o patrocinador acabou de pagar. Os dois
+    // juntos, aqui, ANTES do PUBLICAR: `validarPoteSuficienteParaPublicar` não roda neste caminho
+    // — a transição abaixo chama a máquina de estados direto, sem passar por `aplicar` —, então
+    // nada além desta ordem impede uma missão patrocinada de nascer com o pote vazio.
+    missao.financiadaPeloPatrocinador();
+    if (recompensa.tokens() > 0) {
+      missao.creditarPote(recompensa.tokens());
+    }
     missaoRepository.save(missao);
 
     AtorMissao sistema = new AtorMissao(UsuarioSistema.ID, AtorMissao.PapelAtor.SISTEMA);
@@ -309,8 +363,9 @@ public class MissaoService implements ConversaoEntregaFalida {
     // 30 segundos continuaria sem ver a missão até o TTL vencer.
     cacheMissoesProximas.invalidarAposCommit();
 
-    return new MissaoDeRetirada(
-        missao.getId(), recompensa.xp(), recompensa.tokens(), missao.getNivelMinimo());
+    return Optional.of(
+        new MissaoDeRetirada(
+            missao.getId(), recompensa.xp(), recompensa.tokens(), missao.getNivelMinimo()));
   }
 
   /**
@@ -527,7 +582,11 @@ public class MissaoService implements ConversaoEntregaFalida {
   }
 
   /**
-   * Missão TRIBO/COLETA só é publicável com o pote já cobrindo a recompensa em tokens.
+   * Missão que paga DO POTE só é publicável com o pote já cobrindo a recompensa em tokens.
+   *
+   * <p>Lê {@code fonte_pote}, não a categoria: vale para TRIBO, COLETA e AJUDA (ADR 0025), e também
+   * para a missão de retirada — que nunca reprova aqui porque nasce com o pote já financiado pelo
+   * patrocinador, na mesma transação da conversão.
    *
    * <p>Fecha um beco sem saída que a conservação da moeda cria. Como a conclusão paga DO POTE e não
    * cunha token, uma missão publicada com pote menor que a recompensa chegaria a
@@ -737,6 +796,37 @@ public class MissaoService implements ConversaoEntregaFalida {
   }
 
   /**
+   * Implementa {@link ConfirmacaoRetirada}: a transportadora confirma que a encomenda chegou.
+   *
+   * <p>Reusa {@link #confirmar} inteiro — mesmo evento, mesma transição, mesmo crédito. O que muda
+   * é só QUEM assina o ato, e nem isso exigiu mexer na autorização: o criador da missão de retirada
+   * é o usuário-sistema, e {@code AtorMissao.ehMesmo} compara identidade, então este ator satisfaz
+   * {@code AtorEsperado.CRIADOR} por construção. É o mesmo ator de PUBLICAR em {@code
+   * abrirMissaoDeRetirada}, e o conjunto de transições continua o mesmo.
+   *
+   * <p><b>Não generaliza para missão criada por humano</b>, e a garantia não está aqui: está em
+   * quem chama. {@code logistica} resolve o {@code missaoId} a partir de uma linha de {@code
+   * entrega_falida}, então esta porta só alcança missão de retirada. Uma missão criada por gente
+   * continua exigindo o criador de carne e osso.
+   *
+   * <p>A justificativa vai para a trilha porque destravar-por-terceiro precisa de motivo
+   * registrado: quem lê {@code missao_evento} meses depois tem de saber que não foi o criador
+   * humano que confirmou.
+   */
+  @Override
+  @Transactional
+  public long confirmarRetirada(UUID missaoId) {
+    MissaoResponse confirmada =
+        concluirComCredito(
+            missaoId,
+            EventoMissao.CONFIRMAR,
+            new AtorMissao(UsuarioSistema.ID, AtorMissao.PapelAtor.SISTEMA),
+            payloadJustificativa(
+                "Transportadora confirmou o recebimento pelo destinatário, por webhook."));
+    return confirmada.tokensRecompensa();
+  }
+
+  /**
    * ADMIN destrava uma missão parada: CANCELADA, com estorno do pote aos financiadores.
    *
    * <p>Porta manual para o que a varredura por prazo não cobre — missão legítima em disputa
@@ -918,22 +1008,27 @@ public class MissaoService implements ConversaoEntregaFalida {
   }
 
   /**
-   * TRIBO e COLETA pagam o executor a partir de {@code missao.pote_tokens}, financiado por membros
-   * da tribo. ENTREGA e AJUDA CUNHAM os tokens da recompensa — não têm pote.
+   * Se a conclusão paga DO POTE ou CUNHA. Lê {@code missao.fonte_pote}, congelado na criação.
+   *
+   * <p><b>Era por CATEGORIA até a V23, e a troca fechou a Pendência #1.</b> A regra antiga — "TRIBO
+   * e COLETA pagam do pote, ENTREGA e AJUDA cunham" — não conseguia distinguir as duas ENTREGAs: a
+   * do webhook, que hoje tem patrocinador, e a criada por humano, que não tem. Virar a chave por
+   * categoria teria deixado a segunda impublicável, porque {@code
+   * FinanciamentoService.validarEstado} recusa financiamento de ENTREGA e o pote jamais alcançaria
+   * a recompensa. Ver {@link FontePote} e ADR 0024.
    *
    * <p><b>NENHUMA categoria paga em BRL.</b> O ADR 0009 tirou o BRL do ciclo de missões e a {@code
    * ck_missao_economia} da <b>V15</b> exige {@code valor_brl = 0} em TODAS as categorias, não só em
    * duas (a partição por categoria era da V3, e não vale mais).
    *
-   * <p>A consequência de cunhar é a Pendência #2 do CLAUDE.md, e ela é deliberada: exigir pote para
-   * ENTREGA hoje faria membros da tribo custearem a logística do varejista, o inverso do modelo. O
-   * financiador correto é o PATROCINADOR, e fecha na F8 — quando este método passa a valer para
-   * todas as categorias. Até lá, a conservação {@code SUM(carteiras) + SUM(potes)} vale para TRIBO
-   * e COLETA, não para o sistema inteiro.
+   * <p>O que SOBRA de cunhagem é {@code FontePote.CUNHAGEM}, e desde o ADR 0025 isso é só ENTREGA
+   * criada por humano — AJUDA passou a pagar do pote como TRIBO. Está declarado na linha da missão
+   * em vez de implícito num {@code if}, que é a diferença entre uma lacuna conhecida e uma
+   * surpresa. A emissão que sustenta o resto agora tem um ponto único e auditado — {@code
+   * AporteToken}.
    */
   private static boolean pagaTokensDoPote(Missao missao) {
-    return missao.getCategoria() == CategoriaMissao.TRIBO
-        || missao.getCategoria() == CategoriaMissao.COLETA;
+    return missao.getFontePote() != FontePote.CUNHAGEM;
   }
 
   // ─── Núcleo ────────────────────────────────────────────────────────────────────────────────

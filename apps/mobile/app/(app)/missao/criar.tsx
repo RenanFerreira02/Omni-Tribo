@@ -14,16 +14,18 @@ import { CampoTexto } from '@/components/CampoTexto';
 import { Card } from '@/components/Card';
 import { Chip } from '@/components/Chip';
 import { FolhaInferior } from '@/components/FolhaInferior';
+import { TituloTela } from '@/components/TituloTela';
 import { MapaLeaflet } from '@/components/MapaLeaflet';
 import { SaldoToken } from '@/components/SaldoToken';
 import { SeletorDataHora } from '@/components/SeletorDataHora';
 import { useEnderecoPorCep, usePontosCustodiaProximos } from '@/features/mapa/hooks';
 import { useCriarMissao, usePreviaRecompensa } from '@/features/missoes/hooks';
 import { useLocalizacao } from '@/features/missoes/useLocalizacao';
+import { useAnuncio } from '@/lib/anunciar';
 import { useDebounce } from '@/lib/debounce';
 import { rotuloCategoria } from '@/lib/formatar';
 import { criarMissaoSchema, type CriarMissaoForm } from '@/schemas';
-import { cores, coresCategoria, espaco, textoAcessivel, tipografia } from '@/theme';
+import { cores, coresCategoria, glifoCategoria, espaco, textoAcessivel, tipografia } from '@/theme';
 
 export default function CriarMissao() {
   const router = useRouter();
@@ -103,6 +105,18 @@ export default function CriarMissao() {
   const corpoAtrasado = useDebounce(corpoParaPrevia, 400);
   const previa = usePreviaRecompensa(corpoAtrasado);
 
+  /**
+   * A prévia recalcula sozinha enquanto a pessoa digita, e o resultado só existia como texto novo
+   * dentro de um card — invisível para quem não vê a tela. Deriva do dado (e não de um estado
+   * próprio) de propósito: o `useAnuncio` só fala quando a frase MUDA, então re-renderizações com o
+   * mesmo valor não viram eco, e cada novo cálculo é dito uma vez.
+   */
+  useAnuncio(
+    previa.data
+      ? `Recompensa calculada: ${previa.data.xpRecompensa} XP e ${previa.data.tokensRecompensa} tokens.`
+      : null,
+  );
+
   const pontos = usePontosCustodiaProximos(
     valores.origemLat && valores.origemLon
       ? { lat: valores.origemLat, lon: valores.origemLon }
@@ -118,13 +132,15 @@ export default function CriarMissao() {
   return (
     <SafeAreaView style={estilos.raiz} testID="tela-criar-missao">
       <ScrollView contentContainerStyle={estilos.conteudo} keyboardShouldPersistTaps="handled">
-        <Text style={estilos.titulo} accessibilityRole="header">
-          Nova missão
-        </Text>
+        <TituloTela>Nova missão</TituloTela>
 
         {/* ─── Categoria ─────────────────────────────────────────────────────────────────── */}
         <Text style={estilos.rotulo}>Categoria</Text>
-        <View style={estilos.chips}>
+        <View
+          style={estilos.chips}
+          accessibilityRole="radiogroup"
+          accessibilityLabel="Categoria da missão"
+        >
           {CATEGORIAS.map((categoria) => {
             const paleta = coresCategoria[categoria];
             const selecionada = valores.categoria === categoria;
@@ -132,6 +148,7 @@ export default function CriarMissao() {
               <Chip
                 key={categoria}
                 rotulo={rotuloCategoria(categoria)}
+                glifo={glifoCategoria[categoria]}
                 selecionado={selecionada}
                 corFundo={paleta.fundo}
                 corTexto={paleta.texto}
@@ -219,7 +236,11 @@ export default function CriarMissao() {
         ) : (
           <View>
             <Text style={estilos.rotulo}>Complexidade</Text>
-            <View style={estilos.chips}>
+            <View
+              style={estilos.chips}
+              accessibilityRole="radiogroup"
+              accessibilityLabel="Complexidade da missão"
+            >
               {COMPLEXIDADES.map((nivel) => (
                 <Chip
                   key={nivel}
@@ -242,7 +263,12 @@ export default function CriarMissao() {
         <Card estilo={estilos.cardRecompensa}>
           <Text style={estilos.rotulo}>Recompensa calculada</Text>
           {previa.data ? (
-            <View style={estilos.recompensa} testID="previa-recompensa">
+            <View
+              style={estilos.recompensa}
+              testID="previa-recompensa"
+              accessible
+              accessibilityLabel={`Recompensa calculada: ${previa.data.xpRecompensa} XP e ${previa.data.tokensRecompensa} tokens`}
+            >
               <Text style={estilos.xp}>{previa.data.xpRecompensa} XP</Text>
               <SaldoToken tokens={previa.data.tokensRecompensa} />
             </View>

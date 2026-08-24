@@ -137,10 +137,25 @@ public class FinanciamentoService {
    * cancelada enquanto isso, entrega um erro para algo que deu certo.
    */
   private static void validarEstado(Missao missao) {
-    if (missao.getCategoria() != CategoriaMissao.TRIBO
-        && missao.getCategoria() != CategoriaMissao.COLETA) {
+    // Espelha `Missao.fontePote`: quem paga do pote é financiável, quem cunha não é. Testar a FONTE
+    // em vez de listar categorias tira daqui a chance de as duas regras divergirem — foi o que
+    // quase
+    // aconteceu quando AJUDA mudou de lado (ADR 0025): incluí-la só no construtor e esquecer esta
+    // lista a deixaria impublicável E infinanciável ao mesmo tempo, sem nenhum erro apontando a
+    // causa. A missão exigiria pote para publicar e recusaria todo financiamento que o formasse.
+    if (missao.getFontePote() == FontePote.CUNHAGEM) {
       throw new RegraNegocioVioladaException(
-          "Só missões TRIBO e COLETA aceitam financiamento em tokens.");
+          "Missão de categoria " + missao.getCategoria() + " não aceita financiamento em tokens.");
+    }
+
+    // PATROCINADOR também não passa por aqui, e não é descuido: a missão de retirada já nasce com o
+    // pote completo, financiado dentro da própria conversão do webhook. Um financiamento
+    // comunitário
+    // por cima bateria em validarTeto ("pote ficaria acima da recompensa"), mas a recusa por
+    // autorização vem antes — patrocinador não tem tribo, e o criador é o usuário-sistema.
+    if (missao.getFontePote() == FontePote.PATROCINADOR) {
+      throw new RegraNegocioVioladaException(
+          "Missão de retirada é financiada pelo patrocinador da transportadora.");
     }
 
     // Financiar depois de concluída, cancelada ou expirada seria pôr token num pote que já não

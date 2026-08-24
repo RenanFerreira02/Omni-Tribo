@@ -12,9 +12,16 @@ daqui ou de [`../qualidade/`](../qualidade/).
 | [`f6-explain-analyze.md`](f6-explain-analyze.md) | 2026-08-07 | O radar geoespacial usa o índice **GiST** (`Index Scan`, não `Seq Scan`), contra PostGIS 3.5 real | `./mvnw -Dtest=IndiceGeoespacialTest test` |
 | [`f12-ciclo-ponta-a-ponta.md`](f12-ciclo-ponta-a-ponta.md) | 2026-08-09 | Ciclo completo da missão em 12 passos, com dois usuários reais, pelo cliente HTTP do app | `E2E_API_URL=http://localhost:8080 npm run test:e2e -- --verbose` |
 | [`f13-execucao-do-zero.md`](f13-execucao-do-zero.md) | 2026-08-16 | O README funciona seguido literalmente, com **volume e chaves destruídos antes**. Inclui webhook, risco congelado, fan-out e outbox drenada | `make reset` e seguir o [README](../../README.md) |
-| [`f13-conservacao-por-categoria.md`](f13-conservacao-por-categoria.md) | 2026-08-16 | **AJUDA cunha (Δ=+30), TRIBO conserva (Δ=0)** — e a reconciliação responde `integro=true` nos dois casos | `bash tools/evidencias/conservacao-por-categoria.sh` |
+| [`f13-conservacao-por-categoria.md`](f13-conservacao-por-categoria.md) | 2026-08-16 | **SUPERADA por `f14`.** Media o mundo em que AJUDA cunhava (Δ=+30) e só TRIBO conservava. Fica como registro histórico — o script que ela cita foi reescrito | — |
+| [`f14-conservacao-quatro-categorias.md`](f14-conservacao-quatro-categorias.md) | 2026-08-22 | **Δ=0 nas QUATRO categorias**, com o pote de ENTREGA pago pelo patrocinador, e a recusa por falta de saldo respondendo 200 sem criar missão. `integro=true` em todos os pontos | `bash tools/evidencias/conservacao-por-categoria.sh` (ver o doc: o servidor sobe com a varredura acelerada) |
 | [`f13-make-test.md`](f13-make-test.md) | 2026-08-16 | 637 testes no backend e 179 no mobile, verdes. **SpotBugs e os dois gates JaCoCo aparecem executando, mas o console colado traz só os cabeçalhos dos plugins** — as linhas de resultado (`BugInstance size is 0`, *All coverage checks have been met*) estão em [`../qualidade/verificacao-2026-08-15.md`](../qualidade/verificacao-2026-08-15.md), de **outra data** | `make test` |
 | [`f13-ci-github-actions.md`](f13-ci-github-actions.md) | 2026-08-17 | O histórico **real** do GitHub Actions: 113 runs. Gitleaks verde em 48/48; Mobile CI vermelho de 08-09 a 08-13; `Security Scan` reprovado desde `ca328fc` pelo job de dependências | `curl` na API pública — comando no arquivo |
+| [`impacto-conferido-por-sql.md`](impacto-conferido-por-sql.md) | 2026-08-23 | O painel `GET /admin/impacto` **batendo com uma contagem manual por SQL**, métrica a métrica, no mesmo banco e no mesmo instante — inclusive a mediana conferida contra o `percentile_cont` do PostgreSQL. Mostra também a premissa de custo mudando o resultado por configuração | `make reset`, `spring-boot:run`, `bash tools/carrier-mock/enviar.sh`, `curl` e `psql` — todos no doc |
+
+> `impacto-conferido-por-sql.md` é o único arquivo **sem prefixo de fase**: o painel de impacto não
+> foi entregue como uma fase numerada, e inventar um `f15-` criaria contradição com o
+> `PROGRESSO.md`, que é a numeração de verdade. Mesmo motivo pelo qual as duas auditorias do mobile
+> não seguem o padrão `FN.md`.
 
 ## O que **não** está provado aqui
 

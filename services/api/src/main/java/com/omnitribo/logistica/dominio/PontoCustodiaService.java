@@ -18,13 +18,21 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Leitura de pontos de custódia.
  *
- * <p>Só leitura, e é importante saber o que isso significa hoje: <b>nada movimenta {@code ocupacao}
- * ainda.</b> O fluxo de entrega que a incrementaria é da F8 e não existe — a coluna vem do seed e
- * fica parada. A entidade também não tem mais {@code incrementarOcupacao}: mantê-la sugeria um
- * caminho de escrita que nunca foi ligado.
+ * <p><b>Este serviço é só leitura — mas {@code ocupacao} NÃO está parada.</b> A escrita existe
+ * desde a F8 e mora em outro lugar: {@code EntregaFalidaService} chama {@link
+ * PontoCustodia#registrarEntrada()} quando o webhook converte uma entrega falida, e {@code
+ * BaixaCustodiaService} chama {@link PontoCustodia#registrarSaida()} quando a missão de retirada
+ * conclui. As duas rodam sob o {@code SELECT ... FOR UPDATE} de {@code
+ * PontoCustodiaRepository.buscarParaAtualizar} — sem esse lock, dois webhooks concorrentes leem a
+ * mesma ocupação e ambos incrementam.
  *
- * <p>Quando esse fluxo chegar, ele NÃO deve virar endpoint: expor escrita aqui deixaria qualquer
- * usuário autenticado marcar uma loja de terceiro como lotada.
+ * <p>Este parágrafo já afirmou o contrário ("nada movimenta ocupacao ainda, o fluxo é da F8 e não
+ * existe"), e ficou para trás quando a F8 entrou. A correção está registrada na varredura de órfãos
+ * de 2026-08-20: um comentário que nega um caminho de escrita concorrente é o que autoriza a
+ * próxima pessoa a mexer no lock.
+ *
+ * <p>A escrita NÃO deve virar endpoint: expor escrita aqui deixaria qualquer usuário autenticado
+ * marcar uma loja de terceiro como lotada.
  */
 @Service
 public class PontoCustodiaService {

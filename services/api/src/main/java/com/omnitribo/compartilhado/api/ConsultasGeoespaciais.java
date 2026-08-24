@@ -76,6 +76,19 @@ public interface ConsultasGeoespaciais {
    * métodos: esta interface não pode importar tipo de módulo nenhum, e quem chamou reidrata o que
    * precisa.
    */
+  /**
+   * Parceiros ATIVOS dentro do raio, do mais perto para o mais longe.
+   *
+   * <p>Alimenta o catálogo de benefícios (`GET /api/v1/beneficios?lat&lon&raioMetros`). Devolve
+   * {@code AlvoProximo} — id do parceiro e distância em METROS — e quem chamou reidrata os
+   * benefícios: esta interface não pode importar tipo de módulo nenhum, pela regra direcional do
+   * ArchUnit (ADR 0018).
+   *
+   * <p>A distância vem do PostGIS a cada consulta e NUNCA é armazenada: ela depende de onde está
+   * quem pergunta, e uma coluna de distância seria a resposta de uma pergunta só.
+   */
+  List<AlvoProximo> parceirosNoRaio(BigDecimal lat, BigDecimal lon, int raioMetros, int limite);
+
   List<AlvoProximo> tribosNoRaio(BigDecimal lat, BigDecimal lon, int raioMetros, int limite);
 
   /**

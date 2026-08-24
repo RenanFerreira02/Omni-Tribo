@@ -4,8 +4,8 @@ import { Card } from './Card';
 import { Chip } from './Chip';
 import { SaldoToken } from './SaldoToken';
 import type { MissaoResponse } from '@/api/tipos';
-import { formatarDistancia, rotuloCategoria } from '@/lib/formatar';
-import { cores, coresCategoria, espaco, textoAcessivel, tipografia } from '@/theme';
+import { formatarDistancia, formatarPrazo, rotuloCategoria } from '@/lib/formatar';
+import { cores, coresCategoria, espaco, glifoCategoria, textoAcessivel, tipografia } from '@/theme';
 
 interface Props {
   missao: MissaoResponse;
@@ -37,11 +37,16 @@ export function MissaoCard({ missao, distanciaM, onPress, testID }: Props) {
       // "Pinheiros", "69", "XP", "23 tokens" — sete paradas para entender um card.
       accessible
       accessibilityLabel={rotuloAcessivel(missao, distanciaM)}
+      // Sem isto o card decorativo (sem `onPress`) continuava anunciado como "botão" — o leitor de
+      // tela oferecia uma ação que não existe. O `disabled` do Pressable não chega sozinho à árvore
+      // de acessibilidade.
+      accessibilityState={{ disabled: !onPress }}
     >
       <Card>
         <View style={estilos.topo}>
           <Chip
             rotulo={rotuloCategoria(missao.categoria)}
+            glifo={glifoCategoria[missao.categoria]}
             corFundo={paleta.fundo}
             corTexto={paleta.texto}
           />
@@ -50,11 +55,13 @@ export function MissaoCard({ missao, distanciaM, onPress, testID }: Props) {
           ) : null}
         </View>
 
-        <Text style={estilos.titulo} numberOfLines={2}>
+        {/* 3 e 2 linhas, e não 2 e 1: com a fonte do sistema no máximo, dois terços dos títulos
+            truncavam no meio de uma palavra. O card cresce — é o que deve acontecer. */}
+        <Text style={estilos.titulo} numberOfLines={3}>
           {missao.titulo}
         </Text>
 
-        <Text style={estilos.local} numberOfLines={1}>
+        <Text style={estilos.local} numberOfLines={2}>
           {missao.bairro}, {missao.cidade}
         </Text>
 
@@ -70,15 +77,27 @@ export function MissaoCard({ missao, distanciaM, onPress, testID }: Props) {
   );
 }
 
-/** Uma frase, na ordem em que a pessoa decide: o que é, onde, quão longe, quanto paga. */
+/**
+ * Uma frase, na ordem em que a decisão é tomada: <b>categoria, recompensa, distância, prazo</b> —
+ * e só depois o título e o local.
+ *
+ * <b>A ordem é o conteúdo.</b> Quem navega por voz percorre a lista item a item e decide se para no
+ * primeiro terço da frase: o que é, quanto paga, quão longe, quanto tempo resta. O título é o que
+ * menos separa uma missão da outra ("Levar tinta" x "Buscar encomenda" pesa menos que "a 180 m" x
+ * "a 3 km"), então ele vem por último em vez de ocupar a segunda posição.
+ *
+ * O prazo entrou com a lista do radar: sem ele, a pessoa só descobria que a janela ia fechar depois
+ * de abrir o detalhe — uma navegação inteira para uma informação que decide a escolha.
+ */
 function rotuloAcessivel(missao: MissaoResponse, distanciaM?: number): string {
   const partes = [
     rotuloCategoria(missao.categoria),
-    missao.titulo,
-    `em ${missao.bairro}, ${missao.cidade}`,
+    `${missao.xpRecompensa} XP e ${missao.tokensRecompensa} tokens`,
   ];
   if (distanciaM !== undefined) partes.push(`a ${formatarDistancia(distanciaM)}`);
-  partes.push(`recompensa ${missao.xpRecompensa} XP e ${missao.tokensRecompensa} tokens`);
+  partes.push(formatarPrazo(missao.janelaFim));
+  partes.push(missao.titulo);
+  partes.push(`em ${missao.bairro}, ${missao.cidade}`);
   return partes.join(', ') + '.';
 }
 

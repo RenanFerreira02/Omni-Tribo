@@ -21,13 +21,27 @@ import java.util.UUID;
  * <p>São dois sistemas sem transação em comum, então nenhuma ordenação os torna atômicos. A outbox
  * move a decisão para dentro do único lugar onde a atomicidade de fato existe: a MESMA transação do
  * banco grava o FATO (o lançamento) e a INTENÇÃO de anunciá-lo (a linha na outbox). Se a transação
- * some, a intenção some junto; se ela commita, a intenção está durável e um processo separado a
- * entrega com retry até conseguir.
+ * some, a intenção some junto; se ela commita, a intenção está durável e um processo separado tenta
+ * entregá-la.
  *
- * <p>Isso dá entrega at-least-once SEM broker de mensageria nenhum — o Kafka/RabbitMQ que o escopo
- * do MVP cortou de propósito (CLAUDE.md, seção Escopo). O preço é entrega at-least-once em vez de
- * exactly-once: o consumidor precisa tolerar receber o mesmo evento duas vezes. Para o despachante
- * desta fase, que grava alerta, isso é aceitável.
+ * <p>Isso dispensa broker de mensageria — o Kafka/RabbitMQ que o escopo do MVP cortou de propósito
+ * (CLAUDE.md, seção Escopo). O consumidor precisa tolerar receber o mesmo evento duas vezes, porque
+ * a entrega não é exactly-once. Para o despachante desta fase, que grava alerta, isso é aceitável.
+ *
+ * <h2>O LIMITE desta garantia — leia antes de confiar nela</h2>
+ *
+ * <p><b>A entrega é limitada, não é at-least-once.</b> {@code DrenadorOutboxService} tenta no
+ * máximo {@code app.outbox.maximo-tentativas} vezes (5 hoje); depois disso o predicado do lote
+ * ({@code OutboxRepository.buscarPendentesParaPublicar}) deixa de enxergar a linha e o evento
+ * <b>nunca mais é tentado</b>. Ele fica na tabela, com {@code publicado_em} nulo e {@code
+ * ultimo_erro} preenchido, e <b>nada o mostra</b>: não há consulta de esgotados, não há endpoint de
+ * administração, não há métrica. O único vestígio é o {@code log.warn} da última falha.
+ *
+ * <p>Na prática: um {@code MissaoConcluida} que o despachante não consiga tratar cinco vezes some,
+ * o executor recebeu o crédito e nunca é avisado, e não existe lugar onde isso apareça. Este
+ * javadoc já prometeu "retry até conseguir" e entrega "at-least-once" — as duas afirmações eram
+ * falsas, e foram corrigidas em 2026-08-20 (ver docs/auditoria/varredura-orfaos.md §1.1 e a
+ * Pendência #4 do CLAUDE.md). A carta-morta visível continua NÃO existindo.
  *
  * <h2>Por que é uma interface</h2>
  *

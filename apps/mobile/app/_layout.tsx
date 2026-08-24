@@ -9,6 +9,7 @@ import { paraErroApi, valeTentarDeNovo } from '@/api/erros';
 import { useDeepLink } from '@/features/navegacao/useDeepLink';
 import { restaurarSessao } from '@/features/auth/restaurarSessao';
 import { useSessao } from '@/stores/sessao';
+import { useMovimentoReduzido } from '@/lib/movimento';
 import { cores } from '@/theme';
 
 const queryClient = new QueryClient({
@@ -41,6 +42,15 @@ export default function LayoutRaiz() {
   // — o esquema está registrado desde sempre, mas nada conferia rota nem formato de parâmetro.
   useDeepLink();
 
+  /**
+   * "Reduzir movimento" desliga a transição de tela.
+   *
+   * `animation: 'none'` faz a rota nova aparecer no lugar em vez de deslizar. É o que a preferência
+   * do sistema pede, e de quebra encurta o caminho para quem usa leitor de tela: sem animação, o
+   * foco que `TituloTela` move chega sem competir com um quadro em movimento.
+   */
+  const movimentoReduzido = useMovimentoReduzido();
+
   // `restaurarSessao` chama `concluirRestauracao` no `finally`, então isto destrava em qualquer
   // desfecho — inclusive falha. Sem essa garantia, o app ficaria na splash para sempre.
   if (restaurando) return null;
@@ -51,7 +61,11 @@ export default function LayoutRaiz() {
         <QueryClientProvider client={queryClient}>
           <StatusBar style="dark" />
           <Stack
-            screenOptions={{ headerShown: false, contentStyle: { backgroundColor: cores.papel } }}
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: cores.papel },
+              animation: movimentoReduzido ? 'none' : 'default',
+            }}
           >
             <Stack.Screen name="(auth)" />
             <Stack.Screen name="(tabs)" />

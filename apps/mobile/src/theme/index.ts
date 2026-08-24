@@ -1,6 +1,10 @@
 import type { CategoriaMissao, StatusMissao } from '@/api/tipos';
 
-import { coresCategoria as mapaCategoria, coresStatus as mapaStatus } from './tokens';
+import {
+  coresCategoria as mapaCategoria,
+  coresStatus as mapaStatus,
+  glifoCategoria as mapaGlifo,
+} from './tokens';
 
 export { cores, espaco, raio, textoAcessivel, tipografia } from './tokens';
 export type { NomeCor } from './tokens';
@@ -22,3 +26,6 @@ export const coresCategoria: Record<CategoriaMissao, ParCorCategoria> = mapaCate
 
 /** Mesma disciplina de `coresCategoria`: status novo sem cor não compila. */
 export const coresStatus: Record<StatusMissao, ParCorCategoria> = mapaStatus;
+
+/** Mesma disciplina: categoria nova sem glifo não compila — e a cor deixaria de ter dupla. */
+export const glifoCategoria: Record<CategoriaMissao, string> = mapaGlifo;

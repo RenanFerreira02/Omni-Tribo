@@ -41,16 +41,436 @@ ponto de custódia (ADR 0020), trava de reputação por nível mínimo, notifica
 consentimento e teto por hora, e baixa da custódia na conclusão. `tools/carrier-mock/enviar.sh`
 exercita o caminho feliz e cinco negativos.
 
-O que continua faltando é a carteira de PATROCINADOR — o que fecharia a Pendência #1 e faria ENTREGA
-e AJUDA pararem de cunhar token. Com o webhook em pé, essa lacuna ficou mais visível: cada entrega
-falida convertida cunha tokens. O caminho está montado — `entrega_falida.valor_ofertado_brl` já
-guarda o que a transportadora oferece, e a mecânica de pote existe em `FinanciamentoMissao`.
+> **Atualizado.** O parágrafo abaixo descrevia o que faltava quando a F8 foi escrita, e já não vale:
+> a carteira de patrocinador chegou (ADR 0024), AJUDA passou a pagar do pote (ADR 0025) e a
+> confirmação por webhook fechou o ciclo (ADR 0026). Fica como registro do que a fase entregou e do
+> que ela deixou em aberto na época.
 
 **As fases de mobile foram auditadas em 2026-08-09**, por dois agentes independentes que mediram
 contra o sistema em execução. Quatro defeitos; dois corrigidos no mesmo dia, dois em aberto nas
 Pendências do CLAUDE.md.
 
 ## Notas de manutenção
+
+- **2026-08-24 (3)** — **Matriz de acessibilidade: o instrumento entregue, a passada NÃO executada.**
+
+  `docs/qualidade/acessibilidade.md` traz a matriz de 12 critérios da WCAG 2.2 AA × 5 apresentações
+  de tela, o roteiro reproduzível com TalkBack e a seção obrigatória do diretório. **37 CONFORME,
+  8 NÃO CONFORME, 14 NÃO VERIFICADO, 1 NÃO APLICÁVEL** — e os 14 não-verificados importam mais que
+  os 37 conformes: são quase um quarto da matriz esperando alguém ligar o leitor de tela.
+
+  **Duas coisas foram medidas antes de escrever, e as duas mudaram a entrega.**
+
+  1. **O "Anexo A do ROADMAP" não existe.** Não há arquivo ROADMAP versionado; as duas ocorrências
+     de "anexo" no repo são um índice de auditorias sem relação, e o PDF da entrega tem zero. Já
+     tinha aparecido na F17 e foi contornado em silêncio; como agora era a espinha do artefato, a
+     lista passou a ser **WCAG 2.2 AA explicitamente**, com o número oficial de cada critério — e o
+     documento diz, na primeira seção, que isso substitui um anexo não encontrado. De quebra vira
+     auditável por terceiro.
+  2. **A passada com TalkBack não é executável nesta máquina**: sem `adb`, sem emulador, sem SDK,
+     sem aparelho. Então **nenhuma célula que dependa de leitor de tela foi marcada CONFORME** — as
+     seis viraram NÃO VERIFICADO, e os prints a 200% estão declarados AUSENTES, com os comandos que
+     os produzem ao lado. Preencher aquela matriz de cabeça seria exatamente o defeito que as
+     auditorias deste projeto existem para achar.
+
+  **Os 8 NÃO CONFORME, e nenhum foi corrigido aqui** (documento que conserta enquanto mede perde o
+  valor de medição):
+
+  - **Radar/mapa reprova em 1.3.1, 2.4.6, 4.1.2 e 2.1.1** — a WebView não expõe árvore de
+    acessibilidade útil, e o `alt` do marcador é descartado pelo Leaflet. **Não é pendência: é a
+    razão de a coluna "Radar/lista" existir** (ADR 0030), e a matriz mostra as duas lado a lado em
+    vez de esconder a diferença numa média.
+  - **1.4.11 reprova em quatro telas** — borda do chip 1,30:1, trilho do `Switch` 1,38:1,
+    `BarraProgresso` 2,46:1, contra o piso de 3. São o A20 e o A22 do inventário, cosméticos por não
+    perderem informação; a norma reprova mesmo assim, e agora está registrado com o número.
+
+  A correção dos três de contraste é um commit no tema. Fica para uma passada própria.
+
+- **2026-08-24 (2)** — **O radar deixou de ter uma porta só.**
+
+  O mapa é WebView + Leaflet (ADR 0012), e não expõe semântica nenhuma. A auditoria mediu o pior
+  efeito disso como **A2, BLOQUEIA**: o ponto de custódia só existia dentro da WebView, alcançável
+  apenas tocando um quadrado — para leitor de tela, ele não existia em lugar nenhum do app.
+
+  A saída não foi remendar o WebView, e o ADR 0030 registra por quê: o `alt` que já passamos ao
+  marcador **é descartado hoje** (o `Marker._initIcon` do Leaflet só o aplica em `<img>`, e usamos
+  `divIcon`), sobraria o `title`, e passaríamos a manter uma árvore de acessibilidade dentro de uma
+  biblioteca de terceiro. Além disso, mapa é conteúdo espacial: mesmo perfeitamente anotado,
+  percorrer 40 pinos por varredura linear não equivale a vê-lo.
+
+  A saída foi **uma segunda apresentação do mesmo destino de rota** — alternador `Mapa | Lista`, com
+  a escolha lembrada entre sessões. Nenhuma consulta nova, nenhum endpoint novo, nenhuma rota nova.
+
+  **O que a exploração mudou no desenho.** A aba Missões, em "Perto de mim", **já era** a lista que
+  o pedido descrevia: mesma chamada a `/missoes/proximas`, já ordenada por distância pelo servidor
+  (`ORDER BY distancia_m ASC`), com `MissaoCard` acessível. Construí-la de novo no radar teria criado
+  duas listas de missões próximas para divergir — a mesma armadilha que a regra de rota única existe
+  para evitar. Então a lista do radar é o conteúdo do MAPA em texto: missões **e pontos de
+  custódia**, que é o que só existe ali.
+
+  **O rótulo mudou de ordem, e a ordem é o conteúdo.** `MissaoCard` passou a anunciar categoria,
+  recompensa, distância e prazo antes do título — quem navega por voz decide no primeiro terço da
+  frase, e o título é o que menos separa uma missão da outra. O **prazo é novo**: sem ele, a pessoa
+  só descobria que a janela ia fechar depois de abrir o detalhe. Vale nas duas abas, porque é o mesmo
+  componente.
+
+  **Armadilha de ambiente que custou dez minutos:** `unmount()` da RNTL 14 é **assíncrono**, como
+  `render` e `fireEvent`. Sem o `await`, o segundo `render` do mesmo teste **trava o processo
+  inteiro** — não falha, não estoura o `testTimeout`, apenas para. Está comentado no arquivo de
+  teste, junto das outras quatro armadilhas que o `CLAUDE.md` do mobile lista.
+
+  Verificado: typecheck limpo, lint com 0 erros, **221 testes** (eram 209). O percurso login → lista
+  → detalhe → aceitar roda consultando **só por papel e nome acessível**, sem um único `testID`.
+
+  **O que continua aberto e não foi verificado:** nenhuma passada de TalkBack. Não há `adb`,
+  emulador nem aparelho nesta máquina — é a LACUNA L4, e o teste automatizado prova a condição
+  necessária (todo passo tem papel e rótulo), não a experiência com o leitor ligado.
+
+- **2026-08-24 — F18** — **Acessibilidade semântica, com o lint como fronteira.**
+
+  A F12 tinha resolvido contraste. A semântica ficava por conta de quem lembrasse — e neste projeto
+  o que não é testado vira comentário desatualizado. O inventário de 2026-08-23 mediu 22 achados
+  sobre 58 pressáveis; esta fase corrigiu 19 deles e, mais importante, **pôs a regra no lint**, que
+  o CI do mobile já executa.
+
+  **O achado que mudou a premissa da tarefa.** O pedido era ligar `has-accessibility-props`. Li o
+  fonte publicado do plugin antes de instalar: **aquela regra reporta ZERO neste código**, e não é
+  bug — ela só dispara quando o elemento já usa `accessibilityTraits`/`accessibilityComponentType`,
+  props depreciadas da era RN 0.56 que o app não usa. O nome engana. A regra que de fato cobra é
+  `has-valid-accessibility-descriptors`. Ligamos as duas, com o comentário dizendo qual é qual —
+  uma regra verde por vácuo é o mesmo "verde por não ter varrido" que o `security.yml` já teve de
+  distinguir com `::warning`.
+
+  **O plugin declara peer `eslint ^3..^8` e o projeto usa 9.39.5.** As regras funcionam (usam
+  `meta.schema`, não tocam API removida na v9); o conflito é só de metadado, e `npm ci` reprovaria
+  no CI. Resolvido com `overrides` no `package.json`, não com `--legacy-peer-deps`.
+
+  **Um único falso positivo, e ele não virou `eslint-disable`.** O fundo da `FolhaInferior` é um
+  pressável deliberadamente escondido. Em vez de silenciar a regra, ganhou `accessibilityRole="none"`
+  — que é a verdade sobre aquele elemento. Silenciar teria deixado o próximo `Pressable` sem rótulo
+  passar junto. **Não há nenhuma exceção inline de acessibilidade no repositório.**
+
+  **O que o lint NÃO acha, e é a maior parte.** O gate pegou uma violação; o inventário tinha
+  achado 22. Regra estática afirma que existe anotação, não que ela diz a coisa certa: que o glifo
+  não entre na fala, que o foco vá para o título, que o sucesso seja anunciado — isso é
+  comportamento, e comportamento se prova com teste. É a mesma divisão do backend, onde o ArchUnit
+  trava a direção da dependência e o teste de integração prova o que ela faz.
+
+  **Os dois consertos que valem mais que a anotação:**
+
+  1. **A `FolhaInferior` não rolava.** Sete dos oito usos injetavam o conteúdo direto numa
+     `Animated.View` sem altura máxima. Com a fonte do sistema no máximo, o botão "Transferir"
+     ficava abaixo da borda **sem gesto que o alcançasse** — a operação deixava de ser executável
+     por causa de uma preferência de acessibilidade. Um `ScrollView` num arquivo consertou os oito.
+  2. **O sucesso era mudo.** O `Aviso` já era região viva, então a FALHA de quase tudo era falada e
+     o SUCESSO de nada era: check-in aceito, transferência concluída, vizinho encontrado. E
+     `accessibilityLiveRegion` **é prop de Android** — no iOS nunca falou nada. `useAnuncio` cobre
+     os dois.
+
+  **Três defeitos que não eram de acessibilidade e apareceram junto:** `definirConsentimento.error`,
+  `marcarLido.error` e `exportar.error` **não eram renderizados em lugar nenhum**. Revogar um
+  consentimento podia falhar, o switch voltava sozinho e a pessoa ficava acreditando que revogou —
+  num controle de LGPD. Agora aparecem e são anunciados.
+
+  **Bug meu, corrigido no caminho:** pus `useAnuncio` depois dos early returns do detalhe da missão
+  e o React abortou com "Rendered more hooks than during the previous render". Hook em caminho
+  condicional muda a contagem entre renderizações — foi o teste que pegou.
+
+  Verificado: `npm run typecheck` limpo, `npm run lint` com **0 erros** (as 10 advertências são as
+  mesmas de antes, conferidas por diff), `npm test` com **209 testes** (eram 188). O gate foi
+  exercitado contra um arquivo de prova com cinco violações e reprovou as cinco.
+
+- **2026-08-23** — **O sistema passou a responder a pergunta de VALOR, e dois testes desmentiram o
+  código no caminho.**
+
+  O projeto provava integridade, geolocalização e conservação. Não provava **impacto**: não havia
+  lugar que respondesse *quanto a tese economizou*, que é a pergunta que um parceiro faria.
+  `GET /api/v1/admin/impacto` responde, agregando na hora tabelas que já existem — sem migration,
+  sem tabela de agregação e sem cache (ADR 0029 §6: segunda fonte de verdade para número que existe
+  para ser conferido é pior que a consulta a mais).
+
+  **Onde mora e por quê.** O painel cruza quatro módulos, então ganhou **uma porta por dono do
+  dado** e o montador em `compartilhado` — precedente de `DrenadorOutboxService`, que já injeta
+  `notificacoes/api`. Hospedá-lo em `logistica`, cuja tese ele mede, teria somado `carteira` e
+  `geolocalizacao` a um nó que já tem dependência mútua com `missoes` — o mesmo nó por causa do qual
+  aquele módulo tem duas classes de serviço em vez de uma. O `RegrasArquiteturaTest` não precisou de
+  uma linha.
+
+  **Duas coisas que o código afirmava e não eram verdade.** As duas foram achadas por execução, não
+  por leitura, e as duas viraram campo do painel em vez de comentário corrigido:
+
+  1. *"Os três desfechos do webhook somam as entregas recebidas."* `ImpactoTest.funilBateComOBanco`
+     reprovou com **6 contra 22**. Existe um QUARTO estado que o webhook não produz mas o schema
+     permite e o seed V901 usa: `missao_id` nulo *e* `motivo_recusa` nulo — encomenda na custódia
+     que nunca virou missão. Sem contá-la, o painel teria publicado uma conversão de 27% sobre um
+     denominador com um grupo invisível dentro, e a leitura natural ("o bairro só responde a um
+     quarto das falhas") seria falsa. Virou `pendentes`.
+  2. *"`criadas` deve bater com `convertidas`; divergirem é conversão gravada pela metade."* Ao
+     vivo deu **4 contra 10**. A causa é legítima: as entregas falidas do seed apontam para missões
+     que a V900 criou com criador HUMANO, porque o seed é anterior ao usuário-sistema da V21. O
+     javadoc estava errado, não o banco — e a tela agora mostra `criadas` como degrau próprio do
+     funil, com a explicação, em vez de deixar o leitor concluir que algo quebrou.
+
+  **Uma terceira, no mobile.** O schema tipava os valores em BRL como `string`, e passou nos testes
+  porque a **fixture também mentia**. Quem desmentiu foi a resposta real do servidor: Jackson
+  serializa `BigDecimal` como número JSON (`25.00`), como já acontece em `valorBrl` e `saldoBrl`.
+  Fixture que não espelha o servidor não testa contrato — testa a si mesma.
+
+  **A premissa, que é o ponto que uma banca ataca.** `app.impacto.custo-reentrega-brl` não foi
+  medido e não há como medi-lo aqui. Então: vem de configuração (nunca de literal), a resposta
+  **ecoa** o valor usado, e traz a mesma conta com ele em **±50%**. Meia linha de aritmética que
+  troca um total frágil por uma faixa — a afirmação defensável é a ordem de grandeza que sobrevive
+  à variação, não o número do meio. A evidência mostra o painel recalculando quando a premissa é
+  sobrescrita para 42,90 com o banco intacto.
+
+  E o painel diz, em texto na tela, que **"re-entrega evitada" é a missão concluída renomeada** —
+  interpretação, não segunda medição. Apresentá-las como confirmação mútua seria a fraude
+  estatística mais fácil de cometer aqui, porque os números batem por construção.
+
+  Evidência: `docs/evidencias/impacto-conferido-por-sql.md`, com endpoint e SQL manual lado a lado,
+  métrica a métrica, e a mediana conferida contra o `percentile_cont` do PostgreSQL — duas
+  implementações independentes do mesmo número. `./mvnw verify` com **703 testes**; `npm test` com
+  **188**.
+
+- **2026-08-22 (4)** — **A transferência deixou de exigir UUID digitado, sem abrir diretório de
+  membros.**
+
+  A Pendência #3 dizia que a tela pedia o UUID do destinatário como texto: "funciona e é
+  inutilizável". A saída óbvia — listar os membros da tribo — estava fechada por decisão anterior, no
+  javadoc de `TriboController`: listar daria a qualquer autenticado um mapa social do bairro, e como
+  a transferência é restrita à mesma tribo, esse mapa seria uma lista de alvos.
+
+  A saída foi **busca por handle EXATO**, restrita à própria tribo (ADR 0028): quem já sabe o `@` do
+  vizinho o encontra; quem não sabe não descobre nada. Um handle é algo que a pessoa te diz — a busca
+  transforma conhecimento prévio em usabilidade sem criar diretório.
+
+  **O argumento que o ADR precisou fazer, e que vale repetir aqui:** perguntaram se handle
+  inexistente devia dar 404 ou resposta vazia. A resposta honesta é que **empatam**. O que protege
+  não é o número — é responder IGUAL nos três casos que precisam ser indistinguíveis (inexistente,
+  outra tribo, conta inativa). A F4 já tinha desmontado o senso comum aqui ao mostrar que quem vaza
+  existência é o 403, não o 404. Escolhemos 404 por CONTRATO, não por segurança: é busca por chave
+  natural, e `naoEncontrado` já está no catálogo de `type` do app. Dizer que 404 esconde algo seria
+  teatro — o sucesso da busca já revela existência, que é para o que ela serve.
+
+  O que de fato protege são três coisas, nenhuma delas um status: mesma tribo, match exato, e teto
+  próprio de 12/min. `BuscaHandleTest.outraTriboEInexistenteSaoIndistinguiveis` compara os dois
+  corpos byte a byte — se alguém "melhorar" a mensagem para distinguir as causas, o build fecha
+  vermelho.
+
+  **Dois detalhes que a implementação obrigou a resolver:**
+
+  1. `uk_usuario_handle` da V2 é case-SENSITIVE, então `alice` e `Alice` podiam coexistir — a busca
+     exata teria duas respostas para o que o usuário digita como uma coisa só. A V27 acrescentou
+     `UNIQUE INDEX (LOWER(handle))`, e a ausência de colisão foi MEDIDA antes de escrever.
+  2. O teto é por usuário e vive dez minutos na Caffeine. Com `busca-handle-por-minuto: 5` em teste, a
+     alice — que aparece em cinco testes da classe — esgotava o balde e os testes seguintes vinham
+     429 conforme a ordem de execução. Subiu para 20, e o teste do teto usa um usuário só dele.
+
+  Na tela, o campo de UUID **saiu**: `destinatarioId` virou dado interno. Busca é ação explícita (não
+  enquanto digita, que seria prefixo na prática e queimaria o teto), o resultado mostra nome e tribo,
+  e editar o `@` derruba o destinatário confirmado.
+
+  Evidência: `./mvnw verify` com **680 testes**, `npm test` com **178**; e ao vivo — busca achando
+  "Marlene Souza · Tribo Cidade Líder", `@alice` (outra tribo) e `@naoexiste123` devolvendo respostas
+  **idênticas** (diff vazio), transferência de 20 tokens sem digitar UUID (renan 124→104, marlene
+  42→62) e a varredura fechando no **429 na 11ª tentativa**.
+
+- **2026-08-22 (3)** — **O TOKEN passou a ter para onde ir: a economia virou ciclo.**
+
+  O ADR 0009 §3 dizia desde sempre que o resgate em benefício de parceiro é o sumidouro do token, e
+  não atribuía isso a nenhuma fase. O resultado, medido: `grep` por
+  `resgate|cupom|beneficio|parceiro` no backend devolvia **só comentário**. A tela do app era vitrine
+  com catálogo hardcoded, e `RESGATE` não existia no CHECK de `lancamento.motivo`.
+
+  Faltava a terceira operação de uma moeda. Havia emissão (aporte do patrocinador, ADR 0024) e
+  circulação (missões); não havia destruição. Uma moeda que só cresce é um placar.
+
+  V24 (`parceiro`, `beneficio`), V25 (`resgate`), V26 (`RESGATE` no CHECK) e V906 (catálogo da Cidade
+  Líder). `GET /beneficios`, `POST /resgates`, `POST /admin/beneficios` e
+  `PATCH /admin/resgates/{id}`.
+
+  **A mudança que exige atenção é de ENUNCIADO.** `SUM(carteiras) + SUM(potes)` **deixou de ser
+  constante no sistema**: é constante dentro do CICLO DE MISSÕES, e muda nas duas pontas — sobe no
+  aporte, desce no resgate. Não é regressão; é a diferença entre estoque fechado e economia com
+  entrada e saída. `ConservacaoTokensTest` e `FinanciamentoControllerTest` seguem válidos sem
+  alteração, porque medem ciclos de missão. Os dois `CLAUDE.md` foram corrigidos.
+
+  **Quatro decisões que ficaram no ADR 0027:**
+
+  1. **O resgate QUEIMA**, não transfere. O lançamento sai sem `contraparte_carteira_id` e sem
+     `missao_id` — creditar uma "carteira do parceiro" manteria o token na soma e o sumidouro seria
+     um depósito com outro nome.
+  2. **Benefício é BEM ou PERCENTUAL, nunca reais**, em duas camadas: `@Pattern` na borda (400) e
+     `ck_beneficio_sem_reais` no banco. Preço em moeda corrente publica a cotação token→real que o
+     ADR 0009 §6 recusa. A fronteira de palavra é deliberada — "realmente" não pode ser reprovado.
+  3. **O código de retirada não é credencial.** Oito caracteres sem `0/O` e `1/I/L`, sem HMAC:
+     autoriza a baixa é o ADMIN, pelo id. Criptografia ali daria aparência de credencial a um
+     identificador de balcão.
+  4. **Sem reversão.** `PENDENTE → UTILIZADO` e ponto: desfazer ressuscitaria token queimado, que é
+     emitir fora do ponto único do ADR 0024.
+
+  Numeração: usadas **V24, V25 e V26** contíguas, e não V25-V27. A V24 estava livre, e deixá-la vaga
+  seria bomba-relógio — um V24 criado depois fica out-of-order para todo banco com V25+ aplicada, e
+  out-of-order está desligado. Mesma classe de armadilha que queimou V9 e V10. O ADR virou **0027**
+  porque o 0026 já era a confirmação de retirada.
+
+  Evidência: `./mvnw verify` com **673 testes, 0 falhas**; e contra o servidor de pé — circulação de
+  **10845 → 10805 (−40, o custo exato)** com `integro=true` antes e depois, replay da mesma
+  `Idempotency-Key` sem segundo débito, saldo insuficiente em 422 com `type` do catálogo, e benefício
+  em "R$" reprovado nas duas camadas.
+
+- **2026-08-22 (2)** — **A transportadora passou a confirmar a retirada, e o ciclo do produto fecha
+  no mesmo minuto.**
+
+  A missão de retirada tem o usuário-sistema como criador, e `AtorEsperado.CRIADOR` compara
+  IDENTIDADE, não papel — nenhum humano confirmava, nem ADMIN. O desfecho já era correto (a varredura
+  conclui pagando o executor), mas ele esperava 72 h, e numa demonstração ao vivo o fluxo principal
+  do produto não terminava. Agora existe `POST /api/v1/webhooks/transportadora/confirmacao`, com o
+  mesmo HMAC sobre o corpo bruto e a mesma idempotência do webhook de reporte.
+
+  **Por que a transportadora e não autoconfirmação no check-in** (ADR 0026): o check-in prova
+  PRESENÇA, não RECEBIMENTO. Autoconfirmar ali faria o executor confirmar a si mesmo, e uma
+  confirmação emitida pela parte interessada não distingue entrega feita de entrega alegada. A
+  transportadora é a contraparte com interesse oposto — é o token do patrocinador dela que sai. É o
+  mesmo princípio que `AtorEsperado.CANDIDATO` já aplica ao proibir o criador de aceitar a própria
+  missão.
+
+  **Três coisas que a tarefa mostrou:**
+
+  1. **Nenhum ajuste de autorização foi necessário, e nenhuma transição nova.** `AtorMissao.ehMesmo`
+     compara `usuarioId`, e o criador da missão de retirada É `UsuarioSistema.ID` — então
+     `AtorMissao(UsuarioSistema.ID, SISTEMA)` já satisfazia `CRIADOR`. As transições continuam
+     **17**. A pendência era de ALCANCE (não havia quem chamasse), não de regra.
+  2. **O `RegrasArquiteturaTest` pegou um erro real durante a implementação.** `@Auditavel` num
+     método que devolve `long` faria o aspecto gravar `entidade_id` nulo. A auditoria do ato ficou
+     em `ConfirmacaoRetiradaService`, que tem a entrega falida em mãos; a trilha da missão continua
+     em `missao_evento`.
+  3. **Sumiu o único `UPDATE` manual da evidência da F14.** O ciclo 4 recuava `estado_desde` por SQL
+     e exigia subir o servidor com a varredura acelerada — tudo por causa desta lacuna. Reexecutado
+     e regravado: fecha por HTTP, sem override nenhum.
+
+  Evidência: `./mvnw verify` com **662 testes, 0 falhas**; `tools/carrier-mock/enviar.sh` levando a
+  entrega falida até o crédito (**alice 41 → 107 tokens, +66**) com replay no-op e os negativos
+  (401, 404, 409); e a F14 reexecutada com Δ=0 nas quatro categorias.
+
+- **2026-08-22** — **A Pendência #1 fechou pelos dois lados, e agora existe evidência executada
+  disso.**
+
+  A pendência dizia que ENTREGA e AJUDA cunhavam token na conclusão. O lado de ENTREGA fechou com a
+  carteira de patrocinador (ADR 0024) e o de AJUDA com o ADR 0025. O que faltava era **medir**: até
+  aqui a afirmação vivia em teste unitário e no javadoc, não numa execução que alguém possa refazer
+  na banca.
+
+  `tools/evidencias/conservacao-por-categoria.sh` foi de dois ciclos para cinco — TRIBO, COLETA,
+  AJUDA, ENTREGA pelo webhook, e a recusa por falta de saldo. Resultado colado em
+  `docs/evidencias/f14-conservacao-quatro-categorias.md`: **Δ=0 nas quatro**, soma saindo de 10845 e
+  voltando a 10845, `integro=true` em todos os pontos, e o patrocinador indo de 5000 para 4934 —
+  pagou exatamente os 66 tokens que a vizinha recebeu por buscar a encomenda.
+
+  **Três coisas que a montagem da evidência obrigou a resolver:**
+
+  1. **O ciclo de ENTREGA não fecha sozinho.** O criador da missão de retirada é o usuário-sistema e
+     `AtorEsperado.CRIADOR` compara IDENTIDADE, não papel — nem um ADMIN chama `/confirmar`. O único
+     caminho para CONCLUIDA é a varredura de prazo, então o script recua `estado_desde` e o servidor
+     da evidência sobe com `--app.missoes.expiracao.intervalo=PT10S`. É o único `UPDATE` manual do
+     script, não toca dinheiro, e está declarado na seção "o que isto não prova".
+  2. **Demonstrar "sem saldo" sem corromper o ledger.** Zerar a carteira do patrocinador por
+     `UPDATE` faria a reconciliação acusar divergência no meio da própria medição. A saída foi uma
+     segunda transportadora em `application-dev.yml` (`transportadora-sem-saldo`), com HMAC válido e
+     patrocinador cadastrado pelo endpoint ADMIN sem nenhum aporte.
+  3. **O ADR 0024 não registrava a decisão do aporte em TOKEN.** Acrescentado o §2b: converter
+     `valor_ofertado_brl` a uma taxa fixaria a cotação token→real que o ADR 0009 §6 recusa ter —
+     token conversível é dinheiro, com KYC junto. O teto do multiplicador de risco **não muda**, e
+     ficou registrado que `CoerenciaTetoRiscoTest` trava os dois blocos de configuração juntos.
+
+  `docs/evidencias/f13-conservacao-por-categoria.md` foi marcada como SUPERADA: ela media o mundo em
+  que AJUDA cunhava, e o script que ela cita não reproduz mais aquela saída.
+
+- **2026-08-21** — **AJUDA passou a pagar do pote, e o motivo é que o argumento contra ela estava
+  errado.**
+
+  O ADR 0024 §8 tinha deixado AJUDA cunhando com esta justificativa: "quem pede ajuda não paga, e
+  exigir pote da tribo faria o vizinho custear o favor que ele mesmo pediu". **A frase conflaciona
+  duas coisas.** "Quem cria não paga" é o ADR 0009 e continua valendo; "a comunidade não deve
+  financiar" é outra afirmação — e em TRIBO ela já era falsa, porque o pote de um mutirão é formado
+  por OUTROS membros, nunca pelo criador. O argumento que de fato sustenta a exceção é o do
+  varejista, e ele é específico de ENTREGA. AJUDA é missão entre vizinhos, como TRIBO.
+
+  A mudança foi pequena de propósito — o construtor de `Missao` passa a derivar
+  `FontePote.COMUNIDADE` para AJUDA, e `pagaTokensDoPote` e `validarPoteSuficienteParaPublicar` já
+  liam `fonte_pote` desde a V23. **Sem migration.**
+
+  **Três coisas que a tarefa obrigou a conferir em vez de presumir:**
+
+  1. **Os dois pontos de estorno já cobriam AJUDA.** `MissaoService.aplicar` e
+     `ExpiracaoMissoesService.expirarUma` chaveiam por `poteTokens > 0`, não por categoria — nada
+     precisou mudar. Mas a cobertura era TEÓRICA: nenhuma AJUDA jamais teve pote para estornar. Os
+     testes novos são a primeira vez que o caminho é exercitado com ela, e um deles atravessa
+     deliberadamente `ExpiracaoMissoesJob.varrer`, que não passa por `aplicar()`.
+  2. **`FinanciamentoService.validarEstado` listava TRIBO/COLETA** e teria ficado fora de sincronia
+     com o construtor. O efeito seria silencioso e cruel: AJUDA exigindo pote para publicar e
+     recusando todo financiamento que o formasse — impublicável e infinanciável ao mesmo tempo. Foi
+     reescrito para testar a FONTE, que é onde a regra mora.
+  3. **Só um teste existente quebrou**, `ConservacaoTokensTest`, e a assertion foi APERTADA (de
+     "AJUDA cunha 30" para "Δ = 0"), nunca relaxada. Rastreei a suíte inteira antes: nenhum outro
+     teste publica AJUDA.
+
+  **As missões AJUDA que já existem continuam `fonte_pote = 'CUNHAGEM'`**, sem UPDATE. Elas não têm
+  pote, e marcá-las como COMUNIDADE faria a conclusão delas falhar com 422 para sempre. Corte por
+  data de criação, como a V905 fez com as entregas falidas antigas.
+
+  Evidência: `./mvnw verify` com **655 testes, 0 falhas**; e `tools/evidencias/conservacao-por-categoria.sh`
+  (que também codificava a regra antiga e foi atualizado para financiar a AJUDA) medindo
+  **AJUDA Δ=0, TRIBO Δ=0, reconciliação integro=true** contra o servidor de pé.
+
+- **2026-08-20** — **A carteira de patrocinador fechou a Pendência #1, e o caminho até ela achou
+  dois defeitos que ninguém tinha visto.**
+
+  A Pendência #1 dizia que ENTREGA e AJUDA cunhavam token na conclusão, então a conservação
+  `SUM(carteiras) + SUM(potes)` valia para duas categorias e não para o sistema. O que a implementação
+  mostrou é que a formulação estava incompleta: **a cunhagem não podia ser "removida", só deslocada.**
+  Alguém tem de pôr o token no pote. A decisão (ADR 0024) foi tirá-la do FIM do ciclo — implícita, por
+  missão, invisível para a reconciliação — e pô-la no COMEÇO, num `APORTE_PATROCINADOR` por endpoint
+  ADMIN, auditado e idempotente. O ganho não é "não cunhar mais"; é a emissão virar um número que
+  alguém consegue somar.
+
+  **Três armadilhas que o desenho óbvio teria pisado:**
+
+  1. **`abrirMissaoDeRetirada` não passa por `aplicar()`.** Ela chama a máquina de estados direto,
+     então `validarPoteSuficienteParaPublicar` NUNCA roda nesse caminho. Virar `pagaTokensDoPote`
+     sem financiar dentro da conversão criaria missões ABERTAS com pote vazio: alguém aceitaria,
+     entregaria, faria check-in, e a conclusão falharia com 422 **para sempre** — e como missão de
+     retirada só conclui pela varredura de prazo, o erro apareceria no job, não numa requisição, com
+     o token do executor perdido e a vaga do ponto travada.
+  2. **`LancamentoRepository.buscarFinanciamentosDaMissao` filtrava um motivo só.** Um motivo novo
+     ficaria invisível para o estorno, e cancelar ou expirar uma missão patrocinada não devolveria
+     nada — token preso numa missão morta, com a reconciliação respondendo `integro=true`, porque
+     ledger e projeção continuam batendo. Era a Pendência #5 reaparecendo por outra porta.
+  3. **A regra por CATEGORIA não conseguia separar as duas ENTREGAs.** Ligar ENTREGA ao pote
+     quebraria a ENTREGA criada por humano, que ficaria impublicável — financiamento de ENTREGA é
+     recusado e o pote nunca alcançaria a recompensa. Por isso a decisão virou coluna
+     (`missao.fonte_pote`), congelada na criação.
+
+  **E duas coisas quebradas que não tinham relação com a tarefa:**
+
+  - **`EntregaFalidaCicloTest.tetoPorHoraCortaOExcesso` estava vermelho em `develop`**, antes de
+     qualquer mudança — confirmado rodando a suíte na baseline com o trabalho em `git stash`: 637
+     testes, 1 falha. A causa é **dependência do relógio**: o corpo do webhook não informava
+     `janelaHoraInicio`, então o controller usava a HORA ATUAL como característica do modelo de
+     risco. Em hora de risco ALTO o carve-out do teto sobe de 5 para 8 alertas, os 5 alertas de ruído
+     deixam de esgotar a cota, e o teste que esperava 0 recebia 1. Verde de manhã, vermelho à noite.
+     Corrigido fixando a hora no fixture — não é relaxar assertion, é remover uma entrada oculta.
+  - **`make reset` não funcionava com podman.** O bind mount `./docker/init` não tinha a flag de
+     relabel do SELinux, então o container morria com `Permission denied` em
+     `/docker-entrypoint-initdb.d/`. Latente por construção: os scripts de init rodam UMA vez, na
+     criação do volume, então `make up` num volume já existente sempre funcionou — a falha só aparece
+     quando alguém precisa recriar o banco, que é o que toda migration nova exige. Corrigido com
+     `:ro,z` no compose.
+
+  Evidência: `./mvnw verify` verde com **651 testes, 0 falhas**, SpotBugs limpo e os dois gates
+  JaCoCo passando; `tools/carrier-mock/enviar.sh` com os 6 cenários OK contra o servidor de pé; e a
+  conservação medida no banco depois da conversão real — `carteiras + potes` fechando e reconciliação
+  com 0 divergências.
 
 - **2026-08-17** — **O `Security Scan` estava vermelho havia dois dias, e ninguém tinha registrado.**
 

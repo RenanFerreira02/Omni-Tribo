@@ -89,7 +89,12 @@ export default function Registrar() {
             />
 
             {aviso ? (
-              <Text style={estilos.aviso} testID="erro-registro">
+              <Text
+                style={estilos.aviso}
+                testID="erro-registro"
+                accessibilityRole="alert"
+                accessibilityLiveRegion="polite"
+              >
                 {aviso}
               </Text>
             ) : null}
@@ -104,6 +109,13 @@ export default function Registrar() {
 
           <View style={estilos.rodape}>
             <Text style={estilos.rodapeTexto}>Já tem conta?</Text>
+            {/*
+              O alvo cresce por PADDING, no estilo, e não por `hitSlop`: o `Link` do expo-router
+              tipa só `LinkProps` e não repassa `hitSlop`. Ele é um `<Text>` de 22 pt de lineHeight
+              — metade do mínimo de 44 da WCAG 2.5.5 — e é o único caminho entre login e cadastro.
+              O papel de link já vem do próprio componente (`useLinkToPathProps` define
+              `role: 'link'`); o que faltava era o alvo.
+            */}
             <Link href="/(auth)/login" style={estilos.link}>
               Entrar
             </Link>
@@ -123,5 +135,11 @@ const estilos = StyleSheet.create({
   aviso: { ...tipografia.corpo, color: textoAcessivel.coral },
   rodape: { flexDirection: 'row', justifyContent: 'center', gap: espaco.xs },
   rodapeTexto: { ...tipografia.corpo, color: cores.tinta70 },
-  link: { ...tipografia.corpo, color: cores.verdeEscuro, fontWeight: '600' },
+  // 11 + 22 de lineHeight + 11 = 44 pt de alvo. Ver o comentário no JSX.
+  link: {
+    ...tipografia.corpo,
+    color: cores.verdeEscuro,
+    fontWeight: '600',
+    paddingVertical: 11,
+  },
 });
