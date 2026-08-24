@@ -9,7 +9,7 @@ import { Card } from '@/components/Card';
 import { TituloTela } from '@/components/TituloTela';
 import { Esqueleto } from '@/components/Esqueleto';
 import { useImpacto } from '@/features/impacto/hooks';
-import { cores, espaco, textoAcessivel, tipografia } from '@/theme';
+import { cores, espaco, textoAcessivel, tipografia, traco } from '@/theme';
 
 /**
  * O painel que responde "quanto a tese economizou" — a única tela do app que fala de VALOR.
@@ -338,5 +338,5 @@ const estilos = StyleSheet.create({
   legenda: { ...tipografia.legenda, color: textoAcessivel.suave },
   item: { gap: espaco.xs },
   itemCabecalho: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  linhaDivisoria: { height: 1, backgroundColor: cores.linha },
+  linhaDivisoria: { height: traco, backgroundColor: cores.linha },
 });

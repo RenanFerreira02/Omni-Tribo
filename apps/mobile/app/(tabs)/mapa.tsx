@@ -405,7 +405,7 @@ const estilos = StyleSheet.create({
   faixaFlutuante: { position: 'absolute', bottom: espaco.lg, left: espaco.lg, right: espaco.lg },
   clima: { flexDirection: 'row', alignItems: 'center', gap: espaco.md },
   temperatura: { ...tipografia.titulo, color: cores.verdeEscuro },
-  climaTexto: { gap: 2 },
+  climaTexto: { gap: espaco.xxs },
   climaDescricao: { ...tipografia.rotulo, color: cores.tinta },
   climaSensacao: { ...tipografia.legenda, color: textoAcessivel.suave },
   resumo: { gap: espaco.sm },

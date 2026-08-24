@@ -10,6 +10,21 @@
   lint agora**: `cores.{ambar,coral,tinta50,verdePrimario}` numa propriedade `color` é erro. Só o hex
   era travado, e as duas violações que existiam estavam justamente na metade descoberta — uma delas
   no `Aviso`, por onde passa TODO erro do app.
+- **Duas escalas, e nada fora delas — e agora é lint** (`no-restricted-syntax` em `app/**`, no molde
+  da regra de cor). `tipografia` tem **seis** degraus e três pesos; `espaco` é base 4 com **um**
+  meio-passo declarado (`xxs: 2`, só para par de texto que forma um bloco).
+  - A regra vale em `app/`, **não** em `src/components/`: tela CONSOME a escala, componente PODE
+    defini-la. Se valesse lá, `Botao` não poderia declarar os 48 dp que ele define, e a saída seria
+    uma exceção inline por componente — a regra desligada com passos extras.
+  - **Se nenhum degrau servir, a escala está errada — fale antes de abrir exceção.** É o que a
+    mensagem do lint diz, e foi assim que nasceram `alvo`, `traco` e `glifo`.
+- **`alvo`, `traco` e `glifo` são escalas PRÓPRIAS, e a separação é o ponto.** `alvo.minimo` (44) e
+  `alvo.confortavel` (48) são o mínimo da WCAG 2.5.5, não ritmo visual — misturá-los com `espaco`
+  convidaria a "arredondar 44 para 40". `traco` (1) é fio, e 1 nunca vai ser múltiplo de 4. `glifo`
+  são tamanhos de símbolo decorativo, que não têm peso nem entrelinha e por isso não são texto.
+- **Entrelinha aperta conforme o texto cresce**: 1,18 no `display`, 1,47 no `corpo`. Título é uma
+  linha e ganha densidade; parágrafo precisa de ar para o olho achar a linha seguinte. A razão de
+  cada degrau está tabelada no javadoc de `tipografia`.
 - **Preenchimento usa `cores`; TEXTO usa `textoAcessivel`.** Os 12 tokens de marca foram desenhados
   para preencher, e como texto reprovavam em WCAG AA — `tinta50` dava 3,54:1, `ambar` 3,36:1,
   `coral` 3,20:1, contra o mínimo de 4,5:1. Onze dos vinte e dois pares texto/fundo do app

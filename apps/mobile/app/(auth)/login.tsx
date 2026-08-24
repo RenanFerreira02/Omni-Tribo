@@ -115,7 +115,7 @@ const estilos = StyleSheet.create({
   flex: { flex: 1 },
   conteudo: { flexGrow: 1, justifyContent: 'center', padding: espaco.xl, gap: espaco.xxl },
   cabecalho: { gap: espaco.sm },
-  marca: { ...tipografia.destaque, color: cores.verdeEscuro },
+  marca: { ...tipografia.display, color: cores.verdeEscuro },
   subtitulo: { ...tipografia.corpo, color: cores.tinta70 },
   formulario: { gap: espaco.lg },
   aviso: { ...tipografia.corpo, color: textoAcessivel.coral },
@@ -126,6 +126,9 @@ const estilos = StyleSheet.create({
     ...tipografia.corpo,
     color: cores.verdeEscuro,
     fontWeight: '600',
-    paddingVertical: 11,
+    // `espaco.md` (12), e não um 11 solto: 12 + 22 de lineHeight + 12 = 46, acima do mínimo de
+    // `alvo.minimo`. O 11 anterior mirava 44 exato e era um número fora de qualquer escala — o que
+    // ele guardava, e o comentário acima diz, é uma regra de ALVO, não de respiro.
+    paddingVertical: espaco.md,
   },
 });

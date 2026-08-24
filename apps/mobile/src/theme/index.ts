@@ -6,7 +6,7 @@ import {
   glifoCategoria as mapaGlifo,
 } from './tokens';
 
-export { cores, espaco, raio, textoAcessivel, tipografia } from './tokens';
+export { alvo, cores, espaco, glifo, raio, textoAcessivel, tipografia, traco } from './tokens';
 export type { NomeCor } from './tokens';
 
 export interface ParCorCategoria {
