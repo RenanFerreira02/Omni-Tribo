@@ -17,6 +17,7 @@ daqui ou de [`../qualidade/`](../qualidade/).
 | [`f13-make-test.md`](f13-make-test.md) | 2026-08-16 | 637 testes no backend e 179 no mobile, verdes. **SpotBugs e os dois gates JaCoCo aparecem executando, mas o console colado traz só os cabeçalhos dos plugins** — as linhas de resultado (`BugInstance size is 0`, *All coverage checks have been met*) estão em [`../qualidade/verificacao-2026-08-15.md`](../qualidade/verificacao-2026-08-15.md), de **outra data** | `make test` |
 | [`f13-ci-github-actions.md`](f13-ci-github-actions.md) | 2026-08-17 | O histórico **real** do GitHub Actions: 113 runs. Gitleaks verde em 48/48; Mobile CI vermelho de 08-09 a 08-13; `Security Scan` reprovado desde `ca328fc` pelo job de dependências | `curl` na API pública — comando no arquivo |
 | [`impacto-conferido-por-sql.md`](impacto-conferido-por-sql.md) | 2026-08-23 | O painel `GET /admin/impacto` **batendo com uma contagem manual por SQL**, métrica a métrica, no mesmo banco e no mesmo instante — inclusive a mediana conferida contra o `percentile_cont` do PostgreSQL. Mostra também a premissa de custo mudando o resultado por configuração | `make reset`, `spring-boot:run`, `bash tools/carrier-mock/enviar.sh`, `curl` e `psql` — todos no doc |
+| [`f21-carga.md`](f21-carga.md) | 2026-08-25 | **A medição que faltava para a F12b.** 14.967 requisições, **0 respostas 5xx**: radar a 74,6 req/s com p95 de 4,3 ms e sem joelho, cache por geohash economizando 41% do p50, transferências na MESMA carteira sem um deadlock, e os três tetos de rate limit batendo com os configurados. Achado: o alerta de ponto lotado escreve 631 linhas idênticas sem teto nem dedup | `make reset`, `spring-boot:run`, `bash tools/carga/executar.sh` |
 | [`f21-dependency-check.md`](f21-dependency-check.md) | 2026-08-24 | **Uma tentativa que FALHOU**, e a hipótese que ela derrubou: o Dependency-Check 13.0.0 não tem acesso anônimo à NVD, e chave ausente produz o mesmo erro de chave vazia. Nenhum CVE listado — nenhuma varredura completou | `./mvnw -Pseguranca verify -DskipTests` (sem `-Dnvd.api.key`) |
 
 > `impacto-conferido-por-sql.md` é o único arquivo **sem prefixo de fase**: o painel de impacto não
@@ -28,9 +29,13 @@ daqui ou de [`../qualidade/`](../qualidade/).
 
 Vale mais que a lista acima, porque é onde uma banca vai empurrar:
 
-- **Carga e desempenho.** Nenhuma medição de latência, TPS ou concorrência sob carga — é a F12b,
-  pendente. Os números de desempenho do documento estratégico (< 200 ms, 1.000 TPS, SLA 99,9%) são
-  metas, não medições. Ver [`../DIVERGENCIAS-DOCUMENTACAO.md`](../DIVERGENCIAS-DOCUMENTACAO.md).
+- **Carga além de uma máquina e de cinco minutos.** Existe medição desde 2026-08-25
+  ([`f21-carga.md`](f21-carga.md)), e ela é de UMA máquina, com k6, JVM e Postgres dividindo os
+  mesmos 16 núcleos, sobre dado de seed, por 5 minutos por cenário. Não há soak, não há segundo nó,
+  não há dado em volume — e o pool de conexões nunca chegou a ser pressionado, porque o rate limit
+  barrou antes. Os números do documento estratégico (< 200 ms, 1.000 TPS, SLA 99,9%) continuam sendo
+  metas herdadas, e o medido (75 req/s num cenário, 2 req/s noutro) não os alcança nem pretende. Ver
+  [`../DIVERGENCIAS-DOCUMENTACAO.md`](../DIVERGENCIAS-DOCUMENTACAO.md).
 - **O modelo de risco com dados reais.** O dataset é **sintético**, com correlações injetadas e
   documentadas. Ver [`../qualidade/modelo-previsao.md`](../qualidade/modelo-previsao.md).
 - **Portabilidade de ambiente.** A execução do zero foi feita numa máquina Linux com podman. Não
@@ -42,7 +47,9 @@ Vale mais que a lista acima, porque é onde uma banca vai empurrar:
   medição por categoria refez AJUDA e TRIBO. O caso de ENTREGA (Δ=+60) foi medido na
   [auditoria F7](../auditoria/F7.md).
 - **Ausência de CVE nas dependências.** A varredura OWASP **nunca concluiu**, nem local nem no CI —
-  falta a chave da NVD. O gate está configurado; o resultado não existe. Ver
+  falta a chave da NVD. O gate está configurado; o resultado não existe. A tentativa mais recente
+  está medida em [`f21-dependency-check.md`](f21-dependency-check.md), que também derrubou a
+  hipótese de haver acesso anônimo à NVD; o histórico do job vermelho está em
   [`f13-ci-github-actions.md`](f13-ci-github-actions.md) §1.
 - **Conteúdo dos logs do CI.** A evidência de CI cobre *conclusão* de run, job e passo, colhida da
   API pública. O download dos logs exige token com escopo `actions:read` e responde `403` sem ele.

@@ -34,6 +34,9 @@
     <mockwebserver.version>5.4.0</mockwebserver.version>
     <!-- Só no profile `seguranca`; ver a nota lá embaixo sobre por que não entra no verify. -->
     <dependency-check.version>13.0.0</dependency-check.version>
+    <!-- Só no profile `mutacao`. Mesma razão do de cima: fora do verify padrão. -->
+    <pitest.version>1.25.9</pitest.version>
+    <pitest-junit5.version>1.2.3</pitest-junit5.version>
   </properties>
 
   <dependencies>
@@ -376,6 +379,22 @@
 
                   ./mvnw -Pseguranca verify -Dnvd.api.key=$NVD_API_KEY
               -->
+              <!--
+                Diretorio da base da NVD, FIXADO. O default do plugin e
+                ${settings.localRepository}/org/owasp/dependency-check-data/<versao> — ou seja,
+                dentro do ~/.m2 —, e o passo de cache do security.yml apontava para
+                services/api/target/dependency-check-data, que o plugin nunca escreveu. O cache
+                salvava um diretorio inexistente e toda execucao semanal rebaixava a base inteira:
+                exatamente o 403 por limite de taxa que aquele passo diz existir para evitar.
+                Verificado nesta maquina — a execucao de 2026-08-24 deixou odc.mv.db no ~/.m2 e
+                target/ sem nenhum artefato do dependency-check.
+
+                Fora de target/ de proposito: `./mvnw clean` e rotina aqui (o CLAUDE.md manda rodar
+                ao renomear migration) e apagaria uma base que custa dezenas de minutos para
+                rebaixar. Fora do ~/.m2 tambem, para nao disputar o mesmo diretorio com o cache que
+                o `setup-java` ja mantem sobre o repositorio local.
+              -->
+              <dataDirectory>${user.home}/.dependency-check-data</dataDirectory>
               <formats>
                 <format>HTML</format>
                 <format>JSON</format>
@@ -394,6 +413,75 @@
                 </goals>
               </execution>
             </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!--
+      Teste de mutação (PIT). Fica FORA do `verify` padrão, pela mesma razão do `seguranca` acima:
+      mutar exige reexecutar a suíte uma vez por mutante, e prender isso ao `verify` acabaria com o
+      build rápido de que a suíte inteira depende para ser rodada a cada mudança.
+
+      SEM GATE, de propósito — não há `mutationThreshold`. O CLAUDE.md registra a decisão: um gate
+      reprovaria o build por mutante equivalente em getter e DTO, e o valor deste relatório está nos
+      SOBREVIVENTES que ele nomeia, não na porcentagem. O número entra no relatório, não na porta.
+
+      Escopo restrito a `missoes.dominio` e `carteira.dominio`: é onde o teste protege dinheiro e
+      maquina de estados, e onde um teste sem assertion passaria despercebido.
+
+      Uso:  ./mvnw -Pmutacao test -Djacoco.skip=true
+      Saida: target/pit-reports/
+    -->
+    <profile>
+      <id>mutacao</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>${pitest.version}</version>
+            <dependencies>
+              <dependency>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-junit5-plugin</artifactId>
+                <version>${pitest-junit5.version}</version>
+              </dependency>
+            </dependencies>
+            <configuration>
+              <targetClasses>
+                <param>com.omnitribo.missoes.dominio.*</param>
+                <param>com.omnitribo.carteira.dominio.*</param>
+              </targetClasses>
+              <!--
+                `targetTests` NAO e restrito, e isso foi aprendido medindo. Restringi-lo aos pacotes
+                `missoes.*` e `carteira.*` — o que parece obvio, ja que o alvo e o dominio deles —
+                fez `AporteService` sair como NO_COVERAGE em 7 de 7 mutantes. Ele e o UNICO ponto de
+                emissao de token do sistema e TEM teste: `PatrocinadorAdminTest`, que mora em
+                `identidade.api`, fora do filtro. O mesmo valia para `debitarPatrocinador`, coberto
+                pelo webhook em `logistica.api`.
+
+                Ou seja: o filtro produzia um relatorio que acusava de intestado justamente o codigo
+                mais sensivel do projeto — o espelho do `includes` vazio do JaCoCo, que passa por
+                vacuo. Sem `targetTests`, PIT considera a suite inteira e roda por mutante apenas os
+                testes que cobrem a linha mutada.
+              -->
+              <outputFormats>
+                <param>HTML</param>
+                <param>XML</param>
+              </outputFormats>
+              <!--
+                Timeout FOLGADO porque parte da suite-alvo sobe PostGIS por Testcontainers: o
+                default (4000 ms + 25%) mataria o minion durante o start do container e o mutante
+                seria contado como TIMEOUT, que se le como "morto" e nao e.
+              -->
+              <timeoutConstant>60000</timeoutConstant>
+              <avoidCallsTo>
+                <avoidCallsTo>org.slf4j</avoidCallsTo>
+              </avoidCallsTo>
+              <threads>4</threads>
+              <timestampedReports>false</timestampedReports>
+            </configuration>
           </plugin>
         </plugins>
       </build>

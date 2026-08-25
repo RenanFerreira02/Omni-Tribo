@@ -135,9 +135,20 @@ Ainda não está — é configuração do repositório no GitHub, não do códig
 4. Procure e selecione **`gitleaks`** (o nome do job em `.github/workflows/security.yml`)
 5. Marque também **Require branches to be up to date before merging**
 
-O job `dependencias`, do mesmo workflow, **não** deve entrar como obrigatório: ele roda só no
-agendamento semanal e sob demanda, então nunca produziria status num PR — e um check obrigatório que
-não roda trava todo merge.
+O job `dependencias`, do mesmo workflow, **não** deve entrar como obrigatório — e o motivo escrito
+aqui até 2026-08-24 estava errado, embora a conclusão estivesse certa.
+
+Dizia-se que ele "nunca produziria status num PR, e um check obrigatório que não roda trava todo
+merge". Não é o caso: `dependencias` é pulado por **`if:` de job**, dentro de um workflow cujo
+gatilho é amplo e que **roda** em todo push e PR. Job pulado por `if:` **reporta sucesso e satisfaz
+o check** — é exatamente a regra que o cabeçalho de `api.yml` registra, e a razão de os filtros
+`paths:` terem virado o job `mudou`. Quem trava o PR em *"Expected — Waiting for status to be
+reported"* é o **workflow** pulado por `paths:`, que é outra coisa.
+
+O motivo real de mantê-lo fora é o inverso: ele **não** travaria merge nenhum. Ficaria verde em todo
+PR sem ter varrido dependência alguma — a mesma falsa garantia que o `::warning` daquele workflow
+existe para tornar visível. Um check obrigatório que passa por não ter medido é pior que check
+nenhum, porque compra confiança sem entregar verificação.
 
 ---
 

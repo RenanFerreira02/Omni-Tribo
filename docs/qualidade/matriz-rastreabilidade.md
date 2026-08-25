@@ -33,6 +33,9 @@ justificados em §2.3.
 | 13 | **ESLint e `tsc --noEmit` limpos** | app | `npm run lint`, `npm run typecheck` | ✅ | Ver §3 |
 | 14 | **Teste de contrato do OpenAPI** contra os endpoints reais | `/v3/api-docs` | `ContratoOpenApiTest` (4 casos) | ✅ | Compara nos dois sentidos + declaração de autenticação. **Achou um defeito real** — ver §2.1 |
 | 15 | **Gitleaks no histórico completo** | CI | `security.yml` — execução real | ✅ | **48 runs, job `gitleaks` verde em todos**, 2–3 s com `fetch-depth: 0`. Evidência: [`f13-ci-github-actions.md`](../evidencias/f13-ci-github-actions.md) §2 |
+| 16 | **Teste de carga dos três caminhos críticos** (F12b) | `GET /missoes/proximas`, `POST /carteira/transferencias`, `POST /webhooks/transportadora` | `tools/carga/carga.js` (k6 v2.2.0), 3 cenários × 5 min | ✅ | **14.967 requisições, 0 respostas 5xx.** Radar a 74,6 req/s com p95 de 4,3 ms e sem joelho; 1.205 transferências na MESMA carteira sem deadlock; os três tetos de rate limit medidos batendo com os configurados. Evidência: [`f21-carga.md`](../evidencias/f21-carga.md) |
+| 17 | **Diagrama de confiabilidade do modelo de risco** | — | `AvaliadorCalibracao` + 3 casos em `ModeloRiscoTreinoTest`, dentro do `verify` | ✅ | Frequência observada de **9,5% a 55,5%** nas cinco faixas; erro de calibração **0,0179**; Brier **0,1485** contra **0,1798** do chute constante (**17,4%** do erro eliminado). Ver [`modelo-previsao.md`](modelo-previsao.md) |
+| 18 | **Mutation testing em `missoes.dominio` e `carteira.dominio`** | — | profile `mutacao` (PIT 1.25.9), **sem gate** | ✅ | **349/494 mutantes mortos (70,6%)**, cobertura de linha das mutadas 95%. O número entra no relatório, não na porta. Achado: quatro fronteiras de saldo e de teto sem teste no valor exato. Ver [`mutacao.md`](mutacao.md) |
 
 ---
 
@@ -95,13 +98,13 @@ falta — o workflow deixa de ser vermelho **sem** passar a alegar que varreu al
 
 | # | Requisito | Por que não foi feito |
 |---|---|---|
-| 16 | **Status obrigatório para merge** | É configuração do GitHub (Settings → Branches), não de arquivo versionado: exige permissão de admin e o `gh`, ausente nesta máquina. O que **era** pré-requisito técnico foi feito: os filtros `paths:` saíram do nível de workflow e viraram condicional de job, porque um status obrigatório cujo workflow é pulado por `paths:` **nunca reporta** e trava o PR em *"Expected — Waiting for status to be reported"* para sempre |
-| 17 | **Gate de cobertura de BRANCH** | Branch está em **74,97%**. Um gate aqui reprovaria o build imediatamente, e a única saída seria relaxar a régua depois — o que as regras do projeto proíbem explicitamente. Declarado como dívida MEDIDA, não como esquecimento. O caminho honesto é subir a cobertura de branch primeiro e só então ligar o gate |
-| 18 | **Carteira de patrocinador** (ENTREGA e AJUDA ainda cunham token) | Pendência #1 do `CLAUDE.md`. Exigir pote para ENTREGA hoje faria membros da tribo custearem a logística do varejista — o inverso do modelo. O financiador correto é o patrocinador, e a mecânica (`FinanciamentoMissao`) já existe; falta a carteira debitar de fato |
-| 19 | **F12b — testes de carga e endurecimento** | Pendente na tabela de fases do `PROGRESSO.md`. Fora do escopo desta fase, que é resiliência de integração e gates de qualidade — coisas diferentes: uma mede o comportamento sob falha do terceiro, a outra sob volume |
-| 20 | **Busca de destinatário por handle** (transferência ainda exige UUID digitado) | Pendência #3 do `CLAUDE.md`, e é **omissão deliberada de privacidade**: listar membros daria a qualquer autenticado um mapa social do bairro. A saída é busca por handle exato ou convite, e a decisão não é técnica |
-| 21 | **Validação do modelo de risco com dados reais** | Os dados são sintéticos e isso está declarado em todo lugar (ADR 0022, `modelo-previsao.md`). Nenhuma métrica publicada diz respeito à operação |
-| 22 | **Métricas do disjuntor no Actuator** | O Resilience4j as publicaria de graça no Micrometer; com disjuntor próprio, o sinal hoje é o log (`WARN` na abertura, `INFO` no fechamento). Aceitável num MVP local — Prometheus e Grafana foram cortados do escopo de propósito |
+| 19 | **Status obrigatório para merge** | É configuração do GitHub (Settings → Branches), não de arquivo versionado: exige permissão de admin e o `gh`, ausente nesta máquina. O que **era** pré-requisito técnico foi feito: os filtros `paths:` saíram do nível de workflow e viraram condicional de job, porque um status obrigatório cujo workflow é pulado por `paths:` **nunca reporta** e trava o PR em *"Expected — Waiting for status to be reported"* para sempre |
+| 20 | **Gate de cobertura de BRANCH** | Branch está em **74,97%**. Um gate aqui reprovaria o build imediatamente, e a única saída seria relaxar a régua depois — o que as regras do projeto proíbem explicitamente. Declarado como dívida MEDIDA, não como esquecimento. O caminho honesto é subir a cobertura de branch primeiro e só então ligar o gate |
+| 21 | **Carteira de patrocinador** (ENTREGA e AJUDA ainda cunham token) | Pendência #1 do `CLAUDE.md`. Exigir pote para ENTREGA hoje faria membros da tribo custearem a logística do varejista — o inverso do modelo. O financiador correto é o patrocinador, e a mecânica (`FinanciamentoMissao`) já existe; falta a carteira debitar de fato |
+| 22 | **Soak, bancada distribuída e medição do esgotamento do POOL** | A F12b fechou em 2026-08-25 com medição local ([`f21-carga.md`](../evidencias/f21-carga.md)), e o que sobra é o que ela declara não provar: 5 min por cenário não é soak, uma máquina não é bancada distribuída, e **o pool de conexões nunca chegou a ser pressionado** porque o rate limit barrou antes. Bancada distribuída e SLO contratual seguem fora de escopo por decisão registrada no `CLAUDE.md`; soak e pool são medição que ninguém fez |
+| 23 | **Busca de destinatário por handle** (transferência ainda exige UUID digitado) | Pendência #3 do `CLAUDE.md`, e é **omissão deliberada de privacidade**: listar membros daria a qualquer autenticado um mapa social do bairro. A saída é busca por handle exato ou convite, e a decisão não é técnica |
+| 24 | **Validação do modelo de risco com dados reais** | Os dados são sintéticos e isso está declarado em todo lugar (ADR 0022, `modelo-previsao.md`). Nenhuma métrica publicada diz respeito à operação |
+| 25 | **Métricas do disjuntor no Actuator** | O Resilience4j as publicaria de graça no Micrometer; com disjuntor próprio, o sinal hoje é o log (`WARN` na abertura, `INFO` no fechamento). Aceitável num MVP local — Prometheus e Grafana foram cortados do escopo de propósito |
 
 ---
 
@@ -113,11 +116,13 @@ execução local, não estado do CI** — o do CI está em
 
 | Área | Comando | Resultado |
 |---|---|---|
-| Backend | `./mvnw verify` | ✅ **637 testes**, 0 falhas, 0 erros, 2 pulados |
+| Backend | `./mvnw verify` | ✅ **706 testes**, 0 falhas, 0 erros, 2 pulados — **1m03s** (2026-08-25) |
 | Cobertura | `jacoco:check` ×2 | ✅ *All coverage checks have been met* |
 | Análise estática | `spotbugs:check` | ✅ *BugInstance size is 0* |
 | Formatação | `spotless:check` | ✅ 328 arquivos limpos |
 | Dependências | `./mvnw -Pseguranca verify` | ⚠️ requer `NVD_API_KEY` — ver §2.2 |
+| Mutação | `./mvnw -Pmutacao …:mutationCoverage` | ✅ **349/494 (70,6%)**, sem gate — ver [`mutacao.md`](mutacao.md) |
+| Carga | `bash tools/carga/executar.sh` | ✅ **14.967 req, 0 respostas 5xx** — ver [`f21-carga.md`](../evidencias/f21-carga.md) |
 
 ---
 

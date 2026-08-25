@@ -59,11 +59,18 @@ jobs:
 
       # A base de CVE é grande e a NVD limita a taxa por chave. Sem este cache, builds concorrentes
       # com a mesma chave tomam 403 — o modo de falha documentado do plugin.
+      #
+      # O CAMINHO ESTAVA ERRADO ATÉ 2026-08-25, e o defeito era invisível porque o job nunca chegou
+      # a varrer. Apontava para services/api/target/dependency-check-data, onde o plugin nunca
+      # escreve: o default dele é dentro do ~/.m2. O cache salvava um diretório inexistente, e toda
+      # execução semanal rebaixaria a base inteira — o 403 que este passo existe para evitar. Hoje
+      # o pom fixa <dataDirectory> em ~/.dependency-check-data e este caminho o acompanha; mudar um
+      # exige mudar o outro.
       - name: Cache da base do Dependency-Check
         if: env.NVD_API_KEY != ''
         uses: actions/cache@v4
         with:
-          path: services/api/target/dependency-check-data
+          path: ~/.dependency-check-data
           key: depcheck-${{ runner.os }}-${{ hashFiles('services/api/pom.xml') }}
           restore-keys: depcheck-${{ runner.os }}-
 

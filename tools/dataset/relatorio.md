@@ -16,6 +16,20 @@ limiarAlto=0.19 limiarMedio=0.10
 | validacao | 0.6330 | 0.3507 | 0.6596 | 0.5608 | 155 | 287 | 478 | 80 |
 | teste | 0.6440 | 0.3704 | 0.7362 | 0.6148 | 173 | 294 | 471 | 62 |
 
+## Diagrama de confiabilidade (teste)
+
+| Faixa | Previsto (intervalo) | Previsto (média) | Observado | Desvio | Falhas |
+|---:|---|---:|---:|---:|---:|
+| 1 | 0.043 – 0.100 | 0.0744 | 0.0950 | +0.0206 | 19 / 200 |
+| 2 | 0.100 – 0.145 | 0.1240 | 0.1200 | -0.0040 | 24 / 200 |
+| 3 | 0.146 – 0.227 | 0.1806 | 0.1450 | -0.0356 | 29 / 200 |
+| 4 | 0.227 – 0.365 | 0.2869 | 0.2600 | -0.0269 | 52 / 200 |
+| 5 | 0.365 – 0.923 | 0.5572 | 0.5550 | -0.0022 | 111 / 200 |
+
+```
+brierModelo=0.1485 brierChute=0.1798 ganho=0.1741 erroCalibracao=0.0179
+```
+
 ## Varredura de limiar (validação)
 
 | Limiar | Acurácia | Precisão | Recall | F2 |

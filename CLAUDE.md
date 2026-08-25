@@ -44,12 +44,19 @@ Estes dez foram avaliados e recusados. A linha diz o MOTIVO, não só a proibiç
   descreve o que não existe.
 - **Testes de carga distribuídos, SLO formal e tuning de pool sem medição.** Número de desempenho
   que ninguém mediu é afirmação indefensável numa banca, e mexer no pool "por segurança" muda o
-  comportamento sob concorrência sem nenhum antes-e-depois para comparar. A medição local continua
-  sendo a **F12b, pendente** — o que sai de escopo é a bancada distribuída e o SLO contratual.
+  comportamento sob concorrência sem nenhum antes-e-depois para comparar. A medição local **foi
+  feita em 2026-08-25** (`docs/evidencias/f21-carga.md`, k6, três cenários, sem afinar um parâmetro
+  sequer) — o que segue fora de escopo é a bancada distribuída e o SLO contratual. E o pool continua
+  intocado: o rate limit barrou antes dele, então **não há medição do esgotamento do pool** e mexer
+  nele continua sendo mudança sem antes-e-depois.
 - **Mutation testing no projeto inteiro.** Restrito a `missoes.dominio` e `carteira.dominio`, e sem
   gate: é ali que o teste protege dinheiro e máquina de estados, e é ali que um teste sem assertion
   passaria despercebido. Rodar no projeto todo custa tempo de build por mutante equivalente em
-  DTO e getter, e um gate reprovaria o build por eles.
+  DTO e getter, e um gate reprovaria o build por eles. **Implementado em 2026-08-25** no profile
+  `mutacao` (`./mvnw -Pmutacao test-compile org.pitest:pitest-maven:mutationCoverage`), fora do
+  `verify`. **Não restrinja `targetTests`**: filtrar por `missoes.*`/`carteira.*` faz `AporteService`
+  — o único ponto de emissão de token — sair como NO_COVERAGE, porque quem o testa é
+  `PatrocinadorAdminTest`, em `identidade.api`. É o `<includes>` vazio do JaCoCo de novo.
 - **Dark mode.** Dobraria a auditoria de contraste da F12: os 22 pares texto/fundo virariam 44, e
   11 dos 22 já reprovaram em WCAG AA uma vez. `userInterfaceStyle: 'light'` está fixado em
   `app.config.ts` justamente para que a auditoria valha para o que o usuário vê.
@@ -484,6 +491,12 @@ CI (`.github/workflows/`), três workflows:
   injetadas e a discussão falso positivo × falso negativo. **Abre declarando que os dados são
   sintéticos** e fecha com o que a fase não garante. É o outro documento a defender oralmente, e a
   resposta preparada para "sua acurácia é menor que a de um chute?" está nele.
+- `docs/qualidade/mutacao.md` — score de mutação (PIT) de `missoes.dominio` e `carteira.dominio`, e
+  os SOBREVIVENTES comentados, que são a entrega de verdade: quatro fronteiras de saldo e de teto sem
+  teste no valor exato, um equivalente que **não** se conserta (a ordem do lock), e uma superfície
+  pública que só o próprio teste usa. Sem gate — `./mvnw -Pmutacao …`, fora do `verify`.
+- `docs/evidencias/f21-carga.md` — a medição de carga da **F12b** (o nome diz f21 por pedido; a fase
+  é F12b). Três cenários k6, sem afinar parâmetro nenhum. É de onde vem a Pendência #3.
 - `docs/seguranca/autenticacao.md` — modelo de ameaça e desenho do fluxo de auth.
 - `docs/seguranca/antifraude-geolocalizacao.md` — o que os controles de check-in **não** pegam.
 - `docs/evidencias/f6-explain-analyze.md` — saída real do `EXPLAIN ANALYZE` provando uso do índice
@@ -662,9 +675,14 @@ verificação de 2026-08-11 — ver Pendências). Detalhe por fase em `docs/PROG
 
 **O histórico do git engana na numeração das fases**: o commit "F8 - Fundação Mobile" entregou, na
 verdade, F9–F11, e a branch `feat/f13-previsao-risco-entrega` entregou **F12c** — a F13 de verdade
-saiu depois, na branch `docs/f13-entrega-final`. **F12b (testes de carga e endurecimento) continua
-PENDENTE e é a única fase em aberto.** `docs/PROGRESSO.md` tem a numeração correta — não infira fase
-do `git log`.
+saiu depois, na branch `docs/f13-entrega-final`. **F12b (testes de carga e endurecimento) fechou em
+2026-08-25** — ver `docs/evidencias/f21-carga.md`. `docs/PROGRESSO.md` tem a numeração correta — não
+infira fase do `git log`.
+
+**Cuidado com o prefixo `f21-` em `docs/evidencias/`: ele cobre DUAS fases diferentes.**
+`f21-dependency-check.md` é da F21 (cadeia de dependências); `f21-carga.md` é da **F12b**, e recebeu
+esse nome por pedido explícito, contra a convenção `f<fase>-<assunto>.md` do próprio diretório. O
+`PROGRESSO.md` é a fonte da fase, não o nome do arquivo.
 
 **F8 — "Fim da Entrega Falida".** O webhook de transportadora, autenticado por HMAC sobre o corpo
 bruto (ADR 0021), converte entrega falida em missão de retirada ABERTA no ponto de custódia
@@ -753,3 +771,19 @@ a lacuna parecer coberta. A mitigação real que EXISTE é outra, e é preventiv
 varredura por prazo (`ExpiracaoMissoesService`) e a porta de ADMIN (`POST /missoes/{id}/destravar`)
 tiram a missão do limbo. O que falta é o instrumento de DIAGNÓSTICO — ver Pendência #1, que é o
 mesmo formato de problema.
+
+**3. O alerta de ponto lotado não tem teto nem deduplicação.** Achado no teste de carga de
+2026-08-25 (`docs/evidencias/f21-carga.md` §6): uma rajada de webhooks contra um ponto de custódia
+cheio gravou **631 linhas idênticas** em `alerta`, para o mesmo ponto, em menos de 3 minutos.
+
+O alerta é **global de propósito** (`usuario_id` nulo — ver `DespachanteAlertaService
+.gravarPontoLotado`), então o teto de `app.notificacoes.alertas-por-hora`, que é POR USUÁRIO,
+corretamente não se aplica: não é notificação de ninguém, é sinal de operação. A intenção do javadoc
+é boa — "um ponto que recusa encomendas com frequência é exatamente o dado que justifica negociar
+mais capacidade".
+
+**Mas 631 linhas com a mesma frase não são esse dado — são o apagamento dele**, e são amplificação
+de escrita sem limite disparada por evento externo que o sistema não controla: uma transportadora em
+laço de retry contra um ponto cheio escreve indefinidamente. Não corrigido de propósito — a medição
+foi pedida sem ajuste, e a correção (deduplicar por `(ponto, janela)`, ou contador em vez de linha)
+muda o contrato do alerta operacional. **Não decida sozinho.**

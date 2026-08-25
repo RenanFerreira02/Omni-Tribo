@@ -88,6 +88,44 @@ final class ArtefatosDoModelo {
     return AvaliadorModelo.avaliar(divisao.validacao(), modelo, padronizador, limiarAlto);
   }
 
+  /**
+   * Diagrama de confiabilidade na partição de TESTE: cinco faixas de probabilidade prevista contra
+   * a frequência observada. Ver {@link AvaliadorCalibracao}.
+   */
+  List<AvaliadorCalibracao.Faixa> calibracaoNoTeste() {
+    return AvaliadorCalibracao.porQuintil(divisao.teste(), modelo, padronizador);
+  }
+
+  /** Brier score na partição de teste — erro da PROBABILIDADE, independente do limiar. */
+  double brierNoTeste() {
+    return AvaliadorCalibracao.brier(divisao.teste(), modelo, padronizador);
+  }
+
+  /**
+   * Brier do chute constante no teste, usando a taxa-base do TREINO como previsão.
+   *
+   * <p>A constante vem do treino, e não do teste, porque é o chute que alguém poderia publicar sem
+   * ter visto o conjunto de avaliação.
+   */
+  double brierDoChuteNoTeste() {
+    return AvaliadorCalibracao.brierDoChute(
+        divisao.teste(), AvaliadorCalibracao.taxaBase(divisao.treino()));
+  }
+
+  /** Fração do erro do chute que o modelo elimina. Ver {@link AvaliadorCalibracao}. */
+  double ganhoSobreChute() {
+    return AvaliadorCalibracao.ganhoSobreChute(brierNoTeste(), brierDoChuteNoTeste());
+  }
+
+  /** Tabela Markdown do diagrama de confiabilidade, para o documento de métricas. */
+  String tabelaCalibracao() {
+    StringBuilder sb = new StringBuilder(1024);
+    sb.append("| Faixa | Previsto (intervalo) | Previsto (média) | Observado | Desvio | Falhas |\n")
+        .append("|---:|---|---:|---:|---:|---:|\n");
+    sb.append(AvaliadorCalibracao.tabelaMarkdown(calibracaoNoTeste()));
+    return sb.toString();
+  }
+
   /** Taxa-base de falha do dataset inteiro. */
   double taxaBase() {
     long falhas = dataset.stream().filter(AmostraEntrega::falhou).count();
