@@ -1,11 +1,16 @@
 # Roteiro de demonstração — 10 minutos
 
 **Regra número um: nada é instalado, clonado ou compilado durante a demonstração.** Tudo abaixo
-pressupõe o preparo da seção final já feito. Se o tempo apertar, corte o bloco 6 — ele é o único
+pressupõe o preparo da seção final já feito. Se o tempo apertar, corte o bloco 7 — ele é o único
 opcional.
 
 **O único bloco que depende de rede externa é o 5.** Todos os outros rodam contra `localhost`. Cada
 bloco tem plano B.
+
+O fio condutor é **um ciclo econômico completo, com uma pessoa só**: o patrocinador aporta → uma
+entrega falha → nasce a missão → o vizinho faz check-in → a transportadora confirma e ele é creditado
+→ ele resgata um benefício no bairro, e o token é queimado. Tudo na zona leste, tribo Cidade Líder,
+com `renan@omnitribo.dev`.
 
 ---
 
@@ -26,8 +31,20 @@ cd apps/mobile && npm start
 curl -s http://localhost:8080/api/v1/ping
 ```
 
+Guarde o token de ADMIN no terceiro terminal — os blocos 2 e 7 usam:
+
+```bash
+ADMIN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@omnitribo.dev","senha":"Senha@123"}' | jq -r .accessToken)
+
+RENAN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"renan@omnitribo.dev","senha":"Senha@123"}' | jq -r .accessToken)
+```
+
 **Deixe abertos:** os dois terminais, um terceiro terminal livre na raiz do projeto, o navegador em
-`http://localhost:8080/swagger-ui.html`, e o app já **logado como `alice@omnitribo.dev`**
+`http://localhost:8080/swagger-ui.html`, e o app já **logado como `renan@omnitribo.dev`**
 (senha `Senha@123`).
 
 > **Não faça login na frente da banca sem necessidade.** O bloqueio antifraude é de 5 tentativas por
@@ -50,67 +67,117 @@ Sem tela. Duas frases:
 
 ---
 
-## 1:00–3:00 · O ciclo da missão, no app
+## 1:00–2:00 · De onde o token vem — o aporte
 
-No aparelho/emulador, já logado:
+Comece pela ponta que quase nenhum projeto mostra: **a emissão**.
 
-1. **Radar** — a aba de missões mostra as missões próximas, com **distância calculada pelo PostGIS**,
-   nunca pelo cliente.
-2. **Aceitar** uma missão → **Iniciar**.
-3. **Check-in** — mostre a tela de check-in.
+```bash
+curl -s -X POST http://localhost:8080/api/v1/admin/patrocinadores/77777777-0000-0000-0000-000000000950/aportes \
+  -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: demo-$(date +%s)" \
+  -d '{"tokens":500}' | jq
+```
 
-> "A distância é validada no servidor. Se eu forjar a coordenada no aparelho, o servidor recalcula
-> por PostGIS e recusa. O que o controle **não** pega — emulador com root, conluio, presença que não
-> é execução — está escrito em `docs/seguranca/antifraude-geolocalizacao.md`, e essa honestidade é
-> parte da entrega."
+```json
+{ "patrocinadorId": "77777777-0000-0000-0000-000000000950",
+  "lancamentoId": "37581294-8280-41da-b1fd-fe4398300cd6",
+  "saldoTokens": 5500, "replay": false }
+```
 
-4. **Confirmar** (como criador) → a carteira do executor credita.
+> "Este é o **único ponto de emissão de token do sistema inteiro**. Endpoint de ADMIN, auditado,
+> idempotente. Antes ele não existia: a recompensa de ENTREGA e AJUDA era cunhada na conclusão, uma
+> missão por vez, e ninguém conseguia somar quanto tinha sido emitido. A cunhagem não desapareceu —
+> ela mudou de lugar, e é isso que a torna defensável."
 
-> "`CONCLUIDA` é o **único** estado que credita. Aceitar não credita — era exatamente o que o
-> protótipo descartado fazia errado."
-
-**Plano B — emulador travou:** `npm run web` no terminal 2 e demonstre no navegador. Funciona, com
-uma ressalva que vale dizer em voz alta: *"na web nada é persistido, porque o browser não tem
-keystore — recarregar desloga, e isso é decisão, não defeito (ADR 0013)."*
-
-**Plano B — radar vazio:** o seed `V903` popula a zona leste (CEP 08280-460). Se o dispositivo
-estiver com localização de outro lugar, use a lista em vez do radar.
+**Plano B:** se o `curl` falhar, o backend caiu — é local. Suba de novo. Se o `Idempotency-Key`
+repetir, a resposta vem com `"replay": true` e **nada é emitido**: mostre isso, é a idempotência
+funcionando.
 
 ---
 
-## 3:00–5:00 · A entrega falida vira missão — o coração do projeto
+## 2:00–4:00 · A entrega falida vira missão, e o vizinho é pago
 
-No terminal livre:
+O coração do projeto, num comando:
 
 ```bash
+EXECUTOR=renan@omnitribo.dev \
+PONTO_CUSTODIA=cccccccc-0000-0000-0000-000000000902 \
+CHECKIN_LAT=-23.55650 CHECKIN_LON=-46.46850 \
+DESTINO_LAT=-23.55737 DESTINO_LON=-46.46987 \
 bash tools/carrier-mock/enviar.sh
 ```
 
-Seis cenários em poucos segundos. Comente **três** enquanto rolam:
+**Doze cenários** em poucos segundos, incluindo o ciclo completo. Comente **três** enquanto rolam:
 
 | Cenário | O que dizer |
 |---|---|
-| caminho feliz → 200 | "a transportadora anuncia a falha; nasce uma missão de retirada, publicada no ponto de custódia" |
+| caminho feliz → 200 | "a transportadora anuncia a falha; nasce uma missão de retirada, publicada no ponto de custódia, com o pote já financiado pela transportadora" |
 | **ponto lotado → 200 RECUSADA** | "não é 4xx de propósito: devolver erro faria a transportadora reenviar em laço contra um ponto que continuará lotado. Recusar é desfecho de negócio, e fica registrado" |
 | assinatura inválida → 401 | "HMAC sobre o **corpo bruto**, com o carimbo de tempo dentro do material assinado. As quatro causas de 401 são indistinguíveis — dizer qual metade o atacante acertou seria ajudá-lo" |
 
-Depois mostre o que ficou gravado:
+O bloco que fecha o argumento é o ciclo completo, e ele imprime o número sozinho:
+
+```
+        executor: renan@omnitribo.dev  saldo ANTES: 124 tokens
+  ..  aceitar                                ACEITA
+  ..  iniciar                                EM_ANDAMENTO
+  ..  check-in                               AGUARDANDO_CONFIRMACAO
+  OK   confirmação → executor creditado   HTTP 200
+        saldo DEPOIS: 190 tokens  (creditados: 66)
+  OK   saldo subiu exatamente a recompensa: +66
+```
+
+> "**Quem confirma é a transportadora, não o executor.** O check-in prova presença, não recebimento —
+> confirmar ali faria o executor confirmar a si mesmo. E `CONCLUIDA` é o **único** estado que credita:
+> aceitar não credita, que era exatamente o que o protótipo descartado fazia errado."
+
+**Plano B:** o script é 100% local — só precisa do backend de pé. Se falhar, o backend caiu.
+**Se o check-in reprovar por distância**, as quatro variáveis de coordenada acima estão erradas para
+o ponto escolhido: a missão exige check-in a menos de 200 m da origem.
+
+---
+
+## 4:00–5:00 · Onde o token morre — o resgate
+
+A outra ponta. Primeiro a vitrine:
 
 ```bash
-make psql
-```
-```sql
-SELECT codigo_rastreio, risco_faixa, risco_probabilidade,
-       risco_multiplicador, risco_versao_modelo
-  FROM entrega_falida WHERE recusada_em IS NULL
- ORDER BY recebido_em DESC LIMIT 1;
+curl -s "http://localhost:8080/api/v1/beneficios?triboId=aaaaaaaa-0000-0000-0000-000000000901" \
+  -H "Authorization: Bearer $RENAN" | jq -r '.conteudo[] | "\(.custoTokens) tokens · \(.titulo) (\(.parceiroNome))"'
 ```
 
-> "O score do modelo de risco fica **congelado na linha**, junto com a versão do modelo. Daqui a seis
-> meses ainda é possível explicar por que esta missão pagou o que pagou."
+```
+10 tokens · Um remendo de câmara de ar (Bicicletaria do Zé)
+15 tokens · Um café coado e um pão na chapa (Padaria Pão da Praça)
+25 tokens · Uma fornada de pão francês (500 g) (Padaria Pão da Praça)
+30 tokens · 15% de desconto na feira da semana (Mercearia Dona Neusa)
+40 tokens · 20% de desconto na revisão da bicicleta (Bicicletaria do Zé)
+```
 
-**Plano B:** o script é 100% local — só precisa do backend de pé. Se ele falhar, o backend caiu;
-suba de novo. Não há dependência externa aqui.
+> "Nenhum benefício se anuncia em reais, e isso é barrado em duas camadas — a borda responde 400 e o
+> banco tem `CHECK`. Preço em moeda corrente publicaria uma cotação token→real, que o ADR 0009 recusa
+> explicitamente: token conversível *é* dinheiro, com KYC junto."
+
+E o resgate:
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/resgates \
+  -H "Authorization: Bearer $RENAN" -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: demo-resgate-$(date +%s)" \
+  -d '{"beneficioId":"33333333-0000-0000-0000-000000000960"}' | jq
+```
+
+```json
+{ "custoTokens": 15, "codigoRetirada": "NURE8YPY", "status": "PENDENTE",
+  "saldoTokensRestante": 175, "replay": false }
+```
+
+> "**É aqui que o token é queimado.** O lançamento debita com motivo `RESGATE` e **não credita
+> ninguém** — sem contraparte, sem missão. É o que o separa de uma transferência, onde as duas pernas
+> somam zero. E o código de retirada **não é credencial**: quem autoriza a baixa é o ADMIN, pelo id."
+
+**Plano B:** se o saldo não der, resgate o remendo de câmara de ar (10 tokens). Se o catálogo vier
+vazio, o `triboId` está errado — é o da Tribo Cidade Líder, onde estão os parceiros do seed.
 
 ---
 
@@ -150,48 +217,79 @@ Este é o bloco que diferencia o projeto. No terminal livre:
 bash tools/evidencias/conservacao-por-categoria.sh
 ```
 
-Ele roda dois ciclos completos e imprime, ao final:
+Ele roda os quatro ciclos completos, mais um quinto sem patrocínio, e imprime ao final:
 
 ```
-AJUDA  Δ=30  recompensa=30      ← cunhou do nada
-TRIBO  Δ=0   recompensa=38      ← conservou
+TRIBO    Δ=0  recompensa=38
+COLETA   Δ=0  recompensa=35
+AJUDA    Δ=0  recompensa=30
+ENTREGA  Δ=0  recompensa=66  (pote pago pelo patrocinador)
+conservação: baseline=10845  final=10845
 reconciliação final: {"integro":true,"divergencias":0}
 ```
 
 O roteiro de fala, em três tempos:
 
-1. **"Uma auditoria deste projeto encontrou uma impressora de dinheiro."** Três ciclos levaram o BRL
-   do sistema de R$ 118 para R$ 1.618, e o saldo do criador não se moveu — ele nunca pagou.
+1. **"Uma auditoria deste projeto encontrou uma impressora de dinheiro."** Concluir ENTREGA ou AJUDA
+   criava token do nada. Antes disso, o mesmo padrão no BRL levou o sistema de R$ 118 para R$ 1.618
+   em três ciclos, e o saldo do criador não se moveu — ele nunca pagou.
 2. **"E o endpoint de integridade dizia que estava tudo certo — corretamente."** A reconciliação
    compara saldo com o histórico da carteira. Cunhar escreve **os dois lados**, então a igualdade
    continua verdadeira. Ela responde a outra pergunta.
 3. **"A distinção que aprendemos: reconciliação não é conservação."** Uma tem endpoint; a outra não.
    **Uma invariante que ninguém mede não está garantida.**
 
-Feche admitindo o que continua aberto:
+Feche mostrando que ela fechou, e o que sobrou:
 
-> "ENTREGA e AJUDA ainda cunham, porque a carteira de patrocinador não existe. Não é esquecimento:
-> exigir pote para ENTREGA faria vizinhos custearem a logística do varejista, que é o inverso do
-> modelo. Preferimos uma lacuna documentada a uma regra errada codificada — e o teto de 1,5× no
-> multiplicador de risco existe justamente por causa dela."
+> "Hoje as quatro categorias conservam. A emissão virou um ponto só — o aporte que vocês viram no
+> começo — e o resgate virou o sumidouro. A soma não é constante: ela **sobe no aporte e desce no
+> resgate**, e não muda em mais lugar nenhum. O que ainda cunha é ENTREGA criada por um humano, que
+> não tem transportadora para debitar — e isso está declarado na linha da missão, não escondido."
 
 **Plano B:** se o script falhar, os mesmos números estão em
-[`evidencias/f13-conservacao-por-categoria.md`](evidencias/f13-conservacao-por-categoria.md), já
-executados. Abra o arquivo.
+[`evidencias/f14-conservacao-quatro-categorias.md`](evidencias/f14-conservacao-quatro-categorias.md),
+já executados. Abra o arquivo.
 
 ---
 
-## 8:00–10:00 · Qualidade: por que acreditar nos números
+## 8:00–9:00 · O painel que fecha o ciclo *(opcional)*
+
+```bash
+curl -s http://localhost:8080/api/v1/admin/impacto -H "Authorization: Bearer $ADMIN" | jq .tokens
+```
+
+```json
+{ "aportados": 10500, "emCarteiras": 11108, "emPotes": 222,
+  "emCirculacao": 11330, "resgatados": 15 }
+```
+
+> "`aportados` e `resgatados` são exatamente as duas pontas que acabamos de percorrer ao vivo — e
+> `resgatados` era zero há cinco minutos. O painel agrega tudo na hora, sem tabela de agregação e sem
+> cache: uma segunda fonte de verdade para números que existem para serem conferidos seria pior que a
+> consulta a mais."
+
+Vale dizer em voz alta o que o painel **não** é:
+
+> "O custo evitado é uma **premissa declarada**, não uma medição — por isso a resposta ecoa o valor
+> usado e traz a mesma conta com ele em ±50%. E 're-entrega evitada' é a missão concluída renomeada,
+> não uma segunda medição."
+
+**Plano B:** corte este bloco. É o único opcional.
+
+---
+
+## 9:00–10:00 · Qualidade: por que acreditar nos números
 
 Mostre, sem rodar (o `verify` leva ~1 min e não cabe aqui):
 
 | Abra | Diga |
 |---|---|
-| [`evidencias/f13-make-test.md`](evidencias/f13-make-test.md) | "637 testes no backend, 179 no mobile. O `verify` também barra por SpotBugs e por **dois gates de cobertura** — 80% global e 85% no domínio" |
+| [`evidencias/f21-carga.md`](evidencias/f21-carga.md) | "14.967 requisições, **zero 5xx**. O radar não tem joelho até 74,6 req/s. E o achado não é a latência: é que o alerta de ponto lotado escreve 631 linhas idênticas sem teto — está registrado como pendência, não corrigido às pressas" |
 | [`evidencias/f6-explain-analyze.md`](evidencias/f6-explain-analyze.md) | "`EXPLAIN ANALYZE` real provando uso do índice GiST — não é 'usamos índice', é a saída do planejador" |
 | [`qualidade/integridade-transacional.md`](qualidade/integridade-transacional.md) | "100 threads, deadlock cruzado, rollback. E a seção **'o que esta fase NÃO garante'**" |
-| [`qualidade/modelo-previsao.md`](qualidade/modelo-previsao.md) | "o modelo de risco abre declarando que os dados são **sintéticos**" |
-| [`EVOLUCAO-ARQUITETURAL.md`](EVOLUCAO-ARQUITETURAL.md) | "dez auditorias; **cinco dos sete defeitos eram invisíveis lendo o código**" |
+| [`qualidade/modelo-previsao.md`](qualidade/modelo-previsao.md) | "o modelo abre declarando que os dados são **sintéticos** — e o diagrama de confiabilidade responde 'é melhor que um chute?' com Brier: 17,4% do erro eliminado" |
+| [`qualidade/mutacao.md`](qualidade/mutacao.md) | "teste de mutação sem gate: o número vai para o relatório, não para a porta. O valor está nos sobreviventes — quatro fronteiras de saldo sem teste no valor exato" |
+| [`EVOLUCAO-ARQUITETURAL.md`](EVOLUCAO-ARQUITETURAL.md) | "**cinco dos sete defeitos da rodada F0→F7 eram invisíveis lendo o código**" |
 
 Frase de encerramento:
 
@@ -207,9 +305,10 @@ Frase de encerramento:
 | Pergunta | Resposta curta | Documento |
 |---|---|---|
 | "Por que monólito e não microsserviços?" | Um time, um deploy, uma transação. A fronteira está pronta para extrair, e há ordem definida | [ADR 0001](adr/0001-monolito-modular.md) · [arquitetura-alvo](diagramas/arquitetura-alvo.md) |
-| "A acurácia do seu modelo não é menor que um chute?" | A resposta preparada está no documento, com matriz de confusão e a discussão falso positivo × falso negativo | [modelo-previsao.md](qualidade/modelo-previsao.md) |
+| "A acurácia do seu modelo não é menor que um chute?" | É — e o Brier é 17,4% melhor que o do chute constante. Acurácia é a métrica errada em dado desbalanceado, e o documento mostra as duas | [modelo-previsao.md](qualidade/modelo-previsao.md) |
+| "Quem garante que o token não é inflacionado?" | A emissão tem um ponto só, auditado; a conservação foi medida nas quatro categorias com Δ=0 | [ADR 0024](adr/0024-carteira-de-patrocinador.md) · [f14](evidencias/f14-conservacao-quatro-categorias.md) |
 | "Cadê os 50 metros do brief?" | Divergimos, por três razões medidas — inclusive porque "está em casa" não é observável sem rastreamento contínuo | [ADR 0020](adr/0020-ponto-de-custodia-comercial-e-proximidade-por-tribo.md) · [divergências](DIVERGENCIAS-DOCUMENTACAO.md) |
-| "Isso escala?" | Não como está, e o desenho de como escalaria está separado e marcado como não implementado | [arquitetura-alvo](diagramas/arquitetura-alvo.md) |
+| "Isso escala?" | Não como está, e o desenho de como escalaria está separado e marcado como não implementado. A carga medida é de uma máquina, 5 min por cenário | [arquitetura-alvo](diagramas/arquitetura-alvo.md) · [f21-carga](evidencias/f21-carga.md) |
 | "Por que React Native e não nativo?" | Custo de demonstrar. E o que a escolha cobrou está listado | [comparativo](COMPARATIVO-TECNOLOGIAS.md) |
 | "Como sei que o crédito de seis meses atrás estava certo?" | `versao_formula` e multiplicador ficam congelados na missão; há teste que falha se a calibração mudar sem subir a versão | [ADR 0009](adr/0009-economia-do-cuidado-token-como-recompensa.md) |
 
@@ -218,8 +317,13 @@ Frase de encerramento:
 ## Checklist de 30 segundos, antes de começar
 
 - [ ] `curl http://localhost:8080/api/v1/ping` responde `pong`
-- [ ] app aberto e **já logado**
+- [ ] `$ADMIN` e `$RENAN` exportados no terminal livre
+- [ ] app aberto e **já logado** como `renan@omnitribo.dev`
 - [ ] terminal livre na raiz do projeto
 - [ ] Swagger aberto numa aba
 - [ ] `make reset` feito **hoje** (banco limpo, sem lixo de ensaio)
 - [ ] telefone no modo não perturbe
+
+> **Se você ensaiou, rode `make reset` de novo antes da apresentação.** O ensaio gasta o saldo do
+> patrocinador, ocupa vagas do ponto de custódia e queima tokens no resgate — e o bloco 7 fica com
+> `resgatados` diferente de zero antes de você resgatar ao vivo, que é justamente o efeito.

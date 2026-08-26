@@ -147,6 +147,14 @@ Duas consequências de desenho que vieram junto:
 
 ### 2.6 O que continua aberto — e remedido hoje
 
+> **Superado em 2026-08-22.** Esta seção descreve o estado de **2026-08-16** e fica como está: o
+> valor dela é ter sido escrita quando a lacuna existia. O que mudou desde então: a carteira de
+> patrocinador chegou ([ADR 0024](adr/0024-carteira-de-patrocinador.md), `V23`), AJUDA passou a pagar
+> do pote ([ADR 0025](adr/0025-ajuda-paga-do-pote.md)) e o resgate virou o sumidouro
+> ([ADR 0027](adr/0027-resgate-queima-token.md)). A conservação foi remedida nas quatro categorias
+> com **Δ=0** ([evidência](evidencias/f14-conservacao-quatro-categorias.md)). A última cunhagem que
+> resta é ENTREGA criada por humano, declarada em `FontePote.CUNHAGEM`.
+
 **ENTREGA e AJUDA ainda cunham.** `pagaTokensDoPote` cobre apenas TRIBO e COLETA. Refiz a medição do
 zero em 2026-08-16, com o banco recriado
 ([evidência completa](evidencias/f13-conservacao-por-categoria.md)):

@@ -34,6 +34,15 @@ TRANSPORTADORA="${TRANSPORTADORA:-transportadora-dev}"
 SEGREDO="${SEGREDO:-segredo-de-desenvolvimento-local}"
 PONTO_CUSTODIA="${PONTO_CUSTODIA:-cccccccc-0000-0000-0000-000000000001}"
 PONTO_LOTADO="${PONTO_LOTADO:-cccccccc-0000-0000-0000-000000000904}"
+# Coordenada do check-in do ciclo completo, e do destino declarado no reporte. Os defaults são os do
+# Leroy Merlin Pinheiros (V900), que é o PONTO_CUSTODIA default — e é essa amarração que importa:
+# a missão de entrega falida exige check-in a menos de `app.missoes.entrega-falida.raio-checkin-m`
+# (200 m) da origem, que é o ponto de custódia. Trocar PONTO_CUSTODIA sem trocar estas duas faz o
+# check-in reprovar por distância, e o sintoma (422 no meio do ciclo) não menciona coordenada nenhuma.
+CHECKIN_LAT="${CHECKIN_LAT:--23.5640}"
+CHECKIN_LON="${CHECKIN_LON:--46.6934}"
+DESTINO_LAT="${DESTINO_LAT:--23.5695}"
+DESTINO_LON="${DESTINO_LON:--46.6870}"
 
 for programa in curl openssl jq; do
   command -v "$programa" >/dev/null || { echo "Faltando: $programa"; exit 1; }
@@ -85,7 +94,7 @@ corpo() { # $1=rastreio  $2=ponto
 {"codigoRastreio":"$1","motivo":"Destinatário ausente após 3 tentativas de entrega",
  "pontoCustodiaId":"$2","descricaoDoItem":"2 caixas de porcelanato 60x60",
  "pesoKg":24.50,"volumeL":58.00,"valorOfertadoBrl":35.00,
- "destinoLat":-23.5695,"destinoLon":-46.6870,
+ "destinoLat":$DESTINO_LAT,"destinoLon":$DESTINO_LON,
  "cep":"05416000","logradouro":"Rua Teodoro Sampaio","bairro":"Pinheiros",
  "cidade":"São Paulo","uf":"SP"}
 JSON
@@ -189,7 +198,7 @@ else
   printf '  ..  %-38s %s\n' "aceitar"  "$(acao "$TOKEN" "$MISSAO" aceitar  | jq -r '.status // .detail')"
   printf '  ..  %-38s %s\n' "iniciar"  "$(acao "$TOKEN" "$MISSAO" iniciar  | jq -r '.status // .detail')"
   printf '  ..  %-38s %s\n' "check-in" "$(acao "$TOKEN" "$MISSAO" checkin \
-    '{"lat":-23.5640,"lon":-46.6934,"acuraciaM":8.0,"mocked":false}' | jq -r '.status // .detail')"
+    "{\"lat\":$CHECKIN_LAT,\"lon\":$CHECKIN_LON,\"acuraciaM\":8.0,\"mocked\":false}" | jq -r '.status // .detail')"
 
   cc=$(printf '{"codigoRastreio":"%s"}' "$rastreio")
   ts=$(date +%s)
