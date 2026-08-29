@@ -154,6 +154,84 @@ bastaria marcar tudo, e a precisão cairia para a prevalência.
 
 ---
 
+## Diagrama de confiabilidade: a probabilidade exibida é honesta?
+
+Todas as métricas acima olham o modelo **depois do limiar** — elas dizem se ele acerta a CLASSE.
+Nenhuma delas responde a outra pergunta, que este produto faz o tempo todo: **quando a tela mostra
+"27% de risco", 27% é verdade?**
+
+Importa porque a probabilidade não fica guardada. Ela vira multiplicador de recompensa em TOKEN,
+prioridade no fan-out de alertas e aviso no detalhe da missão. Um modelo pode ordenar bem e mentir no
+número — bastaria estar deslocado por um fator constante, e o ranking sairia idêntico.
+
+A partição de teste foi cortada em **cinco faixas de mesmo tamanho** (quintis de probabilidade
+prevista, n=200 cada). Em cada faixa, a média do que o modelo previu contra a fração que de fato
+falhou:
+
+| Faixa | Previsto (intervalo) | Previsto (média) | Observado | Desvio | Falhas |
+|---:|---|---:|---:|---:|---:|
+| 1 | 0,043 – 0,100 | 0,0744 | 0,0950 | +0,0206 | 19 / 200 |
+| 2 | 0,100 – 0,145 | 0,1240 | 0,1200 | −0,0040 | 24 / 200 |
+| 3 | 0,146 – 0,227 | 0,1806 | 0,1450 | −0,0356 | 29 / 200 |
+| 4 | 0,227 – 0,365 | 0,2869 | 0,2600 | −0,0269 | 52 / 200 |
+| 5 | 0,365 – 0,923 | 0,5572 | 0,5550 | −0,0022 | 111 / 200 |
+
+**Erro de calibração médio: 0,0179** — menos de dois pontos percentuais entre o que se promete e o
+que acontece.
+
+**Quintis, e não cinco fatias iguais de [0, 1].** Com taxa-base de 23% e limiar em 0,19, o modelo
+quase nunca emite probabilidade acima de 0,5: as faixas [0,6–0,8) e [0,8–1,0] sairiam **vazias**, e
+faixa com n=0 não tem frequência observada — não é ponto de diagrama nenhum. O corte por quantil
+garante n igual em toda faixa, e o intervalo previsto vai na tabela justamente para o leitor ver
+onde os cortes caíram.
+
+### O que a tabela mostra
+
+**A ordenação é real.** A faixa de menor risco falha **9,5%** das vezes; a de maior falha **55,5%** —
+**5,8× mais**. Esta é a propriedade que sustenta usar o score como prioridade de fan-out, e ela não
+seria visível em nenhuma métrica de classe: um modelo que emitisse a taxa-base para todo mundo teria
+calibração perfeita e separação zero.
+
+**O desvio é pequeno e tem sinal informativo.** As faixas 3 e 4 são as mais deslocadas (−0,036 e
+−0,027): ali o modelo **superestima** o risco, prometendo mais falha do que houve. Já a faixa 1
+**subestima** (+0,021). Nenhum desses erros passa de 3,6 pontos percentuais, e o desvio maior está
+justamente na região logo acima do limiar de 0,19 — onde a decisão é apertada e onde um erro custa
+recompensa a mais, nunca aviso a menos.
+
+### "Sua acurácia é melhor que a de um chute?"
+
+Agora há resposta numérica, e ela não depende do limiar:
+
+| | Brier score (teste) |
+|---|---:|
+| Chute constante — prevê a taxa-base do treino para todos | 0,1798 |
+| **Modelo** | **0,1485** |
+| **Erro eliminado** | **17,4%** |
+
+Brier é o erro quadrático médio da **probabilidade**, não da classe — é a métrica que a acurácia
+deveria ter sido nesta discussão. O chute de referência prevê a taxa-base do **treino**, e não a do
+teste, de propósito: é o melhor classificador constante que alguém poderia de fato publicar sem ter
+olhado o conjunto de avaliação.
+
+Então a resposta completa à pergunta é: **a acurácia é pior que a do chute, e o Brier é 17,4%
+melhor.** As duas coisas são verdade ao mesmo tempo, e é por isso que a acurácia era a métrica
+errada — ela cobra do modelo a classe majoritária, que é exatamente a que não interessa.
+
+### Isto fecha uma afirmação que o ADR 0022 fazia sem medir
+
+O ADR 0022 descartou ponderar a classe positiva na log-loss com o argumento de que aquilo
+**descalibraria** a probabilidade — *"um '72% de risco' exibido ao usuário passaria a valer 45% de
+verdade"*. O argumento estava certo, mas até aqui **a calibração do modelo escolhido nunca tinha sido
+medida**: descartava-se uma alternativa por um defeito que ninguém tinha verificado estar ausente na
+opção vencedora. A tabela acima é essa verificação.
+
+Medido em `AvaliadorCalibracao` (`src/test/.../logistica/treino/`) e travado por três testes em
+`ModeloRiscoTreinoTest`, que rodam no `./mvnw verify`: o ganho sobre o chute, o teto de 5 pontos no
+erro de calibração e a monotonicidade da frequência observada. **Nenhum deles é gate de build novo** —
+são asserções da suíte que já existia.
+
+---
+
 ## Falso positivo × falso negativo: por que otimizamos recall
 
 Os custos são **assimétricos**, e é a ação disparada pelo score que define a assimetria.
@@ -317,6 +395,15 @@ com contribuição, direção e o valor bruto observado em português.
   que existe é `versao_modelo` gravado em cada previsão, para que a comparação seja possível depois.
 - **O limiar foi escolhido para dados sintéticos.** Com dados reais, a prevalência muda e o limiar
   precisa ser reescolhido — não é constante universal.
+- **A calibração também é sobre dado sintético, e isso a torna mais fácil do que será.** O rótulo foi
+  sorteado de uma sigmoide cuja forma o modelo também assume, então parte do acerto de calibração é
+  o modelo reencontrar a família de curvas de onde os dados vieram. Em operação real não há essa
+  garantia: a curva verdadeira é desconhecida e pode não ser logística. O diagrama de confiabilidade
+  é o instrumento certo para detectar isso — **quando houver dado real para passar por ele**.
+- **Cinco faixas de 200 amostras têm ruído amostral visível.** O intervalo de confiança de 95% de uma
+  proporção com n=200 tem largura da ordem de ±0,04 nas faixas centrais — comparável aos desvios
+  medidos. Ou seja: os desvios das faixas 3 e 4 são pequenos o bastante para serem, em boa parte,
+  acaso. O que **não** é acaso é a separação entre a primeira e a última faixa.
 - **O modelo é retrospectivo por construção neste uso.** No caminho do webhook, ele pontua uma
   entrega que **já falhou**; o score descreve o perfil de dificuldade daquele contexto, e é isso que
   justifica pagar mais e priorizar. O uso preditivo genuíno é o endpoint `/previsao-falha`, chamado

@@ -8,6 +8,7 @@ import com.omnitribo.logistica.dominio.CodificadorEntrega;
 import com.omnitribo.logistica.dominio.ParametrosRisco;
 import com.omnitribo.logistica.dominio.PrevisorDeRisco;
 import com.omnitribo.logistica.dominio.ResultadoRisco;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -265,5 +266,70 @@ class ModeloRiscoTreinoTest {
 
     assertThat(r.logOdds()).isCloseTo(soma, within(1e-12));
     assertThat(r.logOddsBase()).isEqualTo(publicado.intercepto());
+  }
+
+  // ─────────────────────────── Calibração (diagrama de confiabilidade) ───────────────────────────
+
+  /**
+   * O modelo INFORMA mais que o chute constante — a resposta numérica a "sua acurácia é melhor que
+   * um chute?".
+   *
+   * <p>Brier score compara PROBABILIDADES, não classes, então não depende do limiar e não sofre do
+   * problema que torna a acurácia enganosa em dado desbalanceado. O chute de referência prevê a
+   * taxa-base do TREINO para todo mundo: é o melhor classificador constante que alguém poderia de
+   * fato publicar. Medido: 0,1485 contra 0,1798, ou 17,4% do erro eliminado.
+   *
+   * <p>O piso de 10% não é margem de conforto — é a fronteira abaixo da qual o modelo deixaria de
+   * justificar a própria existência, porque um multiplicador de recompensa e uma prioridade de
+   * fan-out derivados de um número quase sem informação seriam ruído com aparência de critério.
+   */
+  @Test
+  void o_modelo_erra_menos_que_o_chute_constante() {
+    assertThat(artefatos.brierNoTeste()).isLessThan(artefatos.brierDoChuteNoTeste());
+    assertThat(artefatos.ganhoSobreChute()).isGreaterThan(0.10);
+  }
+
+  /**
+   * A probabilidade EXIBIDA é honesta: o desvio médio entre previsto e observado fica abaixo de 5
+   * pontos percentuais.
+   *
+   * <p>Cinco pontos é onde o número na tela começaria a mentir de forma que o usuário perceberia —
+   * e é a garantia que o ADR 0022 invocou para descartar a ponderação de classe na log-loss ("um
+   * '72% de risco' exibido passaria a valer 45% de verdade"). Aquele argumento nunca tinha sido
+   * medido; este teste é a medição. Valor observado: 0,0179.
+   */
+  @Test
+  void a_probabilidade_prevista_bate_com_a_frequencia_observada() {
+    assertThat(AvaliadorCalibracao.erroDeCalibracao(artefatos.calibracaoNoTeste()))
+        .isLessThan(0.05);
+  }
+
+  /**
+   * O risco previsto ORDENA o risco real: a frequência observada de falha cresce faixa a faixa.
+   *
+   * <p>É a propriedade que sustenta o uso do score como prioridade no fan-out. Um modelo pode ser
+   * bem calibrado na média e ainda assim não separar nada — bastaria emitir a taxa-base para todos.
+   * Aqui a faixa de menor risco falha 9,5% das vezes e a de maior falha 55,5%.
+   *
+   * <p>A comparação é estrita porque o pipeline inteiro é determinístico: mesma semente, mesmo
+   * corte, mesmo desempate. Se esta ordenação quebrar, mudou o modelo — não é ruído de execução.
+   */
+  @Test
+  void a_frequencia_observada_cresce_faixa_a_faixa() {
+    List<AvaliadorCalibracao.Faixa> faixas = artefatos.calibracaoNoTeste();
+
+    assertThat(faixas).hasSize(AvaliadorCalibracao.FAIXAS);
+    assertThat(faixas).allSatisfy(f -> assertThat(f.n()).isEqualTo(200));
+    assertThat(faixas.stream().mapToInt(AvaliadorCalibracao.Faixa::n).sum())
+        .isEqualTo(artefatos.divisao().teste().size());
+
+    for (int i = 1; i < faixas.size(); i++) {
+      assertThat(faixas.get(i).observado())
+          .as("faixa %d deve falhar mais que a faixa %d", i + 1, i)
+          .isGreaterThan(faixas.get(i - 1).observado());
+    }
+
+    // A separação entre os extremos é o que dá sentido a "faixa de risco" no produto.
+    assertThat(faixas.get(4).observado()).isGreaterThan(4 * faixas.get(0).observado());
   }
 }

@@ -426,7 +426,7 @@ const estilos = StyleSheet.create({
   explicacao: { ...tipografia.legenda, color: cores.tinta70 },
   erro: { ...tipografia.corpo, color: textoAcessivel.coral },
   esqueletos: { gap: espaco.md },
-  destinatario: { gap: 2 },
+  destinatario: { gap: espaco.xxs },
   nomeDestinatario: { ...tipografia.subtitulo, color: cores.tinta },
   handleDestinatario: { ...tipografia.legenda, color: cores.tinta70 },
   linha: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

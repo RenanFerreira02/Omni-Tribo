@@ -15,9 +15,10 @@
 | F10  | App mobile — missões e check-in       | ✅ Concluído | [fundação](auditoria/mobile-fundacao.md) | 2026-08-08 |
 | F11  | App mobile — carteira e perfil        | ✅ Concluído | [fundação](auditoria/mobile-fundacao.md) | 2026-08-08 |
 | F12  | App mobile completo (7 telas) + leituras que faltavam | ✅ Concluído | [completo](auditoria/mobile-completo.md) | 2026-08-09 |
-| F12b | Testes de carga e endurecimento       | ⬜ Pendente  | —         | —          |
+| F12b | Testes de carga e endurecimento       | ✅ Concluído | [carga](evidencias/f21-carga.md) | 2026-08-25 |
 | F12c | Previsão de risco de falha de entrega | ✅ Concluído | [modelo](qualidade/modelo-previsao.md) | 2026-08-15 |
 | F13  | Entrega final                         | ✅ Concluído | [evidências](evidencias/) | 2026-08-16 |
+| F21  | Endurecimento da cadeia de dependências | 🟨 Parcial  | [dependency-check](evidencias/f21-dependency-check.md) | 2026-08-24 |
 
 > **A numeração acima é a dos COMMITS e das auditorias, e foi corrigida em 2026-08-08.** A tabela
 > anterior estava deslocada a partir da F2 (chamava a fase de API de "Identidade e Autenticação") e
@@ -51,6 +52,186 @@ contra o sistema em execução. Quatro defeitos; dois corrigidos no mesmo dia, d
 Pendências do CLAUDE.md.
 
 ## Notas de manutenção
+
+- **2026-08-25 (1) — F12b** — **A última fase pendente fechou, e o achado não é um número de
+  latência.**
+
+  Três cenários de k6 (v2.2.0), 5 min cada, contra o compose local, com a API no perfil `dev` sem um
+  único parâmetro afinado para o teste. **14.967 requisições, zero 5xx.** Evidência completa em
+  [`evidencias/f21-carga.md`](evidencias/f21-carga.md).
+
+  - **O radar não tem joelho até 74,6 req/s** — e a latência CAIU enquanto a carga subia 12×, que é
+    JIT e cache do Postgres esquentando. O `EXPLAIN ANALYZE` da F6 provou o índice GiST em repouso;
+    agora o caminho FRIO (cache furado de propósito, grade de 3.600 células de geohash) custa 3,43 ms
+    no p50 a 75 req/s. **O cache economiza 41% do p50 e não é o que segura o sistema — o índice é.**
+
+  - **Os três tetos configurados apareceram medidos, dígito por dígito.** 120 req/min no webhook
+    (60 por janela de 30 s), 100 req/min de escrita por usuário, e **8 alertas de prioridade ALTA
+    para o único destinatário elegível** — exatamente `alertas-alta-prioridade-por-hora`. É o
+    primeiro registro do teto de fan-out funcionando sob pressão, e não em teste unitário.
+
+  - **O gargalo do caminho da tese é a VAGA, não o banco.** O ponto de custódia foi de 3/60 para
+    60/60 em menos de dois minutos: 57 conversões, exatamente as 57 vagas livres. Depois disso todo
+    webhook responde `RECUSADA`. Nenhum ajuste de pool ou índice mudaria isso — é restrição de
+    produto, e só um teste de carga a mostra.
+
+  - **O achado de verdade: o alerta de ponto lotado não tem teto nem deduplicação.** 631 linhas
+    idênticas em `alerta`, para o mesmo ponto, em menos de 3 minutos. O alerta é global de propósito
+    (`usuario_id` nulo), então o teto por usuário corretamente não se aplica — mas o efeito é
+    amplificação de escrita sem limite, disparada por evento externo que o sistema não controla.
+    **Não corrigido**: o pedido era medir sem ajustar, e a correção muda o contrato do alerta
+    operacional. Virou a **Pendência #3** do `CLAUDE.md`.
+
+  Contraste que dimensiona o resto: a outbox drenou inteira, `MAX(tentativas) = 0` nos 688 eventos, e
+  a reconciliação respondeu `integro=true` depois de tudo. **Zero deadlock** nas 1.205 transferências
+  que disputaram a mesma linha de carteira — a confirmação sob carga do que
+  `TransferenciaDeadlockTest` prova em laboratório.
+
+  O que a fase **não** fecha está na seção 7 da evidência, e é bastante: uma máquina, 5 minutos, dado
+  de seed, e **o pool de conexões nunca chegou a ser pressionado** porque o rate limit barrou antes.
+
+- **2026-08-25 (2) — F12b** — **Duas medições de qualidade que o `verify` passou a carregar.**
+
+  - **Diagrama de confiabilidade do modelo de risco.** Cinco faixas de probabilidade prevista contra
+    a frequência observada na partição de teste, em `AvaliadorCalibracao`. A frequência observada
+    cresce **9,5% → 55,5%** da primeira à última faixa, e o erro de calibração médio é **0,0179** —
+    menos de dois pontos percentuais entre o que a tela promete e o que acontece.
+
+    **Isso fecha uma afirmação que o ADR 0022 fazia sem medir.** Ele descartou ponderar a classe
+    positiva na log-loss porque aquilo *"descalibraria"* a probabilidade — argumento correto, mas até
+    aqui ninguém tinha verificado que a opção vencedora era calibrada. Agora está verificado.
+
+    E dá a resposta numérica a *"sua acurácia é melhor que a de um chute?"*: **Brier de 0,1485 contra
+    0,1798 do chute constante, 17,4% do erro eliminado.** A acurácia é pior que a do chute e o Brier
+    é melhor — as duas coisas ao mesmo tempo, que é precisamente por que a acurácia era a métrica
+    errada. Três testes novos em `ModeloRiscoTreinoTest` travam isso, dentro do `verify`, sem gate
+    novo. Verificados por mutação: remover a ordenação dos quintis reprova dois dos três.
+
+    O modelo **não mudou**: `coeficientes.yml` e o CSV saíram byte a byte idênticos do `gerar.sh`.
+    Só a medição é nova.
+
+  - **PIT (mutation testing) no profile `mutacao`, sem gate**, restrito a `missoes.dominio` e
+    `carteira.dominio` como o `CLAUDE.md` já mandava. Fora do `verify` padrão, pela mesma razão do
+    `seguranca`.
+
+    **A primeira configuração estava errada e o próprio relatório denunciou.** Restringir
+    `targetTests` a `missoes.*` e `carteira.*` — o que parece óbvio — fez `AporteService` sair como
+    NO_COVERAGE em 7 de 7 mutantes. Ele é o **único ponto de emissão de token do sistema** e tem
+    teste: `PatrocinadorAdminTest`, que mora em `identidade.api`, fora do filtro. Era o espelho exato
+    do `<includes>` vazio do JaCoCo, que passa por vácuo — e acusava de intestado justamente o código
+    mais sensível do projeto. Sem o filtro: **349/494 mortos (70,6%)**, cobertura de linha das
+    mutadas de 84% para 95%. Relatório e sobreviventes comentados em
+    [`qualidade/mutacao.md`](qualidade/mutacao.md).
+
+  **Custo no build, medido antes e depois:** `./mvnw verify` era **1m07s com 703 testes** e passou a
+  **1m03s com 706** — a calibração roda dentro do treino que já existia, e o PIT está fora do
+  `verify`, no profile `mutacao` (5m49s quando invocado). Verde nos dois: dois gates JaCoCo,
+  SpotBugs com `BugInstance size is 0`, Spotless limpo.
+
+- **2026-08-25 (3) — F21** — **Dois defeitos no encanamento da varredura de dependências, achados ao
+  conferir o que a fase anterior deixou.**
+
+  - **O cache do Dependency-Check no CI apontava para um diretório que o plugin nunca escreve.**
+    `security.yml` cacheava `services/api/target/dependency-check-data`; o default do plugin é dentro
+    do `~/.m2`. Provado nesta máquina: a execução de 2026-08-24 deixou `odc.mv.db` no `~/.m2` e
+    `target/` sem nenhum artefato. O cache salvava um diretório inexistente, e **toda execução
+    semanal rebaixaria a base inteira da NVD** — exatamente o 403 por limite de taxa que o comentário
+    daquele passo diz existir para evitar. O defeito era invisível porque o job nunca chegou a varrer.
+    Corrigido fixando `<dataDirectory>` em `~/.dependency-check-data` (fora de `target/`, que
+    `./mvnw clean` apaga, e fora do `~/.m2`, que o `setup-java` já cacheia) e apontando o passo para
+    lá. **Verificado**: a execução seguinte criou a base no caminho novo.
+
+  - **O `CONTRIBUTING.md` contradizia o `api.yml` sobre job pulado.** Dizia que o job `dependencias`
+    *"nunca produziria status num PR"* — mas ele é pulado por `if:` de JOB, dentro de um workflow que
+    roda em push e PR, e job pulado por `if:` **reporta sucesso**. É a regra que o cabeçalho do
+    `api.yml` registra e que motivou o job `mudou`. A conclusão (não torná-lo obrigatório) continua
+    certa **pelo motivo inverso do que estava escrito**: ele não travaria merge nenhum, ficaria verde
+    sem ter varrido nada.
+
+  **A varredura em si continua pendente**, à espera da chave da NVD. Nada mudou nisso.
+
+- **2026-08-24 (5) — F21** — **O Dependency-Check continua sem varrer, e agora sabemos por quê com
+  precisão.**
+
+  Duas dívidas de segurança, uma fechada e uma medida.
+
+  **A varredura, e a hipótese que ela derrubou.** A `matriz-rastreabilidade.md` dizia que o plugin
+  "exige uma chave da API da NVD". Eu suspeitei de imprecisão: o erro que ela cita —
+  `Invalid API Key, length of 0` — é o da string VAZIA, o modo de falha do `${env.*}`, e "sem chave
+  nenhuma" poderia cair em acesso anônimo. Rodei sem `-Dnvd.api.key`, com a variável ausente do
+  ambiente e nada injetando a propriedade.
+
+  **A hipótese estava errada e a frase estava certa.** Falha em 8,6 s, com o MESMO erro. Não há
+  acesso anônimo no 13.0.0.
+
+  **O fato novo vale mais que a confirmação:** ausente e vazia produzem erro idêntico, porque o
+  plugin normaliza "sem chave" para string vazia antes de validar. **A mensagem engana numa das duas
+  direções** — quem a lê procura uma chave errada, e a causa pode ser não haver chave. É por isso que
+  a armadilha do `${env.*}` custou duas depurações aqui: os dois sintomas são indistinguíveis pelo
+  log. Quem depurar deve ler a SEGUNDA linha, `NoDataException: No documents exist`.
+
+  **Uma terceira afirmação sem medição, corrigida de passagem.** O `dependency-check-suppressions.xml`
+  dizia que estava vazio porque "nenhuma dependência tem achado de severidade alta ou crítica na
+  varredura desta fase". Nunca houve varredura. O arquivo que existe para impedir supressão
+  silenciosa afirmava, no próprio cabeçalho, um resultado inexistente.
+
+  **O gitleaks ganhou procedimento escrito** no `CONTRIBUTING.md`, na ordem que importa: rotacionar
+  ANTES de mexer no git (reescrever a árvore não desvaza o que já foi ao GitHub), reescrever com
+  `git filter-repo` em vez de `revert` — que mantém o blob alcançável —, quando `.gitleaksignore` é
+  legítimo, e o passo a passo para marcar o check como obrigatório. Esse último fica com o RM: `gh`
+  não está instalado aqui e proteção de branch é configuração do repositório remoto.
+
+  Nota sobre o `dependencias` **não** entrar como check obrigatório: ele roda só no agendamento
+  semanal e sob demanda, então nunca produziria status num PR — e check obrigatório que não roda
+  trava todo merge.
+
+  **Segue pendente:** a varredura em si, à espera da chave. O comando exato está na evidência, e o
+  `Security Scan` continua verde por não ter varrido — o que o `::warning` daquele workflow torna
+  visível de propósito.
+
+- **2026-08-24 (4) — F19** — **Rampa tipográfica e escala de espaçamento, com lint por trás.**
+
+  O que faltava não era cor: os 12 hex já tinham passado pelos 22 pares de contraste e pela tabela
+  `textoAcessivel`. Faltava **hierarquia** — o tamanho de cada texto tinha sido decidido tela a
+  tela, que é o que faz um app parecer montado em vez de desenhado.
+
+  **A rampa foi de sete degraus para seis.** Havia `display` a 34 e `destaque` a 32 — dois "números
+  grandes" a dois pixels de distância, e `destaque` com **um** uso em todo o app (a marca do login).
+  Fundidos. Os NÚMEROS dos outros degraus não mudaram: a fase é substituição de valor, não redesenho,
+  e mexer em entrelinha reflui toda tela de uma vez.
+
+  **`espaco` já era base 4** (4·8·12·16·24·32). O que vazava dela eram sete literais espalhados:
+  `gap: 2` em três telas, `paddingVertical: 11` em duas, `fontSize: 64` numa, um ponto de 10 px
+  noutra. Cada um defensável sozinho; juntos, o sintoma.
+
+  **Três valores mostraram que a escala estava errada, não a tela** — e viraram escalas próprias em
+  vez de exceções:
+
+  - **`alvo`** (44 / 48). O `paddingVertical: 11` existia para somar 44 dp: é constante da WCAG
+    2.5.5, não respiro. Dentro de `espaco`, a próxima pessoa "arredondaria para 40" sem saber que
+    estava mexendo em acessibilidade.
+  - **`traco`** (1). Fio de divisor nunca vai ser múltiplo de 4.
+  - **`glifo`** (20 aba, 64 ilustração). Símbolo decorativo não tem peso nem entrelinha — não é
+    texto, e estava dentro de `tipografia` fazendo a rampa parecer ter um degrau a mais.
+
+  O `gap: 2` ganhou um **meio-passo declarado** (`espaco.xxs`) em vez de virar 4: são pares de texto
+  que formam um bloco, e 4 já os separa demais. É o único valor não-múltiplo-de-4 da escala, e está
+  lá escrito que é o único.
+
+  **A regra virou lint**, no molde do que já proíbe hex literal — e ela cobrou duas correções de si
+  mesma na primeira execução: precisou de `[raw=/^-?[0-9]/]` para não reprovar `marginTop: 'auto'`,
+  que é palavra-chave do flexbox, e de `[value!=0]` porque ausência de espaçamento não é um degrau.
+  Vale em `app/` e não em `src/components/`: tela consome a escala, componente pode defini-la.
+
+  **A regra achou um literal que o grep não achou** — `marginTop: 'auto'` em `missao/[id].tsx` não
+  casava com o padrão numérico que eu tinha usado para varrer.
+
+  Verificado: typecheck limpo, lint com 0 erros, 221 testes. Grep de aceite mostrando zero literais
+  de fonte, entrelinha, espaçamento e dimensão nas telas. O gate foi exercitado contra um arquivo de
+  prova com cinco violações e reprovou as cinco, deixando passar o `0` e o `'auto'`.
+
+  **Não entregue: prints antes/depois.** Não há `adb`, emulador nem aparelho nesta máquina — a
+  mesma ausência das duas entregas anteriores. No lugar vai o diff valor a valor, abaixo.
 
 - **2026-08-24 (3)** — **Matriz de acessibilidade: o instrumento entregue, a passada NÃO executada.**
 

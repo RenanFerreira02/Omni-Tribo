@@ -57,16 +57,25 @@ flowchart TB
 
 **As duas arestas tracejadas são o que falta**, e estão desenhadas de propósito.
 
-**1. O patrocinador não existe.** Por isso ENTREGA e AJUDA cunham. Medido do zero em 2026-08-16: um
-ciclo AJUDA aumentou `SUM(saldos) + SUM(potes)` em exatamente o valor da recompensa, enquanto um
-ciclo TRIBO financiado deixou a soma parada
-([evidência](../evidencias/f13-conservacao-por-categoria.md)).
+**1. O patrocinador não existia — e passou a existir.** Até 2026-08-20, ENTREGA e AJUDA cunhavam.
+Medido do zero em 2026-08-16: um ciclo AJUDA aumentou `SUM(saldos) + SUM(potes)` em exatamente o
+valor da recompensa, enquanto um ciclo TRIBO financiado deixou a soma parada
+([evidência de época](../evidencias/f13-conservacao-por-categoria.md)).
 
-Isso **não foi contornado por esquecimento**. Exigir pote para ENTREGA faria membros da tribo
-custearem a logística do varejista — o inverso do modelo. O financiador correto é o patrocinador:
-entrega que falhou custa re-entrega, armazenagem e risco de perder o cliente, então patrocinar o pote
-sai mais barato que o fracasso. É esse o caso de negócio. Preferiu-se **uma lacuna documentada a uma
-regra errada codificada**.
+Aquilo **não tinha sido contornado por esquecimento**. Exigir pote para ENTREGA faria membros da
+tribo custearem a logística do varejista — o inverso do modelo. O financiador correto é o
+patrocinador: entrega que falhou custa re-entrega, armazenagem e risco de perder o cliente, então
+patrocinar o pote sai mais barato que o fracasso. É esse o caso de negócio, e preferiu-se **uma
+lacuna documentada a uma regra errada codificada** enquanto ele não estava implementado.
+
+**Hoje está.** A carteira de patrocinador chegou no [ADR 0024](../adr/0024-carteira-de-patrocinador.md)
+(`V23`), AJUDA passou a pagar do pote no [ADR 0025](../adr/0025-ajuda-paga-do-pote.md), e o resgate
+virou o sumidouro no [ADR 0027](../adr/0027-resgate-queima-token.md). A emissão saiu da conclusão e
+virou um ponto só, `APORTE_PATROCINADOR`. Medição de 2026-08-22: **Δ=0 nas quatro categorias**
+([evidência](../evidencias/f14-conservacao-quatro-categorias.md)).
+
+O que **ainda** cunha é ENTREGA criada por humano — sem transportadora, não há patrocinador a
+debitar. Ela é `FontePote.CUNHAGEM`, declarada na linha da missão.
 
 **2. O resgate não tem sumidouro no backend.** O catálogo de benefícios é dado local do app: não há
 tabela de parceiro, endpoint, nem motivo `RESGATE` no ledger. Simular o débito no cliente produziria

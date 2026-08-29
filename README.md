@@ -1,15 +1,55 @@
 # Omni-Tribo
 
+### Uma entrega que falhou vira missão comunitária remunerada.
+
+![O ciclo da tese: a transportadora reporta a falha, nasce uma missão de bairro, o vizinho faz check-in e é creditado](docs/imagens/demo.gif)
+
+**▶ [Vídeo-pitch (3 min)](COLE-A-URL-DO-VIDEO-AQUI)** ·
+[Roteiro de demonstração](docs/ROTEIRO-DEMO.md) ·
+[Do clone à execução em 5 comandos](#do-clone-à-execução-em-5-comandos)
+
+| | |
+|:--:|:--:|
+| ![Radar de missões próximas, com distância calculada pelo PostGIS](docs/imagens/radar.png) | ![Detalhe da missão, com check-in geolocalizado](docs/imagens/missao-checkin.png) |
+| **Radar** — proximidade resolvida no banco | **Check-in** — validado no servidor |
+| ![Carteira com saldo em token e extrato](docs/imagens/carteira.png) | ![Catálogo de benefícios do bairro](docs/imagens/beneficios.png) |
+| **Carteira** — ledger append-only | **Benefícios** — onde o token é queimado |
+
+> As cinco imagens acima ainda **não foram coladas** — ver [`docs/imagens/`](docs/imagens/), que traz
+> dimensões e o comando de captura. Enquanto faltarem, esta seção aparece quebrada de propósito.
+
+---
+
 App de **missões sociais hiperlocais gamificadas**. Usuários recebem missões no bairro — entregas
 solidárias, coleta de recicláveis, mutirões, ajuda —, fazem check-in geolocalizado e recebem XP e
 tokens comunitários, resgatáveis em benefícios de parceiros do bairro.
 
-**A tese do produto:** uma entrega que falhou vira missão comunitária remunerada. Para o varejista,
-entrega falha custa re-entrega, armazenagem e risco de perder o cliente; a missão de bairro é um
-canal de última milha mais barato que a segunda tentativa.
+**A tese do produto**, por extenso: para o varejista, entrega falha custa re-entrega, armazenagem e
+risco de perder o cliente; a missão de bairro é um canal de última milha mais barato que a segunda
+tentativa.
 
 Projeto acadêmico FIAP — Sistemas de Informação, RM 555833. Challenge Leroy Merlin: Sociedade 5.0 e
 Logística.
+
+### Se você chegou aqui pela Fase 4 procurando Flutter
+
+Você não abriu o repositório errado. **Este monorepo é a reconstrução de um protótipo Flutter que
+foi descartado**, e a reconstrução trocou a stack: backend Java/Spring Boot e app React Native/Expo.
+
+O protótipo foi descartado por razões de produto e de correção, não por Flutter ser Flutter. O que
+se sabe dele está registrado como decisão: distância e valor eram `String`, não havia autenticação, e
+**aceitar uma missão creditava a recompensa na hora**. Esta última é a razão de `CONCLUIDA` ser hoje
+o único estado que credita, verificada por teste — a regra existe porque alguém já a violou.
+
+**Não há código do protótipo em disco**, e por isso [`docs/COMPARATIVO-TECNOLOGIAS.md`](docs/COMPARATIVO-TECNOLOGIAS.md)
+recusa usá-lo como argumento contra o framework: aquilo diz respeito à qualidade daquele protótipo,
+não à plataforma. A comparação Flutter × Kotlin nativo × React Native foi escrita do zero, com o que
+é medido e o que não é marcado como tal.
+
+Quanto ao documento da Fase 4 (`documentacao/*.pdf`): ele é um PETI — SWOT, 5 Ps, TOGAF, COBIT — e
+**não contém escolha de stack mobile**; as palavras Flutter, Kotlin e React Native não aparecem nele.
+Ele não é fonte de verdade técnica e não é atualizado junto com o código. Onde a implementação
+diverge dele, e por quê, está em [`docs/DIVERGENCIAS-DOCUMENTACAO.md`](docs/DIVERGENCIAS-DOCUMENTACAO.md).
 
 ---
 
@@ -31,12 +71,16 @@ renda comunitária. É o mesmo evento resolvendo os dois problemas.
 
 ## Estado
 
-**Backend e app mobile implementados**, com verificação executada em 2026-08-16:
+**Backend e app mobile implementados**, com verificação executada em 2026-08-25:
 
 | | Testes | Falhas | Evidência |
 |---|---|---|---|
-| Backend — JUnit 5, Testcontainers, ArchUnit | **637** | 0 (2 pulados) | [`f13-make-test.md`](docs/evidencias/f13-make-test.md) |
-| Mobile — Jest, RTL, MSW (14 suítes) | **179** | 0 | idem |
+| Backend — JUnit 5, Testcontainers, ArchUnit (68 classes) | **706** | 0 (2 pulados) | [`f13-make-test.md`](docs/evidencias/f13-make-test.md) |
+| Mobile — Jest, RTL, MSW (17 suítes) | **221** | 0 | idem |
+
+Carga medida em 2026-08-25: **14.967 requisições, 0 respostas 5xx**, radar a 74,6 req/s com p95 de
+4,3 ms ([`f21-carga.md`](docs/evidencias/f21-carga.md)). Mutação (PIT, sem gate) em `missoes.dominio`
+e `carteira.dominio`: **349/494** ([`mutacao.md`](docs/qualidade/mutacao.md)).
 
 `./mvnw verify` não é só teste: inclui Spotless, SpotBugs em `failOnError` e **dois gates de
 cobertura** JaCoCo que barram o build (80% global, 85% nos pacotes `dominio`).
@@ -49,20 +93,53 @@ cobertura** JaCoCo que barram o build (80% global, 85% nos pacotes `dominio`).
 | Decisões arquiteturais | [`docs/adr/`](docs/adr/) |
 | Diagramas | [`docs/diagramas/`](docs/diagramas/) |
 
-### O que falta, dito por extenso
+### O defeito econômico: o que se achou, o que o corrigiu, e o que sobrou
 
-**ENTREGA e AJUDA cunham token sem lastro.** O pote comunitário cobre TRIBO e COLETA; nas outras
-duas categorias o token nasce do nada na conclusão, porque a carteira de patrocinador — o
-financiador correto dessas categorias — não foi implementada. Medido do zero:
-`SUM(saldos) + SUM(potes)` cresceu exatamente o valor da recompensa num ciclo AJUDA e ficou parado
-num ciclo TRIBO ([evidência](docs/evidencias/f13-conservacao-por-categoria.md)).
+Este é o trecho que vale ler primeiro, e ele tem três tempos. **A lacuna e a correção juntas dizem
+mais do que qualquer uma delas sozinha** — por isso nenhuma das duas foi apagada daqui.
 
-Não é descuido: exigir pote para ENTREGA faria membros da tribo custearem a logística do varejista,
-que é o inverso do modelo. Preferiu-se uma lacuna documentada a uma regra errada codificada — a
-íntegra está em [`docs/EVOLUCAO-ARQUITETURAL.md`](docs/EVOLUCAO-ARQUITETURAL.md).
+**1. O que uma auditoria deste projeto encontrou.** Concluir uma missão de ENTREGA ou AJUDA **criava
+token do nada**: o pote comunitário cobria só TRIBO e COLETA, e nas outras duas a recompensa era
+cunhada na conclusão, implicitamente, uma missão por vez. Medido do zero em 2026-08-16:
+`SUM(saldos) + SUM(potes)` subiu exatamente o valor da recompensa num ciclo AJUDA e ficou parado num
+ciclo TRIBO ([evidência de época](docs/evidencias/f13-conservacao-por-categoria.md), hoje superada).
 
-Também pendentes: os testes de carga da F12b e as demais pendências da seção final do
-[`CLAUDE.md`](CLAUDE.md).
+**E o endpoint de integridade dizia que estava tudo certo — corretamente.** A reconciliação compara
+o saldo de cada carteira com o histórico *dela*; cunhar escreve os dois lados, então a igualdade
+continua verdadeira. Ela responde a outra pergunta. É a lição que o projeto carrega desde então:
+**uma invariante que ninguém mede não está garantida, e um painel verde pode estar medindo a coisa
+errada.**
+
+**2. O que o corrigiu — e a cunhagem não sumiu, mudou de lugar.** Alguém tem de pôr o token no pote;
+o que estava errado era *quem* e *quando*. Três mudanças, todas com ADR e migration:
+
+| Data | Mudança | Registro |
+|---|---|---|
+| 2026-08-20 | Carteira de patrocinador: a transportadora financia o pote da missão de retirada na própria conversão | [ADR 0024](docs/adr/0024-carteira-de-patrocinador.md), `V23` |
+| 2026-08-21 | AJUDA passa a pagar do pote como TRIBO | [ADR 0025](docs/adr/0025-ajuda-paga-do-pote.md) |
+| 2026-08-22 | Resgate de benefício vira o **sumidouro**: o lançamento debita e não credita ninguém | [ADR 0027](docs/adr/0027-resgate-queima-token.md), `V24`–`V26` |
+
+A emissão saiu do fim do ciclo — implícita, por missão, invisível para a reconciliação — e virou
+**um único ponto**: `APORTE_PATROCINADOR`, endpoint ADMIN, auditado e idempotente. O ganho não é
+"não cunhar mais"; é a emissão ter virado um número que alguém consegue somar.
+
+A invariante hoje é enunciável, e tem duas partes que não podem ser encurtadas numa:
+`SUM(carteira.saldo_tokens) + SUM(missao.pote_tokens)` é **constante dentro do ciclo de missões**,
+nas quatro categorias, e **muda nas duas pontas** — sobe no aporte, desce no resgate. Medido em
+2026-08-22 com o banco recriado do zero: **Δ=0 nas quatro categorias**, baseline e final em 10845,
+com `integro=true` em todos os pontos
+([evidência](docs/evidencias/f14-conservacao-quatro-categorias.md)).
+
+**3. O que sobrou, e continua dito em voz alta.** A última cunhagem do sistema é a **ENTREGA criada
+por um humano** — não tem transportadora, logo não tem patrocinador a debitar. Ela é `FontePote
+.CUNHAGEM`, declarada na linha da missão em vez de escondida num `if` ([ADR 0024 §8](docs/adr/0024-carteira-de-patrocinador.md)).
+
+E três armadilhas diagnosticadas seguem abertas, cada uma pelo motivo escrito na seção final do
+[`CLAUDE.md`](CLAUDE.md): a **outbox abandona evento em silêncio** depois de cinco tentativas, sem
+carta-morta; **nada acha pote imobilizado** em missão parada — a mitigação que existe é preventiva,
+não detectiva; e o **alerta de ponto lotado não tem teto nem deduplicação**, o que o teste de carga
+mostrou em 631 linhas idênticas. As três estão registradas como decisão pendente, não como
+esquecimento — fechá-las muda contrato.
 
 ## Arquitetura
 
@@ -351,12 +428,14 @@ Quatro garantias, cada uma com evidência executável em vez de afirmação:
 - **Geolocalização confiável** — validação 100% no servidor, com `EXPLAIN ANALYZE` provando uso do
   índice GiST sobre 200 mil linhas. O que os controles antifraude **não** pegam está escrito em
   [`docs/seguranca/antifraude-geolocalizacao.md`](docs/seguranca/antifraude-geolocalizacao.md).
-- **Economia que fecha — e o que nela ainda não fecha** — quem cria a missão não paga; a recompensa é
-  calculada pelo servidor e congelada na criação, e o app nunca reimplementa a fórmula
+- **Economia que fecha, e que fechou depois de não fechar** — quem cria a missão não paga; a
+  recompensa é calculada pelo servidor e congelada na criação, e o app nunca reimplementa a fórmula
   ([ADR 0009](docs/adr/0009-economia-do-cuidado-token-como-recompensa.md)). Uma auditoria provou isso
-  com caso hostil: `xpRecompensa: 99999` no corpo virou `60` no banco. O que **não** fecha — a
-  cunhagem em ENTREGA e AJUDA — está medido e explicado, não omitido
-  ([evidência](docs/evidencias/f13-conservacao-por-categoria.md)).
+  com caso hostil: `xpRecompensa: 99999` no corpo virou `60` no banco. A mesma rodada de auditoria
+  achou uma cunhagem sem lastro em ENTREGA e AJUDA — hoje corrigida, com **Δ=0 nas quatro
+  categorias** ([evidência](docs/evidencias/f14-conservacao-quatro-categorias.md)). A história
+  inteira, incluindo por que a reconciliação não pegou, está acima em
+  [O defeito econômico](#o-defeito-econômico-o-que-se-achou-o-que-o-corrigiu-e-o-que-sobrou).
 - **Auditoria com medição, não leitura** — cada fase confrontada com a especificação executando SQL,
   `curl` e os próprios testes. Cinco dos sete defeitos da rodada F0→F7 eram invisíveis lendo o
   código, e as auditorias do mobile acharam dois defeitos que uma revisão comum deixou passar.
@@ -379,14 +458,14 @@ Referência completa:
 | `CLAUDE.md` | memória do projeto: arquitetura, convenções, regras não negociáveis, pendências |
 | `services/api/CLAUDE.md` · `apps/mobile/CLAUDE.md` | convenções e armadilhas de cada camada |
 | [`docs/PROGRESSO.md`](docs/PROGRESSO.md) | tabela de fases e **notas de manutenção** — o log de por que cada correção estrutural foi feita |
-| [`docs/adr/`](docs/adr/) | 23 decisões com alternativas descartadas e o motivo real de cada recusa |
-| [`docs/auditoria/`](docs/auditoria/) | 10 auditorias, com evidência executada (SQL, `curl`, `EXPLAIN`) |
+| [`docs/adr/`](docs/adr/) | 30 decisões com alternativas descartadas e o motivo real de cada recusa |
+| [`docs/auditoria/`](docs/auditoria/) | 12 documentos de auditoria, com evidência executada (SQL, `curl`, `EXPLAIN`) |
 | [`docs/evidencias/`](docs/evidencias/) | saídas reais de medição — [índice](docs/evidencias/README.md) |
 | [`docs/qualidade/`](docs/qualidade/) | evidência de build, concorrência, modelo de risco e a [matriz de rastreabilidade](docs/qualidade/matriz-rastreabilidade.md) requisito→teste→evidência |
 | [`docs/seguranca/`](docs/seguranca/) | modelo de ameaça de autenticação e limites do antifraude |
 | [`docs/COMPARATIVO-TECNOLOGIAS.md`](docs/COMPARATIVO-TECNOLOGIAS.md) | Flutter × Kotlin nativo × React Native, com o custo real de cada escolha |
 | [`docs/INFRA.md`](docs/INFRA.md) | containers, credenciais de dev, lista completa de usuários seed |
-| [`CHANGELOG.md`](CHANGELOG.md) | uma entrada por fase, F0 a F13 |
+| [`CHANGELOG.md`](CHANGELOG.md) | uma entrada por fase, de F0 até a v1.0 |
 | `CONTRIBUTING.md` | Conventional Commits e checklist pré-commit |
-| `tools/carrier-mock/` · `tools/dataset/` · `tools/evidencias/` | webhook de transportadora · dataset e treino do modelo de risco · scripts de medição |
+| `tools/carrier-mock/` · `tools/dataset/` · `tools/evidencias/` · `tools/carga/` | webhook de transportadora · dataset e treino do modelo de risco · scripts de medição · teste de carga k6 |
 | `documentacao/` | PDF da entrega acadêmica. **Não é fonte de verdade técnica** — ver as divergências |

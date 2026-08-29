@@ -56,3 +56,9 @@ services/api/keys/
 
 # ── Claude Code (pessoal, não versionado) ─────────────────────────────────────
 CLAUDE.local.md
+
+# ── Teste de carga ────────────────────────────────────────────────────────────
+# Saída do k6. O bruto.csv passa de 30 MB numa execução de 16 min, e os números que
+# importam já estão transcritos em docs/evidencias/f21-carga.md — evidência mora lá,
+# não em artefato regenerável.
+tools/carga/saida/

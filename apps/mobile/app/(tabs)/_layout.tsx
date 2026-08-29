@@ -3,7 +3,7 @@ import { Text, type ColorValue } from 'react-native';
 
 import { useContagemNaoLidos } from '@/features/alertas/hooks';
 import { useSessao } from '@/stores/sessao';
-import { cores, textoAcessivel, tipografia } from '@/theme';
+import { cores, glifo, textoAcessivel, tipografia } from '@/theme';
 
 export default function LayoutTabs() {
   const accessToken = useSessao((estado) => estado.accessToken);
@@ -36,21 +36,24 @@ export default function LayoutTabs() {
     >
       <Tabs.Screen
         name="index"
-        options={{ title: 'Missões', tabBarIcon: ({ color }) => <Icone cor={color} glifo="◎" /> }}
+        options={{ title: 'Missões', tabBarIcon: ({ color }) => <Icone cor={color} simbolo="◎" /> }}
       />
       <Tabs.Screen
         name="mapa"
-        options={{ title: 'Mapa', tabBarIcon: ({ color }) => <Icone cor={color} glifo="◍" /> }}
+        options={{ title: 'Mapa', tabBarIcon: ({ color }) => <Icone cor={color} simbolo="◍" /> }}
       />
       <Tabs.Screen
         name="carteira"
-        options={{ title: 'Carteira', tabBarIcon: ({ color }) => <Icone cor={color} glifo="◈" /> }}
+        options={{
+          title: 'Carteira',
+          tabBarIcon: ({ color }) => <Icone cor={color} simbolo="◈" />,
+        }}
       />
       <Tabs.Screen
         name="notificacoes"
         options={{
           title: 'Avisos',
-          tabBarIcon: ({ color }) => <Icone cor={color} glifo="◔" />,
+          tabBarIcon: ({ color }) => <Icone cor={color} simbolo="◔" />,
           // O contador vem de uma query própria e barata (`/alertas/nao-lidos/contagem`), que não
           // traz corpo de notificação nenhum. `undefined` esconde o badge — 0 renderizaria uma
           // bolinha com "0" dentro.
@@ -70,23 +73,25 @@ export default function LayoutTabs() {
       />
       <Tabs.Screen
         name="perfil"
-        options={{ title: 'Perfil', tabBarIcon: ({ color }) => <Icone cor={color} glifo="◐" /> }}
+        options={{ title: 'Perfil', tabBarIcon: ({ color }) => <Icone cor={color} simbolo="◐" /> }}
       />
     </Tabs>
   );
 }
 
-function Icone({ cor, glifo }: { cor: ColorValue; glifo: string }) {
+// A prop se chama `simbolo` e não `glifo`: `glifo` agora é o token de tema com os tamanhos dos
+// glifos decorativos, e o nome sombreado fazia `glifo.aba` resolver para a string da prop.
+function Icone({ cor, simbolo }: { cor: ColorValue; simbolo: string }) {
   return (
     // Decorativo: o TÍTULO da aba já diz o que ela é, e o leitor de tela anunciando "círculo com
     // ponto, Missões" só atrapalha. O app já esconde glifo decorativo em `IndicadorPaginas` e no
     // onboarding — aqui tinha ficado de fora.
     <Text
-      style={{ color: cor, fontSize: tipografia.icone.fontSize }}
+      style={{ color: cor, fontSize: glifo.aba }}
       accessibilityElementsHidden
       importantForAccessibility="no"
     >
-      {glifo}
+      {simbolo}
     </Text>
   );
 }

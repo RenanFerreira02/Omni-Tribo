@@ -85,7 +85,15 @@ extrair() { # $1=marcador inicial  $2=marcador final
   echo
   echo "| Partição | Acurácia | Precisão | Recall | F2 | VP | FP | VN | FN |"
   echo "|---|---:|---:|---:|---:|---:|---:|---:|---:|"
-  extrair "METRICAS" "VARREDURA DE LIMIAR (validacao)"
+  extrair "METRICAS" "CALIBRACAO (teste)"
+  echo
+  echo "## Diagrama de confiabilidade (teste)"
+  echo
+  extrair "CALIBRACAO (teste)" "BRIER (teste)"
+  echo
+  echo '```'
+  extrair "BRIER (teste)" "VARREDURA DE LIMIAR (validacao)"
+  echo '```'
   echo
   echo "## Varredura de limiar (validação)"
   echo

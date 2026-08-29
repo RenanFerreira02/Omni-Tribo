@@ -10,6 +10,89 @@ Uma entrada por **fase** do projeto — a numeração de fases é a de
 
 ---
 
+## [v1.0] — 2026-08-25 · A economia fecha o ciclo
+
+**Primeira entrada com rótulo de versão, e não de fase.** As anteriores são por fase, e continuam
+sendo — esta agrega o trabalho feito depois da F13.1, que aconteceu em blocos registrados nas
+**Notas de manutenção** do [`docs/PROGRESSO.md`](docs/PROGRESSO.md) sem terem chegado à tabela de
+fases. O rótulo `v1.0` existe porque é o que a tag diz; a numeração de fase segue sendo a do
+`PROGRESSO.md`.
+
+### O defeito econômico foi fechado
+
+- **Carteira de patrocinador** (2026-08-20, [ADR 0024](docs/adr/0024-carteira-de-patrocinador.md),
+  `V23`). A missão de retirada nasce com o pote já financiado pela transportadora, na própria
+  conversão do webhook. **A cunhagem não foi removida — foi deslocada:** saiu do fim do ciclo, onde
+  era implícita, por missão e invisível para a reconciliação, e virou `APORTE_PATROCINADOR`, endpoint
+  ADMIN auditado e idempotente. Passou a ser um número que alguém consegue somar.
+- **AJUDA passa a pagar do pote como TRIBO** (2026-08-21, [ADR 0025](docs/adr/0025-ajuda-paga-do-pote.md)).
+  Retifica o §8 do ADR 0024, que ficou registrado errado em vez de reescrito: ele conflacionou "quem
+  cria não paga" com "a comunidade não deve financiar", e a segunda já era falsa em TRIBO.
+- **Resgate de benefício vira o sumidouro** (2026-08-22, [ADR 0027](docs/adr/0027-resgate-queima-token.md),
+  `V24`–`V26`). O lançamento debita com motivo `RESGATE` e **não credita ninguém**. A economia deixa
+  de ser descrita como estoque fechado: a soma **sobe no aporte e desce no resgate**, e não muda em
+  mais lugar nenhum.
+- **Confirmação de retirada por webhook** (2026-08-22, [ADR 0026](docs/adr/0026-confirmacao-de-retirada-por-webhook.md)).
+  Quem confirma o recebimento é a transportadora, não o executor — o check-in prova presença, não
+  recebimento, e confirmar ali faria o executor confirmar a si mesmo.
+
+### Adicionado
+
+- **Busca por handle exato** ([ADR 0028](docs/adr/0028-busca-por-handle-exato.md), `V27`) — só na
+  mesma tribo, com teto próprio de 12/min, e **sem listagem de membros**, que daria um mapa social do
+  bairro.
+- **Painel de impacto** `GET /admin/impacto` ([ADR 0029](docs/adr/0029-painel-de-impacto-e-a-premissa-declarada.md))
+  — a única resposta do sistema sobre VALOR e não sobre estado. O custo evitado é **premissa
+  declarada**, não medição: a resposta ecoa o valor usado e traz a mesma conta em ±50%.
+- **Radar com alternativa em lista** ([ADR 0030](docs/adr/0030-radar-com-alternativa-em-lista.md)).
+- **Acessibilidade** — matriz WCAG 2.2 AA e semântica no app, com a passada de TalkBack declarada
+  como **não executada** ([`docs/qualidade/acessibilidade.md`](docs/qualidade/acessibilidade.md)).
+- **Teste de carga (F12b)** — `tools/carga/`, k6, três cenários de 5 min
+  ([`f21-carga.md`](docs/evidencias/f21-carga.md)).
+- **Diagrama de confiabilidade do modelo de risco** — cinco faixas de probabilidade prevista contra
+  frequência observada, dentro do `verify` ([`modelo-previsao.md`](docs/qualidade/modelo-previsao.md)).
+- **Teste de mutação (PIT), sem gate** — restrito a `missoes.dominio` e `carteira.dominio`
+  ([`mutacao.md`](docs/qualidade/mutacao.md)).
+
+### Corrigido
+
+- **O cache do Dependency-Check no CI apontava para um diretório que o plugin nunca escreve.**
+  `security.yml` cacheava `services/api/target/dependency-check-data`; o default do plugin fica
+  dentro do `~/.m2`. O cache salvava um diretório inexistente, e cada execução semanal rebaixaria a
+  base inteira da NVD — o 403 por limite de taxa que aquele passo existe para evitar. O defeito era
+  invisível porque o job nunca chegou a varrer.
+- **O `CONTRIBUTING.md` contradizia o `api.yml`** sobre job pulado por `if:`. Ele **reporta sucesso**;
+  o que nunca reporta é workflow pulado por `paths:`. A conclusão (não tornar `dependencias`
+  obrigatório) continua certa pelo motivo inverso do que estava escrito: ele ficaria verde sem ter
+  varrido nada.
+- **Documentação que afirmava um estado superado** — README, roteiro de demonstração, matriz de
+  rastreabilidade e o diagrama de fluxo econômico ainda diziam que ENTREGA e AJUDA cunhavam e que a
+  carteira de patrocinador não existia.
+
+### Medido
+
+- `./mvnw verify`: **706 testes**, 0 falhas, 2 pulados, em 1m03s. Dois gates JaCoCo, SpotBugs com
+  `BugInstance size is 0`. Mobile: **221 testes**, 17 suítes.
+- **Conservação, quatro categorias** (2026-08-22): Δ=0 em TRIBO, COLETA, AJUDA e ENTREGA; baseline e
+  final em 10845; `integro=true` em todos os pontos.
+- **Carga** (2026-08-25): 14.967 requisições, **0 respostas 5xx**; radar sem joelho até 74,6 req/s com
+  p95 de 4,3 ms; 1.205 transferências na mesma carteira sem deadlock.
+- **Mutação**: 349/494 mutantes mortos (70,6%), cobertura de linha das classes mutadas 95%.
+- **Calibração do modelo**: erro de calibração 0,0179; Brier 0,1485 contra 0,1798 do chute constante.
+
+### Pendente
+
+- **A varredura de dependências nunca rodou.** O plugin exige chave da NVD e não tem acesso anônimo;
+  o job do CI emite `::warning` quando a chave falta, para que "verde por não ter varrido" não passe
+  por "verde por não ter achado" ([`f21-dependency-check.md`](docs/evidencias/f21-dependency-check.md)).
+- **ENTREGA criada por humano ainda cunha** — sem transportadora, não há patrocinador a debitar.
+  Declarada em `FontePote.CUNHAGEM`.
+- **Três armadilhas diagnosticadas e abertas**, cada uma por decisão de contrato: outbox sem
+  carta-morta, ausência de diagnóstico de pote imobilizado, e alerta de ponto lotado sem teto nem
+  deduplicação. Ver a seção final do [`CLAUDE.md`](CLAUDE.md).
+
+---
+
 ## [F13.1] — 2026-08-17 · Conserto do CI e revisão de evidência
 
 Entrada própria, e não emenda na F13, porque **mudou artefato e corrigiu afirmação publicada** — não

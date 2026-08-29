@@ -417,5 +417,5 @@ const estilos = StyleSheet.create({
   xp: { ...tipografia.rotulo, color: textoAcessivel.ambar },
   conquistada: { borderWidth: 1, borderColor: cores.verdePrimario },
   consentimento: { flexDirection: 'row', alignItems: 'center', gap: espaco.md },
-  consentimentoTexto: { flex: 1, gap: 2 },
+  consentimentoTexto: { flex: 1, gap: espaco.xxs },
 });

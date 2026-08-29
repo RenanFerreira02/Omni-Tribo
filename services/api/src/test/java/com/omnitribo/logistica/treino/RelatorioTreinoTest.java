@@ -47,6 +47,18 @@ class RelatorioTreinoTest {
     System.out.println(a.naValidacao().linhaMarkdown("validacao"));
     System.out.println(a.noTeste().linhaMarkdown("teste"));
 
+    System.out.println("=== CALIBRACAO (teste) ===");
+    System.out.print(a.tabelaCalibracao());
+
+    System.out.println("=== BRIER (teste) ===");
+    System.out.printf(
+        Locale.ROOT,
+        "brierModelo=%.4f brierChute=%.4f ganho=%.4f erroCalibracao=%.4f%n",
+        a.brierNoTeste(),
+        a.brierDoChuteNoTeste(),
+        a.ganhoSobreChute(),
+        AvaliadorCalibracao.erroDeCalibracao(a.calibracaoNoTeste()));
+
     System.out.println("=== VARREDURA DE LIMIAR (validacao) ===");
     System.out.println(a.tabelaLimiares());
 
