@@ -12,8 +12,8 @@ App de missões sociais hiperlocais. Quando uma entrega falha, o pacote fica num
 bairro e um vizinho é **remunerado** para retirá-lo — o custo do fracasso logístico vira renda
 comunitária. Backend Java/Spring Boot, app React Native/Expo, PostgreSQL + PostGIS.
 
-Projeto acadêmico FIAP — Sistemas de Informação, RM 555833. Challenge Leroy Merlin: Sociedade 5.0 e
-Logística.
+Projeto acadêmico FIAP — Sistemas de Informação, RM 555833.
+Enterprise Challenge - Leroy Merlin SMART HAS & AI Logistic Extension.
 
 ### O que esta versão fecha
 
