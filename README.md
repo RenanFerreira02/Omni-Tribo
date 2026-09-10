@@ -28,8 +28,8 @@ tokens comunitários, resgatáveis em benefícios de parceiros do bairro.
 risco de perder o cliente; a missão de bairro é um canal de última milha mais barato que a segunda
 tentativa.
 
-Projeto acadêmico FIAP — Sistemas de Informação, RM 555833. Challenge Leroy Merlin: Sociedade 5.0 e
-Logística.
+Projeto acadêmico FIAP — Sistemas de Informação, RM 555833.
+Enterprise Challenge - Leroy Merlin SMART HAS & AI Logistic Extension.
 
 ### Se você chegou aqui pela Fase 4 procurando Flutter
 
@@ -140,6 +140,32 @@ carta-morta; **nada acha pote imobilizado** em missão parada — a mitigação 
 não detectiva; e o **alerta de ponto lotado não tem teto nem deduplicação**, o que o teste de carga
 mostrou em 631 linhas idênticas. As três estão registradas como decisão pendente, não como
 esquecimento — fechá-las muda contrato.
+
+## AI Logistics Extension
+
+O componente de IA do desafio, pelo nome dele. É um **modelo de previsão de risco de falha de
+entrega** — regressão logística interpretável, em Java puro, sem serviço externo e sem chamada de
+LLM — que roda no instante em que a transportadora reporta a entrega frustrada e estima a chance de
+a próxima tentativa naquele endereço também falhar.
+
+**Onde ele está no produto:** o score não para num painel. Ele vira três coisas concretas —
+multiplicador da recompensa em TOKEN, congelado na missão e limitado a 1,50×; prioridade no alerta
+enviado aos vizinhos; e um aviso acionável na tela de detalhe da missão (*"combine o horário com o
+destinatário antes de ir"*). Toda missão criada por humano recebe o neutro 1,00×: só a entrega
+falida é avaliada.
+
+**Os dados de treino são sintéticos**, e isso está declarado no código, no YAML e nos dois documentos
+abaixo. O que o componente demonstra é o mecanismo completo — gerar, treinar, medir, publicar,
+inferir, explicar e congelar — com cada previsão justificável pelos fatores que mais pesaram nela. A
+validação contra dados reais é o próximo passo, registrado no [ADR 0022](docs/adr/0022-previsao-de-risco-de-entrega.md).
+
+| | |
+|---|---|
+| **O componente, ponta a ponta** | [`docs/AI-LOGISTICS-EXTENSION.md`](docs/AI-LOGISTICS-EXTENSION.md) — o caminho do dado em diagrama, as 14 features com o coeficiente real de cada uma, e como a previsão vira dinheiro |
+| **Métricas e limites** | [`docs/qualidade/modelo-previsao.md`](docs/qualidade/modelo-previsao.md) — matriz de confusão, calibração, e a resposta para *"sua acurácia é menor que a de um chute?"* |
+
+`./mvnw verify` re-treina o modelo do zero a cada build e confere os coeficientes publicados:
+**editar um deles à mão quebra o build**, de propósito.
 
 ## Arquitetura
 
