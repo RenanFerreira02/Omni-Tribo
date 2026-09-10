@@ -31,8 +31,10 @@ import org.springframework.web.bind.annotation.RestController;
  * descrição afirmou exatamente isso até 2026-09-09 — a varredura de 2026-08-20 corrigiu a frase em
  * três comentários e não alcançou esta, porque procurou em comentários e ela mora numa string de
  * anotação. Era a pior das quatro ocorrências: orientava o cliente a se defender de DUPLICATA
- * quando o risco real da outbox é PERDA silenciosa. Ver {@link
- * com.omnitribo.compartilhado.api.PublicadorEventos}, seção "O LIMITE desta garantia".
+ * quando o risco real da outbox é PERDA. Desde o ADR 0031 essa perda é detectável por {@code GET
+ * /api/v1/admin/outbox/esgotados}, mas continua sendo perda para o cliente desta caixa: nada aqui
+ * indica que faltou um alerta. Ver {@link com.omnitribo.compartilhado.api.PublicadorEventos}, seção
+ * "O LIMITE desta garantia".
  */
 @RestController
 @RequestMapping("/api/v1/alertas")
@@ -52,11 +54,12 @@ public class AlertaController {
       summary = "Listar notificações",
       description =
           "Paginado, do mais recente para o mais antigo. Use apenasNaoLidos=true para a visão de "
-              + "pendências. A entrega NÃO é at-least-once: o drenador da outbox desiste após 5 "
-              + "tentativas e o evento é abandonado sem aviso, então esta caixa pode não conter um "
-              + "fato que ocorreu — não a trate como registro completo do que aconteceu com o "
-              + "usuário. Duplicata continua possível (uma tentativa pode entregar e falhar ao "
-              + "marcar), e o par (tipo, missaoId) identifica o fato para deduplicar.")
+              + "pendências. A entrega NÃO é at-least-once: o drenador da outbox para após 5 "
+              + "tentativas, então esta caixa pode não conter um fato que ocorreu — não a trate "
+              + "como registro completo do que aconteceu com o usuário. Um ADMIN consegue ver e "
+              + "reenfileirar o evento parado, mas isso não é automático e não muda o que este "
+              + "endpoint devolve agora. Duplicata continua possível (uma tentativa pode entregar "
+              + "e falhar ao marcar), e o par (tipo, missaoId) identifica o fato para deduplicar.")
   @ApiResponses({
     @ApiResponse(responseCode = "200", description = "Página da caixa de entrada"),
     @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),

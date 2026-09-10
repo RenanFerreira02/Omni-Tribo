@@ -73,8 +73,11 @@ responde "há quanto tempo esta missão está parada AQUI" — `janela_fim` é o
   e **nenhum serviço, endpoint ou teste jamais a chamou**, então a visibilidade prometida não
   existiu em momento nenhum. A query foi removida como órfã na varredura de
   [`varredura-orfaos.md`](../auditoria/varredura-orfaos.md) §2.1, e a lacuna real — não há como
-  achar pote imobilizado — está registrada como **Pendência #2** do `CLAUDE.md` (a numeração encolheu três vezes, conforme F8 e os ADRs 0026 e 0028 fecharam pendências anteriores). O resto desta
-  decisão (varredura por prazo + porta de ADMIN) continua valendo e está implementado.
+  achar pote imobilizado — está registrada no `CLAUDE.md` sob o título **"Nada acha pote
+  imobilizado"**. **Referência NOMINAL de propósito:** a numeração já encolheu quatro vezes (F8, os
+  ADRs 0026 e 0028, e o 0031), e um `#N` aqui apontaria para outra pendência a cada vez — foi por
+  isso que a varredura de 2026-09-09 §4 tratou esse ponteiro como lacuna. O resto desta decisão
+  (varredura por prazo + porta de ADMIN) continua valendo e está implementado.
 
 **Negativas / trade-offs:**
 - Pagar por omissão do criador aceita um risco: conluio, ou check-in sem execução real. A documentação

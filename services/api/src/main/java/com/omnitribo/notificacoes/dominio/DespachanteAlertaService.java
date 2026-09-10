@@ -23,8 +23,11 @@ import tools.jackson.databind.json.JsonMapper;
  * {@code alerta}, a caixa de entrada do app. O push real trocaria só o corpo deste despachante — o
  * contrato do drenador e o backoff não mudam, porque é exatamente essa separação que o padrão
  * outbox compra. O que NÃO se deve repetir daqui é a palavra "at-least-once": a entrega para na
- * quinta tentativa e o evento é abandonado sem aviso. Ver o javadoc de {@link
- * com.omnitribo.compartilhado.api.PublicadorEventos}, seção "O LIMITE desta garantia".
+ * quinta tentativa. Desde o ADR 0031 o evento parado fica visível em {@code GET
+ * /api/v1/admin/outbox/esgotados} e pode ser devolvido à fila por um ADMIN — o que muda "perda
+ * silenciosa" para "perda detectável", e não para "entrega garantida", porque nada avisa que há
+ * evento esgotado. Ver o javadoc de {@link com.omnitribo.compartilhado.api.PublicadorEventos},
+ * seção "O LIMITE desta garantia".
  *
  * <p>O mapper é construído aqui, sem injeção: Jackson é o 3 (tools.jackson) em todo o repositório e
  * não existe bean de ObjectMapper para injetar. Mesmo padrão de {@code

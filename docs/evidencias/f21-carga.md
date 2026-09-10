@@ -206,8 +206,10 @@ escreve indefinidamente.
 operacional. Fica registrado como o achado principal desta fase.
 
 Contraste que ajuda a dimensionar: a **outbox drenou inteira** — `outbox_pendente = 0` e
-`MAX(tentativas) = 0` nos 688 eventos. Nenhum evento chegou perto do limite de 5 tentativas da
-Pendência #1.
+`MAX(tentativas) = 0` nos 688 eventos. Nenhum evento chegou perto do limite de 5 tentativas — o
+limite que, na época desta medição, abandonava o evento sem carta-morta. Aquela pendência fechou em
+2026-09-10 ([ADR 0031](../adr/0031-carta-morta-da-outbox.md)); esta medição é anterior, e nada nela
+muda.
 
 ## 7. O que isto NÃO prova
 

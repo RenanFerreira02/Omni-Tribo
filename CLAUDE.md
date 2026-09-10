@@ -363,6 +363,15 @@ de cada módulo dono do dado. Três coisas que o painel diz em voz alta e o cód
 traz a mesma conta com ele em **±50%**); **"re-entrega evitada" é a missão concluída RENOMEADA**, não
 uma segunda medição; e **taxa com denominador zero é `null`, nunca 0%**. Ver ADR 0029.
 
+`/api/v1/admin/outbox` — `GET /esgotados` (paginado) · `POST /{id}/reenfileirar`. Só ADMIN. **É a
+carta-morta da outbox** (ADR 0031): o drenador para na 5ª falha e a linha some do lote, mas não da
+tabela — a consulta a lista com `ultimo_erro`, e o POST a devolve ao lote, de onde **o mesmo
+`DrenadorOutboxService`** a despacha. Não há atalho de despacho e não há `Idempotency-Key`: a
+idempotência é por ESTADO da linha, sob `FOR UPDATE` (repetir dá `reenfileirado:false`, evento em
+backoff é no-op, evento já entregue é 409). O `payload` **não** vem na resposta — carrega coordenada
+de endereço residencial. Isto **não** torna a entrega at-least-once: o teto continua 5, e nada avisa
+que há evento esgotado.
+
 `/api/v1/admin/carteiras/reconciliacao` — `GET`, só ADMIN.
 
 `/api/v1/admin/patrocinadores` — `POST` (cadastra titular + carteira + relação com o slug) · `GET`
@@ -485,6 +494,11 @@ CI (`.github/workflows/`), três workflows:
     centralizado) · 0008 (ledger e idempotência) · 0009 (economia) · 0010 (uma URI de erro por
     REAÇÃO DE UI) · 0018 (fronteira de `compartilhado`) · 0020 (proximidade é distância MÍNIMA, não
     ao centroide) · 0022 (risco entra na BASE, teto 1,5×) · 0023 (retry POR DENTRO do disjuntor).
+  - **0031 fechou a carta-morta da outbox, e o que ele NÃO fez importa tanto quanto o que fez.** O
+    teto de 5 tentativas continua, a entrega continua não sendo at-least-once, e a recuperação
+    depende de um humano consultar. Ele também é o precedente de "ação administrativa idempotente
+    por ESTADO, sem `Idempotency-Key`" — leia antes de acrescentar chave a um endpoint que só faz
+    um UPDATE para estado fixo.
 - `docs/qualidade/integridade-transacional.md` — evidência de concorrência da carteira (100 threads,
   deadlock, rollback) e a seção "O que esta fase NÃO garante". É o documento a defender oralmente.
 - `docs/qualidade/modelo-previsao.md` — métricas do modelo de risco, matriz de confusão, correlações
@@ -496,7 +510,9 @@ CI (`.github/workflows/`), três workflows:
   teste no valor exato, um equivalente que **não** se conserta (a ordem do lock), e uma superfície
   pública que só o próprio teste usa. Sem gate — `./mvnw -Pmutacao …`, fora do `verify`.
 - `docs/evidencias/f21-carga.md` — a medição de carga da **F12b** (o nome diz f21 por pedido; a fase
-  é F12b). Três cenários k6, sem afinar parâmetro nenhum. É de onde vem a Pendência #3.
+  é F12b). Três cenários k6, sem afinar parâmetro nenhum. É de onde vem a pendência do **alerta de
+  ponto lotado sem teto** (referência NOMINAL: a numeração da lista de pendências muda a cada
+  fechamento).
 - `docs/seguranca/autenticacao.md` — modelo de ameaça e desenho do fluxo de auth.
 - `docs/seguranca/antifraude-geolocalizacao.md` — o que os controles de check-in **não** pegam.
 - `docs/evidencias/f6-explain-analyze.md` — saída real do `EXPLAIN ANALYZE` provando uso do índice
@@ -740,25 +756,14 @@ Seção para armadilhas diagnosticadas e ainda não corrigidas. Ao resolver uma,
 >   prova em runtime (SQLState 42501), não mais só lendo o catálogo;
 > - `EM_ANDAMENTO` e `AGUARDANDO_CONFIRMACAO` sem saída — ver a máquina de estados, que agora tem
 >   **17 transições** e varredura por prazo mais porta de ADMIN.
+>
+> **Uma saiu em 2026-09-10**: *"A outbox abandona evento em silêncio, e não há carta-morta"*. O
+> evento esgotado deixou de ser invisível — `GET /admin/outbox/esgotados` o lista com a causa e
+> `POST /admin/outbox/{id}/reenfileirar` o devolve ao lote (ADR 0031). **Cuidado com o que isso NÃO
+> resolveu:** o teto de 5 tentativas continua igual, a entrega continua não sendo at-least-once, e
+> nada avisa que há evento esgotado — é consulta ativa, então a recuperação depende de alguém olhar.
 
-**1. A outbox abandona evento em silêncio, e não há carta-morta.** `DrenadorOutboxService` tenta no
-máximo `app.outbox.maximo-tentativas` (5) vezes; depois disso o predicado de
-`OutboxRepository.buscarPendentesParaPublicar` deixa de enxergar a linha e o evento **nunca mais é
-tentado**. Ele fica na tabela, com `publicado_em` nulo e `ultimo_erro` preenchido, e **nada o
-mostra**: não existe consulta de esgotados, endpoint de administração nem métrica. O único vestígio
-é o `log.warn` da última falha, que ninguém coleta — Prometheus e Grafana foram cortados do MVP.
-
-Consequência: um `MissaoConcluida` que o despachante não consiga tratar cinco vezes desaparece. O
-executor recebeu o crédito e nunca é avisado, e não há lugar onde esse fato apareça.
-
-**Isto foi descoberto como comentário falso, não como bug novo** (varredura de 2026-08-20,
-`docs/auditoria/varredura-orfaos.md` §1.1). Três lugares afirmavam a garantia que não existe —
-"retry até conseguir", "entrega at-least-once" e "espera intervenção". Os três foram corrigidos para
-dizer a verdade; **a lacuna em si continua aberta de propósito**, porque fechá-la é decisão de
-projeto: uma consulta de esgotados exposta a ADMIN, um contador, ou aceitar a perda explicitamente.
-Não decida sozinho — muda o contrato de entrega de notificação.
-
-**2. Nada acha pote imobilizado.** Token preso em missão não-terminal parada (`EM_ANDAMENTO`,
+**1. Nada acha pote imobilizado.** Token preso em missão não-terminal parada (`EM_ANDAMENTO`,
 `AGUARDANDO_CONFIRMACAO`, `EM_DISPUTA`) viola a CONSERVAÇÃO enquanto a reconciliação segue
 respondendo `integro=true` — são invariantes diferentes, e a primeira passa enquanto a segunda é
 violada. **Não existe consulta, endpoint nem relatório que mostre esses potes.**
@@ -769,10 +774,12 @@ consequência aceita. **Nenhum serviço, endpoint ou teste jamais a chamou.** A 
 como órfã em 2026-08-20 e o ADR 0015 recebeu a retificação, em vez de manter código morto que fazia
 a lacuna parecer coberta. A mitigação real que EXISTE é outra, e é preventiva, não detectiva: a
 varredura por prazo (`ExpiracaoMissoesService`) e a porta de ADMIN (`POST /missoes/{id}/destravar`)
-tiram a missão do limbo. O que falta é o instrumento de DIAGNÓSTICO — ver Pendência #1, que é o
-mesmo formato de problema.
+tiram a missão do limbo. O que falta é o instrumento de DIAGNÓSTICO. **A carta-morta da outbox era
+o mesmo formato de problema e foi fechada em 2026-09-10 (ADR 0031)** — a forma que ela tomou
+(consulta a ADMIN mais ação idempotente que passa pelo caminho normal, sem migration) é o molde
+mais próximo para esta, se você decidir fechá-la.
 
-**3. O alerta de ponto lotado não tem teto nem deduplicação.** Achado no teste de carga de
+**2. O alerta de ponto lotado não tem teto nem deduplicação.** Achado no teste de carga de
 2026-08-25 (`docs/evidencias/f21-carga.md` §6): uma rajada de webhooks contra um ponto de custódia
 cheio gravou **631 linhas idênticas** em `alerta`, para o mesmo ponto, em menos de 3 minutos.
 

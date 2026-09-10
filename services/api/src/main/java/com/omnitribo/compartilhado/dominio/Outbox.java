@@ -10,7 +10,10 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 // Transactional Outbox Pattern: eventos gravados na mesma transação da mutação de estado.
-// Um processo separado (a implementar em fases futuras) lê e publica para consumidores.
+// Quem lê e publica é o DrenadorOutboxService, acionado pelo DrenadorOutboxJob a cada
+// app.outbox.intervalo. A linha nunca é apagada: publicada, ela fica com publicado_em preenchido;
+// esgotada, ela fica com publicado_em nulo e tentativas no teto, e é o que
+// GET /api/v1/admin/outbox/esgotados lista (ADR 0031).
 @Entity
 @Table(name = "outbox")
 public class Outbox {
@@ -88,6 +91,24 @@ public class Outbox {
         erro == null || erro.length() <= LIMITE_ERRO ? erro : erro.substring(0, LIMITE_ERRO);
   }
 
+  /**
+   * Devolve um evento esgotado ao predicado do lote, zerando o contador de tentativas.
+   *
+   * <p>{@code ultimoErro} é PRESERVADO de propósito, ao contrário do que {@code marcarPublicado}
+   * faz: ele é a única descrição da causa pela qual o evento parou, e quem reenfileira precisa
+   * continuar enxergando-a se a próxima rodada falhar pelo mesmo motivo.
+   *
+   * <p>Zerar {@code tentativas} apaga DESTA LINHA o fato de que ela já queimou o teto de despachos.
+   * Essa história passa a existir só na linha de {@code auditoria} que o {@code @Auditavel} do
+   * chamador grava — a tabela {@code outbox} deixa de conseguir distinguir um evento reenfileirado
+   * três vezes de um que falhou uma. Trade-off aceito e registrado no ADR 0031; preservar a
+   * contagem exigiria coluna nova.
+   */
+  public void reenfileirar(Instant agora) {
+    this.tentativas = 0;
+    this.proximaTentativaEm = agora;
+  }
+
   public UUID getId() {
     return id;
   }
@@ -110,5 +131,19 @@ public class Outbox {
 
   public int getTentativas() {
     return tentativas;
+  }
+
+  /** Nulo enquanto o evento não foi entregue. É o discriminador de estado da linha. */
+  public Instant getPublicadoEm() {
+    return publicadoEm;
+  }
+
+  public Instant getProximaTentativaEm() {
+    return proximaTentativaEm;
+  }
+
+  /** Causa da última falha de despacho, truncada. Nulo em evento nunca tentado ou já publicado. */
+  public String getUltimoErro() {
+    return ultimoErro;
   }
 }

@@ -92,9 +92,14 @@ Antes de terminar qualquer tarefa: `./mvnw verify`, e cole a saída real. Compil
   O `DrenadorOutboxJob` drena com `SKIP LOCKED` e backoff exponencial (30s, 1min, 2min, 4min, 8min;
   `maximo-tentativas: 5`), e o `DespachanteAlerta` grava uma linha em `alerta` — destino provisório
   até o push real do mobile. O consumidor tem de tolerar duplicata, porque a entrega não é
-  exactly-once. **Mas NÃO diga que é at-least-once**: na quinta falha o evento sai do predicado do
-  lote e nunca mais é tentado, sem carta-morta, sem endpoint e sem métrica — zero entregas, e
-  ninguém fica sabendo. Ver Pendência #1 do `CLAUDE.md` da raiz.
+  exactly-once. **E continua NÃO sendo at-least-once**: na quinta falha o evento sai do predicado do
+  lote e o drenador não o tenta mais sozinho. O que mudou no ADR 0031 é que ele deixou de ser
+  invisível — `GET /admin/outbox/esgotados` o lista com a causa, e
+  `POST /admin/outbox/{id}/reenfileirar` o devolve ao lote, de onde **este mesmo drenador** o
+  despacha. Reenfileirar zera `tentativas` e PRESERVA `ultimo_erro`; evento já publicado é 409;
+  evento ainda em backoff é no-op, porque atropelar o backoff não é o que aquele endpoint faz.
+  A perda virou detectável, não impossível: nada avisa que há evento esgotado, e a recuperação
+  depende de alguém consultar.
 - Cache de proximidade (`CacheMissoesProximas`, Caffeine, TTL 30s, chave por geohash de precisão 7 +
   raio + categoria + limite) é invalidado **depois do commit**, via
   `TransactionSynchronization.afterCommit` — invalidar dentro da transação deixaria uma leitura

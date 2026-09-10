@@ -32,20 +32,25 @@ import java.util.UUID;
  *
  * <p><b>A entrega é limitada, não é at-least-once.</b> {@code DrenadorOutboxService} tenta no
  * máximo {@code app.outbox.maximo-tentativas} vezes (5 hoje); depois disso o predicado do lote
- * ({@code OutboxRepository.buscarPendentesParaPublicar}) deixa de enxergar a linha e o evento
- * <b>nunca mais é tentado</b>. Ele fica na tabela, com {@code publicado_em} nulo e {@code
- * ultimo_erro} preenchido, e <b>nada o mostra</b>: não há consulta de esgotados, não há endpoint de
- * administração, não há métrica. O único vestígio é o {@code log.warn} da última falha.
+ * ({@code OutboxRepository.buscarPendentesParaPublicar}) deixa de enxergar a linha e o drenador
+ * <b>não a tenta mais por conta própria</b>. Ela fica na tabela, com {@code publicado_em} nulo,
+ * {@code tentativas} no teto e {@code ultimo_erro} preenchido.
  *
- * <p>Na prática: um {@code MissaoConcluida} que o despachante não consiga tratar cinco vezes some,
- * o executor recebeu o crédito e nunca é avisado, e não existe lugar onde isso apareça. Este
- * javadoc já prometeu "retry até conseguir" e entrega "at-least-once" — as duas afirmações eram
- * falsas, e foram corrigidas em 2026-08-20 (ver docs/auditoria/varredura-orfaos.md §1.1 e, no
- * CLAUDE.md, a pendência "A outbox abandona evento em silêncio, e não há carta-morta"). A
- * carta-morta visível continua NÃO existindo.
+ * <p><b>O que mudou em 2026-09-10 (ADR 0031):</b> essa linha deixou de ser invisível. {@code GET
+ * /api/v1/admin/outbox/esgotados} a lista com a causa, e {@code POST
+ * /api/v1/admin/outbox/{id}/reenfileirar} a devolve ao predicado do lote — de onde este mesmo
+ * drenador a despacha, sem atalho. <b>Isso NÃO torna a entrega at-least-once</b>, e a distinção
+ * importa: o teto de cinco tentativas continua igual, e a recuperação depende de <b>alguém
+ * consultar</b>. Não há push, badge nem métrica avisando que há evento esgotado — é consulta ativa,
+ * com o mesmo modo de falha do endpoint de reconciliação. A perda deixou de ser silenciosa; não
+ * virou entrega garantida.
  *
- * <p>Uma QUARTA ocorrência da mesma frase sobreviveu àquela varredura e só caiu em 2026-09-09: a
- * descrição OpenAPI de {@code AlertaController.listar}, que é contrato publicado. Ela escapou
+ * <p>Na prática: um {@code MissaoConcluida} que o despachante não consiga tratar cinco vezes para
+ * de ser tentado, o executor recebeu o crédito e não foi avisado — e agora existe um lugar onde
+ * isso aparece. Este javadoc já prometeu "retry até conseguir" e entrega "at-least-once"; as duas
+ * afirmações eram falsas e foram corrigidas em 2026-08-20 (ver docs/auditoria/varredura-orfaos.md
+ * §1.1). Uma QUARTA ocorrência da mesma frase sobreviveu àquela varredura e só caiu em 2026-09-09:
+ * a descrição OpenAPI de {@code AlertaController.listar}, que é contrato publicado. Ela escapou
  * porque a varredura conferiu comentários e aquela morava numa string de anotação — vale lembrar ao
  * procurar a próxima.
  *

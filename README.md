@@ -134,12 +134,16 @@ com `integro=true` em todos os pontos
 por um humano** — não tem transportadora, logo não tem patrocinador a debitar. Ela é `FontePote
 .CUNHAGEM`, declarada na linha da missão em vez de escondida num `if` ([ADR 0024 §8](docs/adr/0024-carteira-de-patrocinador.md)).
 
-E três armadilhas diagnosticadas seguem abertas, cada uma pelo motivo escrito na seção final do
-[`CLAUDE.md`](CLAUDE.md): a **outbox abandona evento em silêncio** depois de cinco tentativas, sem
-carta-morta; **nada acha pote imobilizado** em missão parada — a mitigação que existe é preventiva,
-não detectiva; e o **alerta de ponto lotado não tem teto nem deduplicação**, o que o teste de carga
-mostrou em 631 linhas idênticas. As três estão registradas como decisão pendente, não como
-esquecimento — fechá-las muda contrato.
+E duas armadilhas diagnosticadas seguem abertas, cada uma pelo motivo escrito na seção final do
+[`CLAUDE.md`](CLAUDE.md): **nada acha pote imobilizado** em missão parada — a mitigação que existe é
+preventiva, não detectiva; e o **alerta de ponto lotado não tem teto nem deduplicação**, o que o
+teste de carga mostrou em 631 linhas idênticas. As duas estão registradas como decisão pendente, não
+como esquecimento — fechá-las muda contrato.
+
+A terceira era a **outbox abandonando evento em silêncio** depois de cinco tentativas, e ela fechou
+em 2026-09-10 ([ADR 0031](docs/adr/0031-carta-morta-da-outbox.md)): o evento esgotado passou a ser
+listável e reenfileirável por ADMIN, pelo mesmo drenador de sempre. **O teto de cinco tentativas não
+mudou** — a entrega continua não sendo at-least-once, e a recuperação depende de alguém consultar.
 
 ## AI Logistics Extension
 
