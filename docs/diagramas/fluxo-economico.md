@@ -37,25 +37,29 @@ flowchart TB
 
     tribo["TRIBO"] --> conserva
     coleta["COLETA"] --> conserva
-    entrega["ENTREGA"] --> cunha
-    ajuda["AJUDA"] --> cunha
+    ajuda["AJUDA<br/><i>ADR 0025</i>"] --> conserva
+    entregaW["ENTREGA<br/>de entrega falida<br/><i>fonte_pote=PATROCINADOR</i>"] --> conserva
+    entregaH["ENTREGA<br/>criada por humano<br/><i>fonte_pote=CUNHAGEM</i>"] --> cunha
 
-    patro["🏢 Carteira de patrocinador<br/><b>NÃO IMPLEMENTADA</b>"]
-    patro -.->|"aresta que fecha o ciclo<br/>(Pendência #1)"| pote
+    patro["🏢 Carteira de patrocinador<br/>APORTE_PATROCINADOR<br/><i>único ponto de emissão</i>"]
+    emite(("∅")) -->|"POST /admin/patrocinadores/{id}/aportes"| patro
+    patro -->|"FINANCIAMENTO_PATROCINADOR<br/>na própria conversão"| pote
 
     exec1 --> resgate["🎁 Resgate em benefício<br/>de parceiro do bairro"]
     exec2 --> resgate
-    resgate -.->|"sumidouro real<br/><b>ainda não existe no backend</b>"| nada2(("∅"))
+    resgate -->|"POST /resgates · motivo RESGATE<br/><b>QUEIMA — sem contraparte</b>"| nada2(("∅"))
 
     style cunha fill:#fff1f0,stroke:#c0392b
     style conserva fill:#eefaf3,stroke:#1f6f4a
-    style patro fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+    style patro fill:#fff1f0,stroke:#c0392b
     style resgate fill:#fdf6e3,stroke:#b58900
 ```
 
 ## O que o diagrama admite
 
-**As duas arestas tracejadas são o que falta**, e estão desenhadas de propósito.
+**As duas lacunas que este diagrama registrava foram FECHADAS**, e a seção continua aqui porque a
+razão de cada uma explica o desenho atual. (Até 2026-09-09 o diagrama acima ainda desenhava as duas
+como tracejadas e inexistentes, contradizendo o texto logo abaixo, que já dizia o contrário.)
 
 **1. O patrocinador não existia — e passou a existir.** Até 2026-08-20, ENTREGA e AJUDA cunhavam.
 Medido do zero em 2026-08-16: um ciclo AJUDA aumentou `SUM(saldos) + SUM(potes)` em exatamente o
@@ -77,19 +81,32 @@ virou um ponto só, `APORTE_PATROCINADOR`. Medição de 2026-08-22: **Δ=0 nas q
 O que **ainda** cunha é ENTREGA criada por humano — sem transportadora, não há patrocinador a
 debitar. Ela é `FontePote.CUNHAGEM`, declarada na linha da missão.
 
-**2. O resgate não tem sumidouro no backend.** O catálogo de benefícios é dado local do app: não há
-tabela de parceiro, endpoint, nem motivo `RESGATE` no ledger. Simular o débito no cliente produziria
-um saldo que o servidor desmente no primeiro `refetch` — a tela diz ao usuário que a baixa ainda não
-acontece.
+**2. O resgate não tinha sumidouro no backend — e passou a ter.** Enquanto o catálogo de benefícios
+era dado local do app, não havia tabela de parceiro, endpoint nem motivo `RESGATE` no ledger, e
+simular o débito no cliente produziria um saldo que o servidor desmente no primeiro `refetch`.
 
-## O multiplicador de risco amplia a cunhagem — de forma limitada e deliberada
+**Hoje existe.** `POST /api/v1/resgates` ([ADR 0027](../adr/0027-resgate-queima-token.md)) debita com
+motivo `RESGATE` e **não credita ninguém** — sem contraparte, sem missão. É a ponta de BAIXA da
+conservação, simétrica ao `APORTE_PATROCINADOR`: a soma `SUM(saldos) + SUM(potes)` sobe numa e desce
+na outra, e é constante entre as duas. Por isso a conservação é de CICLO, não de estoque.
+
+## O multiplicador de risco NÃO amplia a cunhagem — e essa frase já esteve invertida aqui
 
 Missão nascida de entrega falida recebe multiplicador ∈ **[1,00; 1,50]**, congelado na linha junto
-com `versao_formula`. Como ENTREGA cunha, risco alto cunha até 1,5× o que cunharia.
+com `versao_formula`.
 
-**É exatamente por causa da Pendência #1 que o teto é estreito**, existe em dois blocos de
-configuração e tem um teste (`CoerenciaTetoRiscoTest`) travando a concordância entre eles. Sem teto,
-o risco multiplicaria a emissão sem financiador.
+Até 2026-09-09 esta seção dizia "como ENTREGA cunha, risco alto cunha até 1,5× o que cunharia".
+**Isso deixou de valer com a V23.** O multiplicador só é produzido no caminho do webhook, e toda
+missão desse caminho é `fonte_pote = PATROCINADOR` — paga do pote da transportadora. A ENTREGA que
+cunha é a criada por humano, e essa nunca é avaliada: recebe 1,00. **Nenhuma missão que cunha recebe
+multiplicador.**
+
+O teto continua estreito, existe em dois blocos de configuração e tem um teste
+(`CoerenciaTetoRiscoTest`) travando a concordância entre eles — mas hoje o que ele limita é **quanto
+a transportadora paga por conversão**, não a emissão. E o excedente não vira token do nada: um
+multiplicador que estoure o saldo do patrocinador faz `debitarPatrocinador` devolver vazio, e a
+entrega falida vira SEM_PATROCINIO em vez de missão. O valor 1,50 não foi mexido junto com esta
+correção — mudá-lo é recalibrar fórmula e exige subir `versao`.
 
 O multiplicador entra na **BASE** do cálculo, junto da complexidade — nunca sobre o total.
 Multiplicar o total escalaria também distância, peso e volume, e a recompensa explodiria de forma
@@ -100,7 +117,7 @@ não linear no caso extremo.
 ```mermaid
 flowchart LR
     R["<b>RECONCILIAÇÃO</b><br/>por carteira:<br/>saldo == SUM(lançamentos)<br/><br/>✅ tem endpoint<br/>GET /admin/carteiras/reconciliacao"]
-    C["<b>CONSERVAÇÃO</b><br/>no sistema:<br/>SUM(saldos) + SUM(potes) constante<br/><br/>❌ não tem endpoint"]
+    C["<b>CONSERVAÇÃO</b><br/>no ciclo de missões:<br/>SUM(saldos) + SUM(potes) constante<br/>sobe no APORTE · desce no RESGATE<br/><br/>❌ não tem endpoint"]
     R -.->|"cunhar escreve OS DOIS LADOS,<br/>então isto continua verde"| C
     style R fill:#eefaf3,stroke:#1f6f4a
     style C fill:#fff1f0,stroke:#c0392b

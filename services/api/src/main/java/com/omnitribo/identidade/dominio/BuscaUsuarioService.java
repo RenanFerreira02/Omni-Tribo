@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Busca de vizinho por handle EXATO, dentro da própria tribo.
  *
- * <p>Fecha a Pendência #3: a tela de transferência pedia o UUID do destinatário como texto —
+ * <p>Fecha a pendência da tela de transferência, que pedia o UUID do destinatário como texto —
  * funcionava e era inutilizável, porque ninguém sabe o próprio UUID, muito menos o do vizinho.
  *
  * <h2>Por que busca exata e não listagem</h2>

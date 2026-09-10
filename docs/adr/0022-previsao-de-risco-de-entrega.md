@@ -81,9 +81,19 @@ O score vira multiplicador linear da recompensa em TOKEN, limitado a **[1,00; 1,
 `missao.multiplicador_risco` junto com `versao_formula` — a coluna existe reservada desde a V16
 exatamente para isto. `app.missoes.recompensa.versao` sobe para **3**.
 
-**O teto é estreito por causa da Pendência #1.** Missões de ENTREGA ainda CUNHAM token — não pagam de
-pote — porque o financiador correto delas é o patrocinador, que não existe. Sem teto, o multiplicador
-multiplicaria essa cunhagem pelo risco. Com ele, a ampliação é limitada, conhecida e documentada. O
+~~**O teto é estreito por causa da Pendência #1.** Missões de ENTREGA ainda CUNHAM token — não pagam
+de pote — porque o financiador correto delas é o patrocinador, que não existe. Sem teto, o
+multiplicador multiplicaria essa cunhagem pelo risco.~~ **Retificado em 2026-09-09.** Era verdade
+quando escrito e deixou de ser com a V23 / [ADR 0024](0024-carteira-de-patrocinador.md). O
+multiplicador só é produzido no caminho do webhook (`WebhookTransportadoraController.avaliarRisco`),
+e toda missão desse caminho nasce `fonte_pote = PATROCINADOR`, pagando do pote financiado pela
+transportadora. A ENTREGA que ainda cunha é a criada por HUMANO, e essa nunca é avaliada: recebe o
+multiplicador neutro 1,00. **Nenhuma missão que cunha recebe multiplicador.** O teto continua
+defensável, por outra razão — limita quanto a transportadora paga por conversão, não a emissão —, e
+o excedente não some: multiplicador alto demais faz `debitarPatrocinador` devolver vazio e a entrega
+vira SEM_PATROCINIO. O valor **1,50 não foi alterado** nesta retificação: mexer nele é recalibração
+de fórmula e exigiria subir `versao` (ver `CalculadoraDeRecompensaTest.douradoV1`). Revisar o teto
+sob a razão nova segue em aberto. Com ele, a ampliação é limitada, conhecida e documentada. O
 teto vive em DOIS blocos de configuração (`logistica.risco` e `missoes.recompensa`) de propósito:
 recalibrar o modelo não deve conseguir, sozinho, ampliar a emissão de token. `CoerenciaTetoRiscoTest`
 falha se divergirem.

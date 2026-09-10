@@ -9,8 +9,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * <p><b>Por que passou a ser necessário.</b> Vários testes montavam um JWT válido para um {@code
  * UUID.randomUUID()} sem linha em {@code usuario} — o token era bem assinado, o filtro autenticava
  * só com base na assinatura, e o teste seguia para o 400/404/422 que queria medir. Isso funcionava
- * porque a autenticação nunca perguntava ao banco se a conta existia, que é exatamente a Pendência
- * #3. Com {@code ConsultaSessao} no {@code JwtAuthFilter}, esses tokens passaram a receber 401.
+ * porque a autenticação nunca perguntava ao banco se a conta existia, que é exatamente o defeito da
+ * conta anonimizada que seguia escrevendo por 15 minutos, resolvido na verificação de 2026-08-11.
+ * Com {@code ConsultaSessao} no {@code JwtAuthFilter}, esses tokens passaram a receber 401.
  *
  * <p>Esses testes não estavam errados no que mediam; estavam apoiados num atalho que era o defeito.
  * A correção é dar a eles um usuário de verdade, não afrouxar a assertion.

@@ -25,6 +25,14 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Fecha o lado de LEITURA da outbox: o {@code DespachanteAlertaService} escrevia em {@code
  * alerta} desde a F7 e ninguém lia — a caixa existia e era invisível. Nenhuma rota aqui aceita
  * identificador de usuário; o dono sai sempre do JWT.
+ *
+ * <p><b>A descrição OpenAPI do {@code GET} é contrato PUBLICADO</b> (/v3/api-docs e Swagger UI), e
+ * por isso está sujeita à mesma regra dos comentários: não repita "at-least-once" aqui. Esta
+ * descrição afirmou exatamente isso até 2026-09-09 — a varredura de 2026-08-20 corrigiu a frase em
+ * três comentários e não alcançou esta, porque procurou em comentários e ela mora numa string de
+ * anotação. Era a pior das quatro ocorrências: orientava o cliente a se defender de DUPLICATA
+ * quando o risco real da outbox é PERDA silenciosa. Ver {@link
+ * com.omnitribo.compartilhado.api.PublicadorEventos}, seção "O LIMITE desta garantia".
  */
 @RestController
 @RequestMapping("/api/v1/alertas")
@@ -44,8 +52,11 @@ public class AlertaController {
       summary = "Listar notificações",
       description =
           "Paginado, do mais recente para o mais antigo. Use apenasNaoLidos=true para a visão de "
-              + "pendências. A entrega da outbox é at-least-once, então o cliente deve tolerar "
-              + "duplicata — o par (tipo, missaoId) identifica o fato.")
+              + "pendências. A entrega NÃO é at-least-once: o drenador da outbox desiste após 5 "
+              + "tentativas e o evento é abandonado sem aviso, então esta caixa pode não conter um "
+              + "fato que ocorreu — não a trate como registro completo do que aconteceu com o "
+              + "usuário. Duplicata continua possível (uma tentativa pode entregar e falhar ao "
+              + "marcar), e o par (tipo, missaoId) identifica o fato para deduplicar.")
   @ApiResponses({
     @ApiResponse(responseCode = "200", description = "Página da caixa de entrada"),
     @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),

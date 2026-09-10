@@ -19,9 +19,9 @@ import org.springframework.test.web.servlet.MockMvc;
 /**
  * {@code GET /api/v1/usuarios/busca} — encontrar o vizinho pelo {@code @}, sem digitar UUID.
  *
- * <p>Fecha a Pendência #3 sem reabrir a decisão que o {@code TriboController} registra: não há
- * listagem de membros, porque ela daria a qualquer autenticado um mapa social do bairro — e, como a
- * transferência é restrita à mesma tribo, esse mapa seria uma lista de alvos.
+ * <p>Fecha a pendência da busca por handle sem reabrir a decisão que o {@code TriboController}
+ * registra: não há listagem de membros, porque ela daria a qualquer autenticado um mapa social do
+ * bairro — e, como a transferência é restrita à mesma tribo, esse mapa seria uma lista de alvos.
  *
  * <p><b>O teste central deste arquivo é o da INDISTINGUIBILIDADE</b>: handle inexistente e handle
  * de outra tribo têm de produzir respostas iguais. Se divergirem, o endpoint vira oráculo de

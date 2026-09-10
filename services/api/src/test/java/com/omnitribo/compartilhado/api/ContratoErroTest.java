@@ -44,8 +44,9 @@ class ContratoErroTest extends TesteIntegracaoMvcBase {
   /**
    * Usuário REAL. Antes o token era emitido para um {@code UUID.randomUUID()} sem linha em {@code
    * usuario}, e passava porque a autenticação só conferia a assinatura — o mesmo atalho que deixava
-   * conta anonimizada escrever por 15 minutos (Pendência #3). Com {@code ConsultaSessao} no filtro,
-   * aquele token vira 401 e nenhum dos contratos de 400/404 abaixo seria alcançado.
+   * conta anonimizada escrever por 15 minutos, defeito resolvido na verificação de 2026-08-11. Com
+   * {@code ConsultaSessao} no filtro, aquele token vira 401 e nenhum dos contratos de 400/404
+   * abaixo seria alcançado.
    */
   private UUID usuario;
 
