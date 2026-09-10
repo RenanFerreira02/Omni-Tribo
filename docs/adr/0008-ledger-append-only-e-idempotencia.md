@@ -7,6 +7,16 @@
 > [`0007-consultas-geoespaciais-centralizadas.md`](./0007-consultas-geoespaciais-centralizadas.md),
 > da fase de geolocalização, que corre em branch paralela.
 
+> **RETIFICAÇÃO (2026-09-10) — "at-least-once" está errado neste ADR, em três lugares.** O §5 e as
+> Consequências afirmam que a outbox dá **entrega at-least-once**. Nunca deu: `DrenadorOutboxService`
+> para em `app.outbox.maximo-tentativas` (5) e a linha sai do predicado do lote, então um evento que
+> esgote as tentativas tem **zero** entregas. A decisão de fundo — outbox transacional em vez de
+> broker — continua válida e é o que este ADR existe para registrar; o que estava errado é o nome da
+> garantia. A entrega **pode repetir** (por isso o consumidor precisa ser idempotente, e essa parte
+> do texto vale) e **pode não acontecer**. O [ADR 0031](./0031-carta-morta-da-outbox.md) tornou o
+> evento esgotado visível e reenfileirável por ADMIN, o que faz a perda ser **detectável** — não
+> impossível. O texto abaixo fica como estava, para não reescrever a história.
+
 ---
 
 ## Contexto

@@ -10,6 +10,54 @@ Uma entrada por **fase** do projeto — a numeração de fases é a de
 
 ---
 
+## [Não lançado] — 2026-09-10 · A outbox para de perder evento em silêncio
+
+### Corrigido
+
+- **Carta-morta da outbox** ([ADR 0031](docs/adr/0031-carta-morta-da-outbox.md)). Fecha a primeira
+  das três armadilhas que a v1.0 registrou como abertas por decisão de contrato. `DrenadorOutboxService`
+  para na 5ª falha e a linha some do predicado do lote — mas não da tabela. Ela era **invisível**:
+  nenhuma consulta, nenhum endpoint, nenhuma métrica, só um `log.warn` que ninguém coleta porque
+  Prometheus e Grafana foram cortados do MVP. Um `MissaoConcluida` nessa condição significa executor
+  creditado e nunca avisado.
+  - `GET /api/v1/admin/outbox/esgotados` — paginado, com `ultimo_erro`. O `payload` **não** vem:
+    carrega coordenada de endereço residencial.
+  - `POST /api/v1/admin/outbox/{id}/reenfileirar` — zera `tentativas`, preserva `ultimo_erro`,
+    devolve a linha ao lote. **Não despacha:** quem entrega continua sendo o mesmo
+    `DrenadorOutboxService`, e um teste de integração trava justamente essa ordem.
+  - Idempotente por **estado da linha**, sob `FOR UPDATE`, sem `Idempotency-Key` — a chave existe
+    para impedir uma segunda LINHA no ledger, e aqui não há linha a criar. Repetir devolve
+    `reenfileirado:false`; evento em backoff é no-op; evento já entregue é 409.
+  - **Sem migration.** As quatro colunas usadas existem desde a V7 e a V14.
+  - `@Auditavel(acao="OUTBOX_REENFILEIRADA")` mais `RecursoAuditavel` — as duas metades, com teste
+    conferindo que `entidade_id` chega preenchido no banco.
+- **O `log.warn` da última falha virou `log.error` com texto próprio.** "Falhou e vai tentar de novo"
+  e "parou de tentar" eram a mesma linha de log; agora são duas, e a segunda nomeia o endpoint.
+- **Cinco textos deixaram de descrever a lacuna e passaram a descrever o instrumento** —
+  `PublicadorEventos`, `DespachanteAlertaService`, `EntregaFalidaService`, a descrição OpenAPI de
+  `AlertaController` (contrato publicado) e `application.yml`. **Nenhum passou a prometer
+  at-least-once**, e isso é deliberado: o teto de 5 tentativas não mudou, e a recuperação depende de
+  alguém consultar. Trocamos perda silenciosa por perda detectável, não por entrega garantida.
+- **Um teste de concorrência que não podia falhar.** Achado na revisão da própria suíte desta
+  entrega: `catch (Exception e)` dentro da tarefa submetida ao pool engolia o `AssertionError` de
+  `andExpect(status().isOk())`, e o `Future` nunca era inspecionado. Trocando o `FOR UPDATE` do
+  endpoint por SKIP LOCKED, 9 de 10 requisições recebiam 404 e a suíte ficava verde. Corrigido com
+  `catch (Throwable)` mais coleta de status por thread. **O mesmo formato está em outros dez
+  arquivos de teste do projeto e não foi auditado** — ver as Notas de manutenção do
+  [`docs/PROGRESSO.md`](docs/PROGRESSO.md).
+- **Mais OITO ocorrências de "at-least-once" foram achadas vivas, e as duas varreduras anteriores
+  não pegaram nenhuma.** Elas estavam fora do lugar onde se procurou: um diagrama
+  (`sequencia-ciclo-missao.md` ⑩), quatro javadocs/comentários que usam o termo como atalho para
+  "pode repetir" (`BaixaCustodia`, `PontoCustodia.registrarSaida`, `MissaoService` na baixa de
+  custódia, `AlertaRepository`), um comentário de teste, e **duas no
+  `docs/qualidade/integridade-transacional.md`** — que é documento de defesa oral e ainda carregava
+  a frase original *"retry até conseguir"*. Em todas, o argumento construído em cima do termo estava
+  CERTO (a entrega pode repetir); errado era o nome da garantia. O
+  [ADR 0008](docs/adr/0008-ledger-append-only-e-idempotencia.md), onde a afirmação nasceu, recebeu
+  **retificação** em vez de reescrita.
+
+---
+
 ## [v1.0] — 2026-08-25 · A economia fecha o ciclo
 
 **Primeira entrada com rótulo de versão, e não de fase.** As anteriores são por fase, e continuam

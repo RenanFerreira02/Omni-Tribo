@@ -10,10 +10,10 @@ import java.util.UUID;
  * encomenda chega, a outra libera a vaga quando ela sai.
  *
  * <p><b>Chamada de dentro da transação da conclusão</b>, junto com o crédito da recompensa. Passar
- * isto pela outbox seria mais desacoplado e estaria errado: a entrega é at-least-once, e um
- * decremento de ocupação redespachado liberaria uma vaga que nunca existiu — erro que só apareceria
- * muito depois, quando um ponto aceitasse mais encomendas do que cabe. Crédito e baixa commitam
- * juntos ou não commitam.
+ * isto pela outbox seria mais desacoplado e estaria errado: a entrega pela outbox pode REPETIR, e
+ * um decremento de ocupação redespachado liberaria uma vaga que nunca existiu — erro que só
+ * apareceria muito depois, quando um ponto aceitasse mais encomendas do que cabe. Crédito e baixa
+ * commitam juntos ou não commitam.
  */
 public interface BaixaCustodia {
 
