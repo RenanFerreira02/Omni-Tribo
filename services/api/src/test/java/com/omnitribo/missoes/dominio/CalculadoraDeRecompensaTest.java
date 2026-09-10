@@ -99,8 +99,11 @@ class CalculadoraDeRecompensaTest {
    * valia. Uma mudança de fórmula que reprecificasse silenciosamente o que já existia seria
    * indefensável.
    *
-   * <p>O teto de 1,50 é estreito porque ENTREGA ainda CUNHA token (Pendência #1): sem financiador,
-   * cada ponto de multiplicador vira emissão nova. Ver ADR 0022.
+   * <p>O teto de 1,50 é estreito, mas não mais pela razão que este comentário deu até 2026-09-09
+   * ("ENTREGA ainda cunha, e cada ponto de multiplicador vira emissão nova"). Desde a V23 só o
+   * webhook produz multiplicador e essas missões pagam do pote do PATROCINADOR; a ENTREGA que cunha
+   * é a criada por humano, que recebe 1,00. O teto limita o custo da transportadora, não a emissão.
+   * Ver ADR 0022 e {@code PrevisorDeRisco.multiplicadorDe}.
    */
   private static final ParametrosRecompensa V3 =
       new ParametrosRecompensa(

@@ -258,12 +258,13 @@ class LgpdControllerTest extends TesteIntegracaoMvcBase {
   /**
    * Depois da anonimização, o MESMO access token para de funcionar — 401, no filtro.
    *
-   * <p>Este é o teste da Pendência #3, e ele mudou de 404 para 401 porque a correção mudou a
-   * CAMADA. Antes, o token continuava autenticando pelos 15 minutos de TTL e só o {@code
-   * PerfilService} recusava, com 404; qualquer endpoint que não tivesse esse filtro próprio seguia
-   * escrevendo — foi medido, {@code POST /api/v1/missoes} respondia 201 com {@code criadorId} do
-   * usuário já apagado. Agora o {@code JwtAuthFilter} consulta o estado da conta e a requisição não
-   * chega a controller nenhum, seja qual for.
+   * <p>Este é o teste da conta anonimizada que seguia escrevendo por 15 minutos (defeito resolvido
+   * na verificação de 2026-08-11), e ele mudou de 404 para 401 porque a correção mudou a CAMADA.
+   * Antes, o token continuava autenticando pelos 15 minutos de TTL e só o {@code PerfilService}
+   * recusava, com 404; qualquer endpoint que não tivesse esse filtro próprio seguia escrevendo —
+   * foi medido, {@code POST /api/v1/missoes} respondia 201 com {@code criadorId} do usuário já
+   * apagado. Agora o {@code JwtAuthFilter} consulta o estado da conta e a requisição não chega a
+   * controller nenhum, seja qual for.
    *
    * <p>O {@code .filter(u -> !u.anonimizado())} de {@code PerfilService} continua lá, e passa a ser
    * defesa em profundidade: inalcançável por HTTP, mas correta se alguém chamar o serviço direto.
@@ -361,8 +362,9 @@ class LgpdControllerTest extends TesteIntegracaoMvcBase {
    *
    * <p>A propriedade testada continua a mesma; o que mudou é COMO ela é observável. Antes as duas
    * chamadas devolviam 204, e o no-op idempotente do serviço era visível por HTTP — mas só porque o
-   * token de uma conta já anonimizada continuava autenticando, que é exatamente o defeito da
-   * Pendência #3. Com a sessão barrada no filtro, a segunda chamada é 401.
+   * token de uma conta já anonimizada continuava autenticando, que é exatamente o defeito da o
+   * defeito da conta anonimizada, resolvido em 2026-08-11. Com a sessão barrada no filtro, a
+   * segunda chamada é 401.
    *
    * <p>Então o teste passa a afirmar o que de fato importa: a segunda passagem <b>não regerou</b>
    * e-mail nem handle. Se o {@code if (usuario.anonimizado()) return;} sumisse do serviço e a

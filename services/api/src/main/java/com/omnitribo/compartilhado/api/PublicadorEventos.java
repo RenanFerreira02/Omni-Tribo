@@ -40,8 +40,14 @@ import java.util.UUID;
  * <p>Na prática: um {@code MissaoConcluida} que o despachante não consiga tratar cinco vezes some,
  * o executor recebeu o crédito e nunca é avisado, e não existe lugar onde isso apareça. Este
  * javadoc já prometeu "retry até conseguir" e entrega "at-least-once" — as duas afirmações eram
- * falsas, e foram corrigidas em 2026-08-20 (ver docs/auditoria/varredura-orfaos.md §1.1 e a
- * Pendência #4 do CLAUDE.md). A carta-morta visível continua NÃO existindo.
+ * falsas, e foram corrigidas em 2026-08-20 (ver docs/auditoria/varredura-orfaos.md §1.1 e, no
+ * CLAUDE.md, a pendência "A outbox abandona evento em silêncio, e não há carta-morta"). A
+ * carta-morta visível continua NÃO existindo.
+ *
+ * <p>Uma QUARTA ocorrência da mesma frase sobreviveu àquela varredura e só caiu em 2026-09-09: a
+ * descrição OpenAPI de {@code AlertaController.listar}, que é contrato publicado. Ela escapou
+ * porque a varredura conferiu comentários e aquela morava numa string de anotação — vale lembrar ao
+ * procurar a próxima.
  *
  * <h2>Por que é uma interface</h2>
  *

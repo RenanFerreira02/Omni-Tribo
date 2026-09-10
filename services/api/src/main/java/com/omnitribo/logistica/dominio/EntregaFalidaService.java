@@ -62,7 +62,8 @@ public class EntregaFalidaService {
    * <p>Tipo PRÓPRIO, e o {@code DespachanteAlertaService} ganhou o case correspondente no mesmo
    * commit. Publicar um tipo que o despachante não conhece cairia no {@code default} que lança, e a
    * outbox tentaria cinco vezes antes de abandonar o evento em silêncio — sem carta-morta, sem
-   * métrica, sem endpoint. Ver Pendência #4 do CLAUDE.md.
+   * métrica, sem endpoint. Ver, no CLAUDE.md da raiz, a pendência "A outbox abandona evento em
+   * silêncio, e não há carta-morta".
    */
   public static final String EVENTO_SEM_PATROCINIO = "EntregaFalidaSemPatrocinio";
 

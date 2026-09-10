@@ -270,7 +270,8 @@ class MigracaoTest extends TesteIntegracaoBase {
   }
 
   /**
-   * A imutabilidade do ledger valendo em RUNTIME — a metade que faltava da Pendência #1.
+   * A imutabilidade do ledger valendo em RUNTIME — a metade que faltava do defeito do {@code
+   * REVOKE} inerte, resolvido na verificação de 2026-08-11.
    *
    * <p>O teste acima lê o catálogo; este usa o datasource DA APLICAÇÃO e tenta a operação de
    * verdade. A diferença entre os dois é toda a diferença entre uma proteção que existe e uma que

@@ -133,12 +133,25 @@ public final class PrevisorDeRisco {
    * <p>Linear e não uma curva: "o dobro do risco paga o dobro do adicional" é a única forma que se
    * explica numa frase, e qualquer curva exigiria defender o formato dela.
    *
-   * <p><b>O teto é estreito de propósito, e a razão é econômica.</b> Missões de ENTREGA hoje CUNHAM
-   * token — não pagam de pote — porque o financiador correto delas é o patrocinador, que ainda não
-   * existe (Pendência #1). Um multiplicador sem teto multiplicaria essa cunhagem pelo risco. Com o
-   * teto, a ampliação é limitada, conhecida e documentada, em vez de decidida por acidente. Piso ≥
-   * 1,0 garantido por {@link ParametrosRisco}: risco nunca REDUZ recompensa, o que inverteria a
-   * tese do produto.
+   * <p><b>O teto é estreito de propósito, mas a razão MUDOU com a V23 — e o número não.</b> A
+   * justificativa original era monetária: ENTREGA cunhava token na conclusão, e um multiplicador
+   * sem teto multiplicaria a cunhagem pelo risco. Isso não descreve mais o sistema. O multiplicador
+   * só é produzido no caminho do webhook ({@code WebhookTransportadoraController.avaliarRisco}), e
+   * toda missão desse caminho nasce {@code FontePote.PATROCINADOR} — paga do pote financiado pela
+   * transportadora. A que ainda cunha é a ENTREGA criada por HUMANO, e essa nunca passa por
+   * avaliação de risco: recebe o multiplicador neutro 1,00. <b>Nenhuma missão que cunha recebe
+   * multiplicador.</b>
+   *
+   * <p>Hoje o teto limita quanto a TRANSPORTADORA paga por uma conversão, não a emissão de moeda —
+   * e o excedente não some: um multiplicador alto demais faz {@code debitarPatrocinador} devolver
+   * vazio e a entrega vira SEM_PATROCINIO em vez de missão. Continua sendo um limite defensável,
+   * por outro motivo. Piso ≥ 1,0 garantido por {@link ParametrosRisco}: risco nunca REDUZ
+   * recompensa, o que inverteria a tese do produto.
+   *
+   * <p>(O valor 1,50 foi mantido na correção deste javadoc, em 2026-09-09, justamente porque mexer
+   * nele é recalibração de fórmula e exigiria subir {@code versao} — ver {@code
+   * CalculadoraDeRecompensaTest.douradoV1}. Revisar o teto sob a razão nova é decisão em aberto,
+   * não consequência desta correção.)
    */
   private static BigDecimal multiplicadorDe(double probabilidade, ParametrosRisco p) {
     double amplitude = p.multiplicadorMaximo() - p.multiplicadorMinimo();
