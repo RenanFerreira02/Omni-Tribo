@@ -122,7 +122,7 @@ public class PontoCustodia {
   /**
    * Registra a saída de uma encomenda — a missão de retirada concluiu e o pacote foi entregue.
    *
-   * <p>Piso em zero, e não é paranoia decorativa: a entrega da outbox é at-least-once, e um
+   * <p>Piso em zero, e não é paranoia decorativa: a entrega pela outbox pode REPETIR, e um
    * decremento redespachado levaria a ocupação a negativo. Negativo é pior do que parece, porque
    * `temVaga()` continuaria verdadeiro e o erro só apareceria como uma capacidade que cresce
    * sozinha. A baixa é síncrona hoje justamente para não depender disto.

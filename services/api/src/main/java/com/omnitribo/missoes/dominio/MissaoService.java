@@ -999,7 +999,7 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
     // Baixa da custódia: a encomenda saiu do ponto e a vaga volta a existir. No-op para toda missão
     // que não veio de entrega falida, que é a maioria.
     //
-    // SÍNCRONA, dentro desta transação, e não pela outbox. A outbox é at-least-once, e um
+    // SÍNCRONA, dentro desta transação, e não pela outbox. A entrega pela outbox pode REPETIR, e um
     // decremento de ocupação redespachado liberaria uma vaga que nunca existiu — divergência que só
     // apareceria muito depois, quando um ponto aceitasse mais encomendas do que cabe. Aqui, ou a
     // conclusão inteira commita, ou nada muda.

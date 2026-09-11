@@ -209,10 +209,12 @@ app:
   outbox:
     intervalo: PT10S             # varredura frequente: é latência de notificação, não de dados
     atraso-inicial: PT30S
-    # Depois da quinta falha o evento sai do predicado do lote e NUNCA mais é tentado. Não existe
-    # consulta, endpoint nem métrica que mostre um evento esgotado — ele fica na tabela, invisível.
-    # Este comentário já dizia "espera intervenção", e não havia com o que intervir — ver, no
-    # CLAUDE.md da raiz, a pendência "A outbox abandona evento em silêncio, e não há carta-morta".
+    # Depois da quinta falha o evento sai do predicado do lote e o drenador não o tenta mais por
+    # conta própria. Ele NÃO some: fica com publicado_em nulo e tentativas no teto, e é o que
+    # GET /api/v1/admin/outbox/esgotados lista — de onde um ADMIN pode devolvê-lo à fila (ADR 0031).
+    # Mudar este número muda os DOIS lados: a consulta lê a mesma chave, de propósito.
+    # Isto não torna a entrega at-least-once. O teto continua sendo 5, e a recuperação depende de
+    # alguém consultar: nada avisa que há evento esgotado.
     maximo-tentativas: 5
     backoff-base: PT30S          # exponencial: 30s, 1min, 2min, 4min, 8min
 

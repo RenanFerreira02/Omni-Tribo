@@ -61,9 +61,10 @@ public class EntregaFalidaService {
    *
    * <p>Tipo PRÓPRIO, e o {@code DespachanteAlertaService} ganhou o case correspondente no mesmo
    * commit. Publicar um tipo que o despachante não conhece cairia no {@code default} que lança, e a
-   * outbox tentaria cinco vezes antes de abandonar o evento em silêncio — sem carta-morta, sem
-   * métrica, sem endpoint. Ver, no CLAUDE.md da raiz, a pendência "A outbox abandona evento em
-   * silêncio, e não há carta-morta".
+   * outbox tentaria cinco vezes antes de parar de tentar. O evento não some mais em silêncio —
+   * desde o ADR 0031 ele aparece em {@code GET /api/v1/admin/outbox/esgotados} e pode ser
+   * reenfileirado —, mas aparecer lá depende de alguém consultar, e o alerta que ele viraria já
+   * perdeu a hora. Publicar tipo sem case continua sendo defeito, não inconveniente.
    */
   public static final String EVENTO_SEM_PATROCINIO = "EntregaFalidaSemPatrocinio";
 

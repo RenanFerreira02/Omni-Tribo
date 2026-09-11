@@ -100,9 +100,16 @@ anterior em vez de um 409 enganoso.
 e contada por inteiro em [`../EVOLUCAO-ARQUITETURAL.md`](../EVOLUCAO-ARQUITETURAL.md).
 
 **⑩ A baixa de custódia é SÍNCRONA, e é a única chamada de outro módulo que não passa pela outbox.**
-A outbox é *at-least-once*: um redespacho liberaria uma vaga que já foi liberada, e a ocupação do
-ponto viraria mentira. Liberar vaga precisa acontecer **exatamente uma vez**, então acompanha a
-transação.
+A entrega pela outbox pode **repetir**: um redespacho liberaria uma vaga que já foi liberada, e a
+ocupação do ponto viraria mentira. Liberar vaga precisa acontecer **exatamente uma vez**, então
+acompanha a transação.
+
+> Este parágrafo dizia *"a outbox é at-least-once"* até 2026-09-10, e era a **quinta** ocorrência da
+> mesma afirmação falsa — as varreduras de 2026-08-20 e 2026-09-09 acharam quatro e não alcançaram
+> esta, porque procuraram em comentários Java e em strings de anotação, não em `docs/diagramas/`. O
+> argumento do parágrafo nunca dependeu da palavra: o que ele precisa é que a entrega possa
+> REPETIR, e isso continua verdade. O que não é verdade é a garantia de que ela aconteça — o
+> drenador para na 5ª tentativa (ADR 0031).
 
 **⑪ A publicação na outbox é o último passo e roda na MESMA transação.** Se a conclusão der rollback,
 o anúncio não sobrevive; se commitar, o anúncio está durável e o drenador o entrega com retry. É o

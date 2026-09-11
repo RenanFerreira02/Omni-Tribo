@@ -51,11 +51,11 @@ public interface AlertaRepository extends JpaRepository<Alerta, UUID> {
   /**
    * Já existe este alerta para este usuário e esta missão?
    *
-   * <p>A entrega da outbox é at-least-once: um evento redespachado depois de uma falha parcial
-   * chega de novo aqui. Sem esta checagem o usuário receberia o alerta duplicado E o duplicado
-   * consumiria o teto por hora, o que faria uma falha transitória de infraestrutura silenciar
-   * notificações legítimas. Não há UNIQUE na tabela porque {@code alerta} também guarda avisos sem
-   * missão associada.
+   * <p>A entrega pela outbox pode REPETIR: um evento redespachado depois de uma falha parcial chega
+   * de novo aqui. Sem esta checagem o usuário receberia o alerta duplicado E o duplicado consumiria
+   * o teto por hora, o que faria uma falha transitória de infraestrutura silenciar notificações
+   * legítimas. Não há UNIQUE na tabela porque {@code alerta} também guarda avisos sem missão
+   * associada.
    */
   boolean existsByUsuarioIdAndTipoAndMissaoId(UUID usuarioId, String tipo, UUID missaoId);
 }

@@ -53,6 +53,113 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-09-10 — A carta-morta da outbox** — **a primeira das três pendências abertas por decisão
+  de contrato saiu, e o que ela NÃO resolveu é a parte que precisa ficar registrada.**
+
+  `DrenadorOutboxService` para na 5ª falha e a linha sai do predicado do lote. Ela nunca foi
+  apagada — ficava na tabela com `publicado_em` nulo, `tentativas` no teto e `ultimo_erro`
+  preenchido —, mas **nada a mostrava**: `OutboxRepository` tinha uma única query, não havia
+  endpoint nem métrica, e o único vestígio era um `log.warn` que ninguém coleta, porque Prometheus
+  e Grafana foram cortados do MVP de propósito. Um `MissaoConcluida` nessa condição é um executor
+  creditado e nunca avisado. Ver [ADR 0031](adr/0031-carta-morta-da-outbox.md).
+
+  - **A lacuna ficou aberta de propósito desde 2026-08-20**, quando a varredura de órfãos a
+    encontrou — não como bug novo, mas como **comentário falso**: três lugares afirmavam
+    "retry até conseguir", "at-least-once" e "espera intervenção", e um quarto (a descrição OpenAPI
+    de `AlertaController`, contrato publicado) só caiu em 2026-09-09. Os textos foram corrigidos na
+    época; o instrumento era decisão de projeto, porque muda o contrato de entrega.
+
+  - **Três opções foram postas na mesa, com a consequência negativa de cada uma**: só a consulta;
+    consulta mais reenfileiramento; ou aceitar a perda com um contador. O contador foi recusado por
+    um motivo concreto — sem Prometheus, `/actuator/metrics` é estado do processo em memória e
+    **zera a cada reinício**, e ele diria *quantos*, nunca *quais*.
+
+  - **Reenfileirar NÃO despacha, e é isso que torna a decisão defensável.** O endpoint só devolve a
+    linha ao predicado; quem entrega continua sendo o mesmo `DrenadorOutboxService`. Medido no
+    `curl` do ADR: entre o POST e a varredura o evento está na fila e **não** entregue, e o alerta
+    do executor só aparece depois que o drenador roda.
+
+  - **Sem migration e sem `Idempotency-Key`.** As colunas existem desde a V7 e a V14; a idempotência
+    é por ESTADO da linha, sob `FOR UPDATE` — a chave existe no projeto para impedir uma segunda
+    LINHA no ledger, e aqui não há linha a criar.
+
+  - **A consequência negativa medida:** o `AuditoriaAspecto` é `@AfterReturning`, então grava
+    também no no-op. Dois POSTs, **um** reenfileiramento real, **duas** linhas em `auditoria` — a
+    trilha não é uma contagem de reenfileiramentos, e o ADR diz isso em vez de deixar alguém supor
+    o contrário.
+
+  - **O que continua valendo:** o teto de 5 tentativas não mudou, a entrega **não** é at-least-once,
+    e nada avisa que há evento esgotado. É consulta ativa, com o mesmo modo de falha do endpoint de
+    reconciliação — só é olhado por quem já desconfia. Perda silenciosa virou perda detectável, e
+    nenhum dos cinco textos corrigidos pode dizer mais que isso.
+
+  - **Um `grep at-least-once` no repositório inteiro achou MAIS OITO ocorrências vivas, e as duas
+    varreduras anteriores não pegaram nenhuma delas.** A de 2026-08-20 procurou em comentários Java
+    (achou três) e a de 2026-09-09 em strings de anotação (achou a quarta). Nenhuma varreu `docs/`,
+    e nenhuma pegou os usos em que o termo aparece como **atalho para "pode repetir"** — que são a
+    maioria:
+
+    | Onde | Como aparecia |
+    |---|---|
+    | `docs/diagramas/sequencia-ciclo-missao.md` ⑩ | *"a outbox é at-least-once"* |
+    | `logistica/api/BaixaCustodia.java` | *"a entrega é at-least-once, e um decremento redespachado…"* |
+    | `logistica/dominio/PontoCustodia.registrarSaida` | *"a entrega da outbox é at-least-once"* |
+    | `missoes/dominio/MissaoService` (baixa de custódia) | *"A outbox é at-least-once"* |
+    | `notificacoes/infra/AlertaRepository` | *"A entrega da outbox é at-least-once"* |
+    | `EntregaFalidaCicloTest:240` | *"Simula o at-least-once"* |
+    | `docs/qualidade/integridade-transacional.md` ×2 | *"entrega at-least-once"* — **e ainda a frase ORIGINAL, "entrega com retry até conseguir"**, que o Java corrigiu em 2026-08-20 |
+
+    **Em todas, o argumento construído em cima do termo está CERTO** — a entrega pode repetir, logo
+    a baixa de custódia é síncrona e o alerta é deduplicado. Errado é o nome da garantia, que promete
+    também a metade que não existe. A correção trocou a garantia pela repetição em cada uma, sem
+    tocar no raciocínio. O `integridade-transacional.md` é o mais grave dos oito: é **documento de
+    defesa oral**, e afirmava numa seção chamada "O que esta fase NÃO garante" que a outbox *dá*
+    at-least-once.
+
+    O [ADR 0008](adr/0008-ledger-append-only-e-idempotencia.md), onde a afirmação nasceu, recebeu
+    **retificação no topo** em vez de reescrita — mesmo molde dos ADRs 0015 e 0022.
+
+    **Fica o método para a próxima varredura:** procurar a frase em `docs/` e não só em `services/`,
+    e procurar o termo usado como ATALHO, não só como promessa — foi assim que oito passaram por
+    duas auditorias.
+
+  - **A revisão da suíte achou um teste que NÃO PODIA FALHAR, e vale mais que o endpoint.** O
+    teste de concorrência usava `catch (Exception e)` dentro da tarefa submetida ao pool — e
+    `andExpect(status().isOk())` falha com `AssertionError`, que **não é** `Exception`. Com o
+    `Future` do `submit` nunca inspecionado, o erro sumia. A asserção
+    `as("nenhuma requisição pode falhar")` era lida como rede e era decoração: trocando o
+    `FOR UPDATE` do endpoint por SKIP LOCKED, **9 das 10 requisições recebiam 404** e a suíte
+    continuava verde. Hoje o teste captura `Throwable`, coleta o status de cada thread e exige as
+    dez respostas 200.
+
+    **Este formato está em outros dez arquivos de teste do projeto** — `ConclusaoConcorrenteTest`,
+    `SaqueConcorrenteTest`, `CarteiraConcorrenteTest`, `TransferenciaDeadlockTest`,
+    `MissaoAceiteConcorrenteTest`, `ResgateBeneficioTest`, `PatrocinadorAdminTest`,
+    `RefreshTokenFamiliaTest`, `FinanciamentoControllerTest` e `EntregaFalidaCicloTest`. **Não
+    foram auditados** (vários podem afirmar o status fora da thread), e o `CLAUDE.md` exige teste de
+    concorrência multi-thread em toda operação de valor — ou seja, é exatamente a linha em que a
+    rede pode estar furada nas outras. Fica como próximo passo, e não como parte desta entrega.
+
+  - **Dois off-by-one sobreviviam com 100% de branch no JaCoCo.** A suíte exercitava
+    `tentativas = 2` e `tentativas = <teto>`, nunca `teto - 1` — o único valor que distingue `>=` de
+    `>` deslocado por um. É o 49 m e 51 m do check-in outra vez. E o profile `mutacao` não alcança
+    `compartilhado.dominio` (`targetClasses` cobre só `missoes.dominio` e `carteira.dominio`), então
+    o PIT também não os veria: **cobertura cheia, mutação cega, dois defeitos vivos**. Se valer a
+    pena incluir `compartilhado.dominio` no PIT é decisão sua — os dois achados são
+    `CONDITIONALS_BOUNDARY`, exatamente o que ele pega.
+
+  - **A suíte foi sabotada em seis pontos para provar que tem dentes**, e as seis ficam vermelhas.
+    Tabela com o antes-e-depois no [ADR 0031](adr/0031-carta-morta-da-outbox.md), seção "A suíte foi
+    sabotada para provar que tem dentes". Três delas ficavam **verdes** antes da revisão.
+
+  - **Achado de ambiente, sem relação com a mudança:** o volume de dev desta máquina tem uma
+    `V28__remover_extensao_logistica` e uma `V907__seed_apoiadores` aplicadas em 2026-08-30 que **não
+    existem em nenhum ref do git**. O `spring-boot:run` no perfil `dev` morre no boot com *"Detected
+    applied migration not resolved locally: 28"*. É o mesmo formato das versões queimadas V9/V10, e a
+    consequência prática é que **um `V28__*.sql` novo em `db/migration` falharia neste banco** até um
+    `make reset`. A evidência de `curl` foi tirada contra um Postgres descartável em outra porta, em
+    vez de destruir o volume.
+
 - **2026-08-25 (1) — F12b** — **A última fase pendente fechou, e o achado não é um número de
   latência.**
 
