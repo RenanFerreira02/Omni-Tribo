@@ -283,6 +283,14 @@ feliz e de erro**.
 | 5.3 | **A ação `contestar` não tem teste** — é uma das 17 transições da máquina de estados | `MissaoController.contestar` (`:295`) 0/10 e `MissaoService.contestar` (`:584`) 0/8 |
 | 5.4 | **O caminho "ponto lotado → alerta global" nunca é exercido**, embora `V904__seed_entrega_falida_fixtures.sql` exista justamente para dar fixture aos caminhos do webhook | `DespachanteAlertaService.gravarPontoLotado` (`:259`) 0/35 |
 
+> **5.4 fechou em 2026-09-11** ([ADR 0033](../adr/0033-deduplicacao-do-alerta-operacional.md)).
+> `DespachanteAlertaOperacionalTest` é a primeira cobertura do caminho, e usa exatamente a fixture que
+> este achado dizia estar sem uso: o ponto lotado da V904. O achado acima **não foi reescrito** — ele
+> descreve o que a varredura mediu no dia. Vale registrar o que a correção encontrou junto: o
+> `@AfterEach` de `WebhookEntregaFalidaTest` apagava `PONTO_CUSTODIA_LOTADO` sem nunca drenar a
+> outbox, ou seja, limpava um alerta que não chegava a existir — um órfão que esta varredura não
+> pegou porque procurava código sem chamador, e não limpeza sem alvo.
+
 Também com 0% e sem teste, em ordem decrescente de tamanho: `GlobalExceptionHandler.handleIntegridade`
 (`:240`), `GlobalExceptionHandler.sqlState` (`:261`), `GlobalExceptionHandler.handleConflitoConcorrencia`
 (`:206`), `HmacWebhookFilter.responder429` (`:224`), `SecurityConfig.handler403` (`:286`),

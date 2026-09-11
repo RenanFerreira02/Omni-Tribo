@@ -270,6 +270,12 @@ app:
     # cinco entregas triviais chegando antes não silenciem a difícil pela hora seguinte — que é a que
     # mais precisa de alguém e a que paga melhor. Folga, não isenção.
     alertas-alta-prioridade-por-hora: 8
+    # Janela de deduplicação do alerta operacional GLOBAL (ponto lotado, entrega sem patrocínio).
+    # Uma linha por (tipo, referência, janela) — o teto acima é POR USUÁRIO e não alcança alerta de
+    # usuario_id nulo. Uma hora é a granularidade em que "este ponto vive cheio" já se lê na lista;
+    # o NÚMERO de recusas não mora aqui e não se perde: está em entrega_falida, lido por
+    # GET /admin/pontos-custodia/recusas. Ver ADR 0033.
+    janela-alerta-operacional: PT1H
 
   identidade:
     # Conquistas DERIVADAS de xp/nivel/streak — não há tabela. A FÓRMULA é código
