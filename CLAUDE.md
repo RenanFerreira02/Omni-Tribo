@@ -388,6 +388,15 @@ NÃO drenou (suspeite do job); `false`, que varredura nenhuma alcança aquele es
 criador nem coordenada — `origem_lat/lon` é endereço residencial. **Não corrige nada**: quem solta o
 pote é `POST /missoes/{id}/destravar`, que só aceita dois dos seis estados (ver Pendências).
 
+`/api/v1/admin/pontos-custodia/recusas` — `GET` (paginado), só ADMIN. **É a FREQUÊNCIA que a
+deduplicação do alerta deixou de guardar** (ADR 0033): quantas encomendas cada ponto recusou, por
+motivo, na janela pedida (padrão 24 h, teto 30 dias). Agregado de `entrega_falida` **na hora, sem
+tabela de agregação e sem cache**, pelo argumento do ADR 0029 — o número sempre esteve ali, com
+`ponto_custodia_id`, `recusada_em` e `motivo_recusa`; o que faltava era plano (a V29 traz o índice
+parcial) e leitor. Não há recorte por transportadora: a recusa por lotação é do PONTO, não de quem
+tentou entregar. Restrito a ADMIN porque diz quais lojas do bairro estão sem espaço — é informação de
+negociação com parceiro, não de produto.
+
 `/api/v1/admin/patrocinadores` — `POST` (cadastra titular + carteira + relação com o slug) · `GET`
 (lista, SEM saldo de propósito) · `POST /{id}/aportes` (**EMITE token**; exige `Idempotency-Key`) ·
 `DELETE /{id}` (encerra sem apagar). Todos só ADMIN. Ver ADR 0024.
@@ -530,9 +539,10 @@ CI (`.github/workflows/`), três workflows:
   teste no valor exato, um equivalente que **não** se conserta (a ordem do lock), e uma superfície
   pública que só o próprio teste usa. Sem gate — `./mvnw -Pmutacao …`, fora do `verify`.
 - `docs/evidencias/f21-carga.md` — a medição de carga da **F12b** (o nome diz f21 por pedido; a fase
-  é F12b). Três cenários k6, sem afinar parâmetro nenhum. É de onde vem a pendência do **alerta de
-  ponto lotado sem teto** (referência NOMINAL: a numeração da lista de pendências muda a cada
-  fechamento).
+  é F12b). Três cenários k6, sem afinar parâmetro nenhum. A §6 dele — as **631 linhas idênticas** em
+  `alerta` — foi a última das três pendências da v1.0 a fechar, em 2026-09-11 (ADR 0033). A medição
+  continua válida e **não** foi reescrita: o parágrafo de fecho aponta o ADR, como o da 0031 já
+  fazia.
 - `docs/seguranca/autenticacao.md` — modelo de ameaça e desenho do fluxo de auth.
 - `docs/seguranca/antifraude-geolocalizacao.md` — o que os controles de check-in **não** pegam.
 - `docs/evidencias/f6-explain-analyze.md` — saída real do `EXPLAIN ANALYZE` provando uso do índice
@@ -584,8 +594,8 @@ Banco
 - Flyway é a ÚNICA fonte de schema. ddl-auto é sempre validate. Nunca resolva divergência mudando
   ddl-auto — escreva migration.
 - **Versão de migration é sequência GLOBAL, não por diretório.** Duas faixas, separadas de propósito:
-  - `db/migration` — schema, **V1–V8 e V11–V28**; único location do perfil default/prod.
-    Próxima é **V29**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
+  - `db/migration` — schema, **V1–V8 e V11–V29**; único location do perfil default/prod.
+    Próxima é **V30**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
     antes da renomeação para `V900__seed_dev.sql`, então um banco de dev criado antes dela tem as
     versões 9 e 10 gravadas no `flyway_schema_history` com descrição de seed. Um `V9__*.sql` novo em
     `db/migration` passaria em clone novo e falharia em máquina antiga com erro de checksum ou
@@ -787,27 +797,23 @@ Seção para armadilhas diagnosticadas e ainda não corrigidas. Ao resolver uma,
 > lista o token preso em missão não-terminal parada, e a reconciliação publica a contagem em
 > `potesImobilizados`, campo **separado** de `integro` (ADR 0032). **O que isso NÃO resolveu:** o
 > instrumento é DETECTIVO — ele não solta pote nenhum, é consulta ativa como a carta-morta, e
-> **revelou uma lacuna que ninguém tinha enunciado**, que virou a pendência 2 abaixo. Não funda
+> **revelou uma lacuna que ninguém tinha enunciado**, que virou a pendência 1 abaixo. Não funda
 > `potesImobilizados` em `integro`: são invariantes diferentes e `PoteImobilizadoTest` reprova o
 > build de propósito se alguém tentar.
+>
+> **A terceira saiu em 2026-09-11**: *"O alerta de ponto lotado não tem teto nem deduplicação"*. As
+> 631 linhas idênticas da rajada viraram **uma por `(tipo, referência, janela)`**, e a CONTAGEM que a
+> dedup deixa de guardar passou a ser lida em `GET /admin/pontos-custodia/recusas`, agregada de
+> `entrega_falida` — sem tabela de agregação, pelo argumento do ADR 0029 (ADR 0033). O gêmeo
+> `ENTREGA_SEM_PATROCINIO`, que tinha a mesma forma e nunca fora medido, fechou junto. **O que isso
+> NÃO resolveu:** o leitor é consulta ATIVA — é o TERCEIRO instrumento passivo seguido, e três
+> instrumentos passivos não somam um alarme; a granularidade do sinal caiu de propósito (um ponto que
+> recusa 1 vez e outro que recusa 600 produzem a mesma linha); e **o banco não obriga ninguém a
+> preencher `referencia`** — um caminho de escrita novo que grave alerta global sem chave fica fora
+> do índice parcial e não é deduplicado, sem erro e sem aviso. Quem cobre isso é
+> `DespachanteAlertaOperacionalTest`, não uma constraint.
 
-**1. O alerta de ponto lotado não tem teto nem deduplicação.** Achado no teste de carga de
-2026-08-25 (`docs/evidencias/f21-carga.md` §6): uma rajada de webhooks contra um ponto de custódia
-cheio gravou **631 linhas idênticas** em `alerta`, para o mesmo ponto, em menos de 3 minutos.
-
-O alerta é **global de propósito** (`usuario_id` nulo — ver `DespachanteAlertaService
-.gravarPontoLotado`), então o teto de `app.notificacoes.alertas-por-hora`, que é POR USUÁRIO,
-corretamente não se aplica: não é notificação de ninguém, é sinal de operação. A intenção do javadoc
-é boa — "um ponto que recusa encomendas com frequência é exatamente o dado que justifica negociar
-mais capacidade".
-
-**Mas 631 linhas com a mesma frase não são esse dado — são o apagamento dele**, e são amplificação
-de escrita sem limite disparada por evento externo que o sistema não controla: uma transportadora em
-laço de retry contra um ponto cheio escreve indefinidamente. Não corrigido de propósito — a medição
-foi pedida sem ajuste, e a correção (deduplicar por `(ponto, janela)`, ou contador em vez de linha)
-muda o contrato do alerta operacional. **Não decida sozinho.**
-
-**2. Três dos seis estados não-terminais não têm porta de ADMIN para soltar o pote.** Achado ao
+**1. Três dos seis estados não-terminais não têm porta de ADMIN para soltar o pote.** Achado ao
 implementar o diagnóstico do ADR 0032, e é lacuna NOVA: nunca esteve enunciada em lugar nenhum, e a
 query órfã removida em 2026-08-20 nem olhava para dois deles.
 

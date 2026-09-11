@@ -205,6 +205,31 @@ escreve indefinidamente.
 (deduplicar por `(ponto, janela)`, ou contador em vez de linha) muda o contrato do alerta
 operacional. Fica registrado como o achado principal desta fase.
 
+> **Endereçado em 2026-09-11** ([ADR 0033](../adr/0033-deduplicacao-do-alerta-operacional.md)).
+> **A medição acima não muda e não foi reescrita** — ela é o que o sistema fazia naquele dia.
+>
+> A correção não foi nenhuma das duas opções acima em estado puro. Entre elas, o CONTADOR preservaria
+> melhor a intenção do javadoc, porque o dado nomeado ali é uma frequência e deduplicar joga o número
+> fora. Mas a leitura do código mostrou que **a frequência nunca esteve só no alerta**: toda recusa
+> já gravava uma linha em `entrega_falida` com `ponto_custodia_id`, `recusada_em` e `motivo_recusa`.
+> O contador seria segunda fonte de verdade para um agregado derivável — o que o ADR 0029 recusou
+> para o painel de impacto — e, por cima, não resolveria a amplificação de escrita: 631 `UPDATE` na
+> mesma linha são 631 tuplas mortas por MVCC.
+>
+> Ficou: **deduplicação** por `(tipo, referência, janela)` na escrita, e a **contagem por consulta**
+> em `GET /api/v1/admin/pontos-custodia/recusas`. Repetindo a rajada contra o servidor de pé, 60
+> webhooks num ponto cheio gravaram **1 linha** de alerta, e o painel devolveu `recusas: 60` com a
+> primeira e a última. A frase que este parágrafo chamava de informação implícita — *"LM-ARI-001
+> recusou 631 encomendas entre 07:41 e 07:44"* — é hoje uma resposta HTTP.
+>
+> **O que isso NÃO resolveu:** o painel é consulta ATIVA, como a carta-morta e o diagnóstico de pote
+> imobilizado — nada avisa, alguém precisa olhar. E a granularidade do sinal caiu de propósito: um
+> ponto que recusa 1 vez por hora e um que recusa 600 produzem a mesma linha de alerta.
+>
+> Fechou junto o gêmeo que esta medição **não** pegou: `ENTREGA_SEM_PATROCINIO` tinha a mesma forma —
+> `save` incondicional por evento, sem teto — e só não apareceu aqui porque a rajada foi contra um
+> ponto cheio, e não contra uma transportadora sem patrocinador.
+
 Contraste que ajuda a dimensionar: a **outbox drenou inteira** — `outbox_pendente = 0` e
 `MAX(tentativas) = 0` nos 688 eventos. Nenhum evento chegou perto do limite de 5 tentativas — o
 limite que, na época desta medição, abandonava o evento sem carta-morta. Aquela pendência fechou em

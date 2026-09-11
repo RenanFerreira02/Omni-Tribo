@@ -96,6 +96,13 @@ anunciado como qualquer outro. Foi o que a execução de 2026-08-16 confirmou: a
 `entrega_falida`, evento na outbox e alerta `PONTO_CUSTODIA_LOTADO`
 ([evidência](../evidencias/f13-execucao-do-zero.md)).
 
+**Mas o alerta é DEDUPLICADO por `(ponto, janela)` desde 2026-09-11, e o diagrama acima não mostra
+isso.** Cada recusa continua gerando linha em `entrega_falida` e evento na outbox — o FATO é por
+evento —, e o alerta é no máximo um por ponto por hora. A contagem de recusas fica em
+`GET /admin/pontos-custodia/recusas`, não no alerta. Antes era uma linha de alerta por evento, o que
+o teste de carga mediu em 631 linhas idênticas num ponto
+([ADR 0033](../adr/0033-deduplicacao-do-alerta-operacional.md)).
+
 **O fan-out é por TRIBO, não por usuário.** A tabela `usuario` não tem coluna geográfica; quem tem
 posição é a tribo. Como a decisão de notificar usou a *posição* da pessoa, o consentimento exigido é
 duplo: `NOTIFICACAO` **e** `LOCALIZACAO`.

@@ -10,6 +10,65 @@ Uma entrada por **fase** do projeto — a numeração de fases é a de
 
 ---
 
+## [Não lançado] — 2026-09-11 · O alerta operacional para de se apagar
+
+### Adicionado
+
+- **Deduplicação do alerta operacional global**
+  ([ADR 0033](docs/adr/0033-deduplicacao-do-alerta-operacional.md)). Fecha a **terceira e última** das
+  armadilhas que a v1.0 registrou como abertas por decisão de contrato. O teste de carga de
+  2026-08-25 mediu 631 linhas idênticas em `alerta`, todas do mesmo ponto, em menos de 3 minutos — e
+  o teto `alertas-por-hora` corretamente não as pegava: ele conta `WHERE usuario_id = ?`, e estes
+  alertas têm `usuario_id` nulo de propósito.
+  - **Uma linha por `(tipo, referência, janela)`**, via `INSERT ... ON CONFLICT DO NOTHING` sobre o
+    índice parcial `uk_alerta_operacional` (V29). Contra o servidor de pé: **60 webhooks num ponto
+    cheio → 1 linha**, com as 60 recusas intactas em `entrega_falida`.
+  - `GET /api/v1/admin/pontos-custodia/recusas` — **a contagem que a dedup deixa de guardar**,
+    agregada de `entrega_falida` na hora, **sem tabela de agregação e sem cache** (ADR 0029). O
+    número nunca esteve só no alerta: `ponto_custodia_id` (V6), `recusada_em` (V21) e `motivo_recusa`
+    (V23) sempre o guardaram. Faltavam plano e leitor.
+  - **O gêmeo fechou junto.** `ENTREGA_SEM_PATROCINIO` tinha a mesma forma — `save` incondicional por
+    evento, sem teto — e só não apareceu na medição porque a rajada foi contra um ponto cheio, e não
+    contra uma transportadora sem patrocinador. Deduplica pela transportadora, e não por um
+    `patrocinador_id`: `SEM_PATROCINIO` colapsa três causas de propósito e na primeira o patrocinador
+    não existe.
+  - **Migration V29**, decidida por medição: índice parcial de **128 kB** contra 14 MB de tabela, que
+    leva a consulta do painel de **3,082 ms a 0,135 ms** (buffers 881 → 32) em bancada de 50.000
+    linhas. `idx_entrega_falida_ponto` (V21) é parcial em `recusada_em IS NULL` — o complemento
+    exato — e por isso não servia.
+  - **`DespachanteAlertaOperacionalTest`**, 9 testes: a primeira cobertura que `gravarPontoLotado`
+    recebe. Ele estava em **0/35 instruções**, e `WebhookEntregaFalidaTest` chegava a apagar
+    `PONTO_CUSTODIA_LOTADO` no `@AfterEach` sem nunca drenar a outbox — limpava um alerta que não
+    chegava a existir.
+
+### Corrigido
+
+- **Duas afirmações falsas, onde estavam.** O javadoc de `Alerta` dizia que *"nenhum caminho de
+  escrita produz [alerta global] hoje"* — dois produzem, e produziam desde a F8. O de
+  `AlertaRepository` dizia que *"não há UNIQUE na tabela"*, o que a V29 tornou falso; a frase agora
+  explica por que a dedup do fan-out por usuário continua sendo em Java (a chave dela inclui
+  `missao_id`, que é nulo nos avisos sem missão, e UNIQUE é `NULLS DISTINCT`).
+- **O corpo do alerta de ponto lotado deixou de nomear a transportadora.** A linha passou a
+  representar a JANELA, e dentro dela cabem recusas de transportadoras diferentes — manter o nome de
+  uma delas seria afirmação falsa sobre as outras. O teste trava isso.
+- **Uma sabotagem passou, e o teste foi corrigido antes do commit.** Congelar `janelaDe()` numa
+  constante não era detectado: o teste da janela seguinte funciona *envelhecendo* `janela_inicio` no
+  banco, então media "uma janela diferente não bloqueia" e não "a janela vem do relógio". Passou a
+  comparar `janela_inicio` com o `criado_em` da própria linha. **Um teste que envelhece o estado que
+  deveria estar derivando é cego para a derivação.**
+
+### Pendente
+
+- **O leitor é consulta ATIVA, e é o TERCEIRO instrumento passivo seguido** — depois da carta-morta
+  (ADR 0031) e do pote imobilizado (ADR 0032). Nada avisa que um ponto vive lotado; alguém precisa
+  olhar. Três instrumentos passivos não somam um alarme.
+- **O banco não obriga ninguém a preencher `referencia`.** Um caminho de escrita novo que grave
+  alerta global sem chave fica fora do índice parcial e não é deduplicado — sem erro e sem aviso.
+  `NULLS NOT DISTINCT` tornaria isso um erro duro, mas faria o `CREATE INDEX` falhar exatamente na
+  máquina onde a rajada de 631 foi medida. Quem cobre é o teste.
+
+---
+
 ## [Não lançado] — 2026-09-11 · A conservação ganha instrumento
 
 ### Adicionado

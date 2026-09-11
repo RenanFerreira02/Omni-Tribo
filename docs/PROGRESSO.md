@@ -53,6 +53,63 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-09-11 — A deduplicação do alerta operacional** — **a última das três pendências abertas por
+  decisão de contrato saiu, e a resposta não foi nenhuma das duas opções que a pendência oferecia.**
+
+  A pendência perguntava: deduplicar por `(ponto, janela)`, ou trocar a linha por um contador? Ver
+  [ADR 0033](adr/0033-deduplicacao-do-alerta-operacional.md).
+
+  - **Entre as duas, o contador preserva melhor a intenção — e mesmo assim perde.** O dado que o
+    javadoc de `gravarPontoLotado` nomeia é literalmente uma FREQUÊNCIA ("um ponto que recusa
+    encomendas com frequência"), e deduplicar joga o número fora: não distingue 1 recusa de 631. O
+    contador é a dedup mais o número. **O que desempata é que a frequência nunca esteve só no
+    alerta**: `entrega_falida` grava toda recusa com `ponto_custodia_id` (V6), `recusada_em` (V21) e
+    `motivo_recusa` (V23). O contador seria segunda fonte de verdade para um agregado derivável — o
+    que o ADR 0029 recusou para o painel de impacto — e nem resolveria a amplificação de escrita:
+    631 `UPDATE` na mesma linha são 631 tuplas mortas por MVCC. O que ele limita é linha VIVA.
+
+  - **A descoberta que reenquadrou a pendência: o alerta global é WRITE-ONLY.** Os seis métodos de
+    `AlertaRepository` têm `UsuarioId` no predicado, e `usuario_id = <uuid>` nunca casa com `NULL`.
+    Não há endpoint, query ou projeção sobre `usuario_id IS NULL` em todo `src/main/java`. **As 631
+    linhas nunca chegaram a ninguém.** Deduplicar sozinho trocaria 631 linhas não lidas por até 24
+    por dia não lidas — o espelho exato do erro que o ADR 0032 registrou, onde uma consulta sem
+    chamador fazia a lacuna parecer coberta.
+
+  - **O gêmeo, que a medição não pegou.** `gravarSemPatrocinio` tinha a MESMA forma — global, `save`
+    incondicional por evento, sem teto nem dedup — e só não apareceu no teste de carga porque a
+    rajada foi contra um ponto cheio, e não contra uma transportadora sem patrocinador. Fechou junto.
+    A referência dele é o SLUG e não um `patrocinador_id`: `SEM_PATROCINIO` colapsa três causas de
+    propósito, e na primeira o patrocinador não existe.
+
+  - **O `ON CONFLICT` precisa repetir o predicado parcial inteiro, e isso foi verificado no banco.**
+    Sem repetir: `ERROR: there is no unique or exclusion constraint matching the ON CONFLICT
+    specification`. O índice também exclui explicitamente `referencia IS NULL` — em PostgreSQL o
+    UNIQUE é `NULLS DISTINCT`, então sem isso ele cobriria as linhas legadas sem deduplicar nenhuma,
+    e o `CREATE INDEX` sugeriria uma garantia que não dá. `NULLS NOT DISTINCT` foi descartada por
+    fazer o índice **falhar exatamente na máquina onde a rajada de 631 foi medida**.
+
+  - **A V29 foi decidida por medição.** Consulta real do endpoint, schema real, 50.000 linhas:
+    **3,082 ms → 0,135 ms**, buffers **881 → 32**, Seq Scan (49.878 linhas descartadas no filtro) →
+    Index Scan, com índice parcial de **128 kB** contra 14 MB de tabela. `idx_entrega_falida_ponto`
+    da V21 é parcial em `recusada_em IS NULL` — o complemento EXATO desta consulta — e por isso não
+    servia.
+
+  - **Uma sabotagem passou, e o teste foi consertado antes do commit.** Congelar `janelaDe()` numa
+    constante não era detectado: o teste da janela seguinte funciona ENVELHECENDO `janela_inicio` no
+    banco, então media "uma janela diferente não bloqueia" e não "a janela vem do relógio". Passou a
+    comparar `janela_inicio` com o `criado_em` da própria linha. **Um teste que envelhece o estado
+    que deveria estar derivando é cego para a derivação** — vale para qualquer marco temporal deste
+    repositório. Com a correção, as quatro sabotagens fortes ficam vermelhas (8, 2, 1 e 1 teste); a
+    quinta, inverter o `ORDER BY` do painel, não é detectada porque o teste cria um grupo só.
+
+  - **A cobertura saiu do zero.** `gravarPontoLotado` estava em **0/35 instruções**, e
+    `WebhookEntregaFalidaTest` chegava a apagar `PONTO_CUSTODIA_LOTADO` no `@AfterEach` sem nunca
+    drenar a outbox — limpava um alerta que não chegava a existir. A suíte foi de 735 para **744**.
+
+  - **O que continua valendo:** o painel é DETECTIVO e passivo, o **terceiro** seguido depois da
+    carta-morta e do pote imobilizado. Nada avisa; alguém precisa consultar. E a granularidade do
+    sinal caiu de propósito: um ponto que recusa 1 vez e um que recusa 600 produzem a mesma linha.
+
 - **2026-09-11 — O diagnóstico de pote imobilizado** — **a segunda das três pendências abertas por
   decisão de contrato saiu, e ela revelou uma terceira que ninguém tinha enunciado.**
 

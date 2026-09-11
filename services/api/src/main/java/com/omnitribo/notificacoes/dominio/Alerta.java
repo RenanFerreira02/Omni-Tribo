@@ -15,10 +15,20 @@ import java.util.UUID;
  * qualquer acesso de fora a esta classe reprova o teste de arquitetura, que é o comportamento certo
  * para a entidade de um módulo de negócio.
  *
- * <p>Tabela criada em V7. A coluna {@code usuario_id} aceita nulo no schema, para um eventual
- * alerta global — mas nenhum caminho de escrita produz isso hoje, e a caixa de entrada ignora esses
- * casos de propósito: "lido" é estado POR USUÁRIO, e uma linha compartilhada não teria onde
- * guardá-lo.
+ * <p>Tabela criada em V7. A coluna {@code usuario_id} aceita nulo no schema, e <b>dois caminhos de
+ * escrita produzem isso</b>: {@code DespachanteAlertaService.gravarPontoLotado} e {@code
+ * gravarSemPatrocinio}, os alertas operacionais globais. A caixa de entrada os ignora de propósito
+ * — "lido" é estado POR USUÁRIO, e uma linha compartilhada não teria onde guardá-lo —, então eles
+ * não aparecem em nenhuma listagem deste módulo. Quem lê o fato por trás deles é {@code GET
+ * /api/v1/admin/pontos-custodia/recusas}, sobre {@code entrega_falida}.
+ *
+ * <p><b>A V29 acrescentou à tabela duas colunas que esta entidade NÃO mapeia</b>, {@code
+ * referencia} e {@code janela_inicio}. É deliberado: elas são a chave de deduplicação do alerta
+ * operacional, pertencem ao caminho de escrita e são gravadas só pelo {@code INSERT ... ON
+ * CONFLICT} de {@code AlertaRepository.inserirOperacionalSeAusente}. Mapeá-las aqui poria dois
+ * campos sem leitor numa entidade que modela a caixa de entrada do usuário, onde as duas são sempre
+ * nulas. {@code ddl-auto: validate} não se importa com coluna não mapeada — ele exige o contrário,
+ * que toda coluna mapeada exista.
  */
 @Entity
 @Table(name = "alerta")

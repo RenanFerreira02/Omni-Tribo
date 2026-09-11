@@ -60,6 +60,12 @@ app:
     raio-alerta-metros: 3000
     alertas-por-hora: 5
     tribos-por-evento: 50
+    # IGUAL à produção, de propósito. A tentação é encurtar para o teste conseguir atravessar a
+    # janela — e é armadilha: com PT1S a rajada de 50 webhooks flakaria sempre que cruzasse a borda
+    # do segundo, gravando 2 linhas onde o teste espera 1, sem nenhuma mudança de código.
+    # DespachanteAlertaOperacionalTest atravessa a janela envelhecendo janela_inicio no banco, que
+    # é determinístico e não dorme.
+    janela-alerta-operacional: PT1H
   integracoes:
     # Backoff ZERADO na suíte: a espera de 200 ms é calibrada para a produção, e aqui só somaria
     # tempo de parede a cada teste que exercita uma falha de provedor. O que os testes medem é
