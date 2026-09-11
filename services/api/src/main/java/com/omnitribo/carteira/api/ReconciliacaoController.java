@@ -37,7 +37,12 @@ public class ReconciliacaoController {
       description =
           "Soma os lançamentos de cada carteira e compara com carteira.saldo_*. Responde "
               + "integro=true quando nenhuma diverge. Uma única statement SQL, para que o "
-              + "resultado seja um snapshot consistente mesmo com escritas concorrentes.")
+              + "resultado seja um snapshot consistente mesmo com escritas concorrentes. "
+              + "potesImobilizados é OUTRA invariante, publicada ao lado: token que saiu de uma "
+              + "carteira e não chegou em nenhuma outra porque a missão que o segura parou. "
+              + "integro=true com potesImobilizados.missoes > 0 é estado COERENTE, não "
+              + "contradição — a reconciliação compara ledger com projeção, e as duas continuam "
+              + "batendo. Quais missões são: GET /admin/missoes/potes-imobilizados.")
   @ApiResponses({
     @ApiResponse(responseCode = "200", description = "Relatório de conciliação"),
     @ApiResponse(responseCode = "401", ref = "#/components/responses/NaoAutenticado"),

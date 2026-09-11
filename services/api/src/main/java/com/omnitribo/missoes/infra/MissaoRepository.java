@@ -1,12 +1,14 @@
 package com.omnitribo.missoes.infra;
 
 import com.omnitribo.missoes.dominio.CategoriaMissao;
+import com.omnitribo.missoes.dominio.DiagnosticoPotesService.ContagemPotes;
 import com.omnitribo.missoes.dominio.ExpiracaoMissoesService.Candidata;
 import com.omnitribo.missoes.dominio.Missao;
 import com.omnitribo.missoes.dominio.StatusMissao;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.QueryHint;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -197,6 +199,78 @@ public interface MissaoRepository extends JpaRepository<Missao, UUID> {
    */
   @Query(value = "SELECT COALESCE(SUM(pote_tokens), 0) FROM missao", nativeQuery = true)
   long somarPotes();
+
+  /**
+   * Missões não-terminais cujo pote está parado além do limiar — o dinheiro que a reconciliação NÃO
+   * acha (ADR 0032).
+   *
+   * <p><b>O marco muda por status, e é isso que separa este diagnóstico de um contador de
+   * potes.</b> ABERTA mede por {@code janela_fim} e os demais por {@code estado_desde}, replicando
+   * {@code RegraExpiracao.Marco}: sem a distinção, toda missão comunitária financiada com janela
+   * longa apareceria como imobilizada assim que passasse do limiar parada em ABERTA — que é o
+   * estado NORMAL de uma oferta esperando executor. Um instrumento cujo falso positivo é o caso
+   * comum não é consultado duas vezes.
+   *
+   * <p>Os dois conjuntos entram BINDADOS, vindos de {@code StatusMissao.ehTerminal()} e de {@code
+   * RegraExpiracao.medidosPorJanelaFim()}. Nenhum nome de status é literal aqui: um estado novo na
+   * máquina passa a ser considerado sem que esta consulta seja editada.
+   *
+   * <p>Devolve a ENTIDADE, e não uma projeção, no molde de {@code
+   * OutboxRepository.buscarEsgotados}: a página tem no máximo 100 linhas por {@code
+   * PotesImobilizadosFiltroRequest}, e quem monta o DTO é o serviço. As projeções escalares deste
+   * repositório existem para agregados que varrem a tabela inteira, que é outro problema.
+   */
+  @Query(
+      value =
+          """
+          select m from Missao m
+          where m.poteTokens > 0
+            and m.status not in :terminais
+            and (case when m.status in :porJanelaFim then m.janelaFim else m.estadoDesde end) < :corte
+          order by (case when m.status in :porJanelaFim then m.janelaFim else m.estadoDesde end) asc,
+                   m.id asc
+          """,
+      countQuery =
+          """
+          select count(m) from Missao m
+          where m.poteTokens > 0
+            and m.status not in :terminais
+            and (case when m.status in :porJanelaFim then m.janelaFim else m.estadoDesde end) < :corte
+          """)
+  Page<Missao> buscarPotesImobilizados(
+      @Param("terminais") Collection<StatusMissao> terminais,
+      @Param("porJanelaFim") Collection<StatusMissao> porJanelaFim,
+      @Param("corte") Instant corte,
+      Pageable paginacao);
+
+  /**
+   * Contagem e soma dos mesmos potes, numa statement só.
+   *
+   * <p>Juntas pela razão que o {@code ReconciliacaoRepository} já documenta: sob READ COMMITTED,
+   * contar e somar em consultas separadas pode straddle um commit concorrente e publicar um par
+   * impossível — zero missões com tokens presos, ou o contrário.
+   *
+   * <p>{@code coalesce(..., 0L)} porque {@code sum} de conjunto vazio é NULL, e o caso saudável do
+   * sistema é justamente o conjunto vazio. O literal é {@code 0L}, não {@code 0}: com um inteiro a
+   * expressão inteira seria promovida a Integer e o construtor não casaria.
+   *
+   * <p><b>O predicado é repetido de propósito, e o risco é conhecido:</b> se ele divergir do da
+   * consulta acima, o resumo passa a contradizer a lista sem que nada falhe. É por isso que {@code
+   * PoteImobilizadoTest.resumoConcordaComALista} assere a igualdade em vez de confiar na leitura.
+   */
+  @Query(
+      """
+      select new com.omnitribo.missoes.dominio.DiagnosticoPotesService$ContagemPotes(
+             count(m), coalesce(sum(m.poteTokens), 0L))
+      from Missao m
+      where m.poteTokens > 0
+        and m.status not in :terminais
+        and (case when m.status in :porJanelaFim then m.janelaFim else m.estadoDesde end) < :corte
+      """)
+  ContagemPotes contarPotesImobilizados(
+      @Param("terminais") Collection<StatusMissao> terminais,
+      @Param("porJanelaFim") Collection<StatusMissao> porJanelaFim,
+      @Param("corte") Instant corte);
 
   /** Projeção de interface — sem entidade no caminho. */
   interface ResumoSistemaProjecao {

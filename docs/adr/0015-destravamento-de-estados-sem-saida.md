@@ -79,6 +79,26 @@ responde "há quanto tempo esta missão está parada AQUI" — `janela_fim` é o
   isso que a varredura de 2026-09-09 §4 tratou esse ponteiro como lacuna. O resto desta decisão
   (varredura por prazo + porta de ADMIN) continua valendo e está implementado.
 
+  **Segunda retificação, 2026-09-11 — a consequência passou a ser verdade, por outro caminho.** O
+  [ADR 0032](./0032-diagnostico-de-pote-imobilizado.md) entregou o instrumento que este bullet
+  prometeu em 2026-08-11: `GET /api/v1/admin/missoes/potes-imobilizados` lista os potes com idade e
+  estado, e `GET /admin/carteiras/reconciliacao` publica a contagem e a soma num campo **separado**
+  de `integro` — porque `integro=true` com pote imobilizado é estado coerente, não contradição.
+  **A diferença que importa é que agora há CONSUMIDOR**: uma consulta de diagnóstico que ninguém
+  chama faz a lacuna parecer coberta, que foi exatamente o defeito desta consequência original.
+
+  Duas coisas que o 0032 mediu e que corrigem o alcance desta decisão:
+
+  - **A query órfã era, além de órfã, INCOMPLETA.** Ela olhava `EM_ANDAMENTO`,
+    `AGUARDANDO_CONFIRMACAO` e `EM_DISPUTA`. Mas `FinanciamentoService.validarEstado` só recusa
+    financiamento em estado terminal, então **`RASCUNHO` e `ACEITA` também retêm pote** — e o
+    diagnóstico novo os cobre.
+  - **A regra "todo estado não-terminal precisa de saída que não dependa de um humano específico"
+    não vale para três dos seis.** `RASCUNHO` e `ACEITA` não têm varredura nem porta de ADMIN;
+    `EM_DISPUTA` não tem varredura. Esta decisão fechou os dois becos que conhecia em 2026-08-11, e
+    não os outros. O 0032 não os fecha — ele os TORNA VISÍVEIS, com `varreduraCobre=false`, e a
+    lacuna está registrada no `CLAUDE.md` como pendência própria.
+
 **Negativas / trade-offs:**
 - Pagar por omissão do criador aceita um risco: conluio, ou check-in sem execução real. A documentação
   de antifraude já registra que nenhum dos dois é detectável — e um criador distraído confirmaria do

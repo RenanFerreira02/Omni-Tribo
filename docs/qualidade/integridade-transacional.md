@@ -335,6 +335,13 @@ Registrado por honestidade, e porque uma banca pergunta:
   verifica *consistência*, não *conservação*, e as duas não são a mesma coisa. `ConservacaoTokensTest`
   existe para essa segunda invariante, e roda `assertLedgerReconcilia` nos dois ramos de propósito —
   para deixar executável a demonstração de que uma passa enquanto a outra é violada.
+
+  **Desde 2026-09-11 a segunda invariante também tem instrumento em runtime**, e não só em teste:
+  `GET /api/v1/admin/missoes/potes-imobilizados` mostra o token preso em missão parada, e a
+  reconciliação publica a contagem num campo separado de `integro`
+  ([ADR 0032](../adr/0032-diagnostico-de-pote-imobilizado.md)). Ele **não** promete conservação: é
+  detecção passiva de UMA das formas de violá-la, e depende de alguém consultar — mesmo modo de
+  falha da carta-morta da outbox.
 - **Exactly-once na notificação.** A outbox pode repetir, e o consumidor precisa tolerar duplicata.
 - **Entrega da notificação, ponto.** A outbox também **não** é at-least-once: são no máximo 5
   tentativas, e um evento que as esgote não é entregue nenhuma vez. O que existe é detecção —
