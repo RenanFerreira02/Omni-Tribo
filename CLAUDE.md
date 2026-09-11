@@ -372,7 +372,21 @@ backoff é no-op, evento já entregue é 409). O `payload` **não** vem na respo
 de endereço residencial. Isto **não** torna a entrega at-least-once: o teto continua 5, e nada avisa
 que há evento esgotado.
 
-`/api/v1/admin/carteiras/reconciliacao` — `GET`, só ADMIN.
+`/api/v1/admin/carteiras/reconciliacao` — `GET`, só ADMIN. Responde `integro` (ledger × projeção) e,
+desde o ADR 0032, `potesImobilizados` num campo **SEPARADO**: contagem, soma e limiar do token preso
+em missão parada. **`integro=true` com `potesImobilizados.missoes > 0` é estado COERENTE** — são
+invariantes diferentes, e fundi-las num campo só destruiria a única pergunta que `integro` responde
+com precisão.
+
+`/api/v1/admin/missoes/potes-imobilizados` — `GET` (paginado), só ADMIN. **É o instrumento da
+CONSERVAÇÃO** (ADR 0032): missões não-terminais com `pote_tokens > 0` paradas há mais que
+`app.missoes.diagnostico.pote-imobilizado-apos` (PT96H — maior que os 72 h da varredura mais longa,
+para que nada que o job trata corretamente apareça aqui). **O marco muda por status**: `ABERTA` mede
+por `janela_fim`, os demais por `estado_desde` — sem isso toda oferta financiada com janela longa
+viraria falso positivo. Cada linha traz `varreduraCobre`: `true` significa que existe varredura e ela
+NÃO drenou (suspeite do job); `false`, que varredura nenhuma alcança aquele estado. Não traz título,
+criador nem coordenada — `origem_lat/lon` é endereço residencial. **Não corrige nada**: quem solta o
+pote é `POST /missoes/{id}/destravar`, que só aceita dois dos seis estados (ver Pendências).
 
 `/api/v1/admin/patrocinadores` — `POST` (cadastra titular + carteira + relação com o slug) · `GET`
 (lista, SEM saldo de propósito) · `POST /{id}/aportes` (**EMITE token**; exige `Idempotency-Key`) ·
@@ -499,6 +513,12 @@ CI (`.github/workflows/`), três workflows:
     depende de um humano consultar. Ele também é o precedente de "ação administrativa idempotente
     por ESTADO, sem `Idempotency-Key`" — leia antes de acrescentar chave a um endpoint que só faz
     um UPDATE para estado fixo.
+  - **0032 deu à CONSERVAÇÃO o primeiro instrumento dela, e é DETECTIVO.** Leia antes de mexer em
+    `ReconciliacaoResponse`: `potesImobilizados` é campo separado de `integro` porque as duas
+    invariantes são diferentes, e fundi-las é a tentação recorrente deste repositório — já custou
+    caro três vezes. Ele também mede duas coisas que contradizem suposições plausíveis: o marco do
+    diagnóstico NÃO é uma coluna só (ABERTA usa `janela_fim`), e um `IN` com dois statuses NÃO
+    derruba o índice da V28 para Seq Scan, como o comentário original afirmava antes do `EXPLAIN`.
 - `docs/qualidade/integridade-transacional.md` — evidência de concorrência da carteira (100 threads,
   deadlock, rollback) e a seção "O que esta fase NÃO garante". É o documento a defender oralmente.
 - `docs/qualidade/modelo-previsao.md` — métricas do modelo de risco, matriz de confusão, correlações
@@ -564,8 +584,8 @@ Banco
 - Flyway é a ÚNICA fonte de schema. ddl-auto é sempre validate. Nunca resolva divergência mudando
   ddl-auto — escreva migration.
 - **Versão de migration é sequência GLOBAL, não por diretório.** Duas faixas, separadas de propósito:
-  - `db/migration` — schema, **V1–V8 e V11–V27**; único location do perfil default/prod.
-    Próxima é **V28**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
+  - `db/migration` — schema, **V1–V8 e V11–V28**; único location do perfil default/prod.
+    Próxima é **V29**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
     antes da renomeação para `V900__seed_dev.sql`, então um banco de dev criado antes dela tem as
     versões 9 e 10 gravadas no `flyway_schema_history` com descrição de seed. Um `V9__*.sql` novo em
     `db/migration` passaria em clone novo e falharia em máquina antiga com erro de checksum ou
@@ -762,24 +782,16 @@ Seção para armadilhas diagnosticadas e ainda não corrigidas. Ao resolver uma,
 > `POST /admin/outbox/{id}/reenfileirar` o devolve ao lote (ADR 0031). **Cuidado com o que isso NÃO
 > resolveu:** o teto de 5 tentativas continua igual, a entrega continua não sendo at-least-once, e
 > nada avisa que há evento esgotado — é consulta ativa, então a recuperação depende de alguém olhar.
+>
+> **Outra saiu em 2026-09-11**: *"Nada acha pote imobilizado"*. `GET /admin/missoes/potes-imobilizados`
+> lista o token preso em missão não-terminal parada, e a reconciliação publica a contagem em
+> `potesImobilizados`, campo **separado** de `integro` (ADR 0032). **O que isso NÃO resolveu:** o
+> instrumento é DETECTIVO — ele não solta pote nenhum, é consulta ativa como a carta-morta, e
+> **revelou uma lacuna que ninguém tinha enunciado**, que virou a pendência 2 abaixo. Não funda
+> `potesImobilizados` em `integro`: são invariantes diferentes e `PoteImobilizadoTest` reprova o
+> build de propósito se alguém tentar.
 
-**1. Nada acha pote imobilizado.** Token preso em missão não-terminal parada (`EM_ANDAMENTO`,
-`AGUARDANDO_CONFIRMACAO`, `EM_DISPUTA`) viola a CONSERVAÇÃO enquanto a reconciliação segue
-respondendo `integro=true` — são invariantes diferentes, e a primeira passa enquanto a segunda é
-violada. **Não existe consulta, endpoint nem relatório que mostre esses potes.**
-
-Existiu a aparência de um: `MissaoRepository.potesImobilizados`, com javadoc dizendo que
-"existe para dar visibilidade a essa diferença", e o ADR 0015 registrando essa visibilidade como
-consequência aceita. **Nenhum serviço, endpoint ou teste jamais a chamou.** A query foi removida
-como órfã em 2026-08-20 e o ADR 0015 recebeu a retificação, em vez de manter código morto que fazia
-a lacuna parecer coberta. A mitigação real que EXISTE é outra, e é preventiva, não detectiva: a
-varredura por prazo (`ExpiracaoMissoesService`) e a porta de ADMIN (`POST /missoes/{id}/destravar`)
-tiram a missão do limbo. O que falta é o instrumento de DIAGNÓSTICO. **A carta-morta da outbox era
-o mesmo formato de problema e foi fechada em 2026-09-10 (ADR 0031)** — a forma que ela tomou
-(consulta a ADMIN mais ação idempotente que passa pelo caminho normal, sem migration) é o molde
-mais próximo para esta, se você decidir fechá-la.
-
-**2. O alerta de ponto lotado não tem teto nem deduplicação.** Achado no teste de carga de
+**1. O alerta de ponto lotado não tem teto nem deduplicação.** Achado no teste de carga de
 2026-08-25 (`docs/evidencias/f21-carga.md` §6): uma rajada de webhooks contra um ponto de custódia
 cheio gravou **631 linhas idênticas** em `alerta`, para o mesmo ponto, em menos de 3 minutos.
 
@@ -794,3 +806,32 @@ de escrita sem limite disparada por evento externo que o sistema não controla: 
 laço de retry contra um ponto cheio escreve indefinidamente. Não corrigido de propósito — a medição
 foi pedida sem ajuste, e a correção (deduplicar por `(ponto, janela)`, ou contador em vez de linha)
 muda o contrato do alerta operacional. **Não decida sozinho.**
+
+**2. Três dos seis estados não-terminais não têm porta de ADMIN para soltar o pote.** Achado ao
+implementar o diagnóstico do ADR 0032, e é lacuna NOVA: nunca esteve enunciada em lugar nenhum, e a
+query órfã removida em 2026-08-20 nem olhava para dois deles.
+
+`FinanciamentoService.validarEstado` recusa financiamento só em estado TERMINAL, em `CUNHAGEM` e em
+`PATROCINADOR` — e um comentário in-line afirma, corretamente, que **RASCUNHO é financiável**
+(publicar missão comunitária exige pote, então o financiamento acontece antes da publicação). Logo o
+pote existe nos SEIS estados não-terminais:
+
+| Estado | Varredura por prazo | Porta de ADMIN |
+|---|---|---|
+| `RASCUNHO` | não | **nenhuma** |
+| `ABERTA` | sim (`janela_fim`) | dispensável |
+| `ACEITA` | não | **nenhuma** |
+| `EM_ANDAMENTO` | sim (48 h) | `destravar` |
+| `AGUARDANDO_CONFIRMACAO` | sim (72 h) | `destravar` |
+| `EM_DISPUTA` | não | `resolver` |
+
+Ou seja: a regra do javadoc de `StatusMissao` — *"todo estado não-terminal precisa de saída que NÃO
+dependa de um humano específico aparecer"* — **vale para três dos seis**. Em `RASCUNHO` e `ACEITA` a
+única saída é o criador ou o executor agir; se a pessoa some, o pote fica preso e **nem um ADMIN
+consegue soltá-lo**. O diagnóstico os mostra com `varreduraCobre=false`, que é a diferença entre a
+lacuna de hoje e a de ontem: ela é visível, mas continua aberta.
+
+A correção provável é estender `DESTRAVAR` a `RASCUNHO`, `ACEITA` e `EM_DISPUTA` — zero código de
+caminho de valor novo, porque `aplicar()` já estorna em CANCELADA e `DESTRAVADA_POR_ADMIN` já está no
+CHECK da V20. Mas muda a máquina de estados (17 → 20 transições) e a matriz de
+`MissaoStateMachineTest`, então é decisão com ADR próprio. **Não decida sozinho.**

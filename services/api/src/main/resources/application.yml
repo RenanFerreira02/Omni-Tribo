@@ -123,6 +123,20 @@ app:
       # adia a devolução de um pote que, sem varredura nenhuma, ficaria preso PARA SEMPRE.
       prazo-execucao: PT48H      # EM_ANDAMENTO sem check-in → EXPIRADA, estorna o pote
       prazo-confirmacao: PT72H   # AGUARDANDO_CONFIRMACAO sem resposta → CONCLUIDA, PAGA o executor
+    diagnostico:
+      # A partir de quanto tempo parada uma missão não-terminal com pote entra em
+      # GET /admin/missoes/potes-imobilizados e no campo potesImobilizados da reconciliação.
+      #
+      # NÃO é arbitrário: 96h é estritamente maior que o maior prazo de varredura (72h de
+      # confirmação) mais o intervalo do job (5min). Ou seja, nada que a varredura trate
+      # CORRETAMENTE chega a aparecer aqui — quem aparece num estado varrido é sinal de que o job
+      # não conseguiu drenar a missão, e ExpiracaoMissoesJob isola falha por item sem derrubar o
+      # lote, então esse erro não aparece em lugar nenhum sozinho.
+      #
+      # Encurtar isto abaixo de 72h faz o diagnóstico acusar missão que a varredura ainda vai
+      # buscar, e um instrumento cujo falso positivo é o caso normal para de ser consultado.
+      # Ver ADR 0032.
+      pote-imobilizado-apos: PT96H
     # Calibração da fórmula de recompensa. A FÓRMULA é código (CalculadoraDeRecompensa); os NÚMEROS
     # são configuração, porque a relação esforço↔recompensa se ajusta com uso real.
     #

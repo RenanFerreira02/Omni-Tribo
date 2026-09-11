@@ -53,6 +53,75 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-09-11 — O diagnóstico de pote imobilizado** — **a segunda das três pendências abertas por
+  decisão de contrato saiu, e ela revelou uma terceira que ninguém tinha enunciado.**
+
+  Token preso em missão não-terminal parada viola a CONSERVAÇÃO e deixa a RECONCILIAÇÃO intacta: o
+  financiamento debitou a carteira e creditou o pote na MESMA transação, com lançamento e projeção
+  escritos juntos, então as duas somas continuam batendo exatamente. O que não existe é a viagem de
+  volta. Ver [ADR 0032](adr/0032-diagnostico-de-pote-imobilizado.md).
+
+  - **A lacuna era EMBARAÇOSA, e é por isso que vale registrar.** O ADR 0015 declarou esta
+    visibilidade como consequência positiva em 2026-08-11, apoiado em
+    `MissaoRepository.potesImobilizados` — uma query que **nenhum serviço, endpoint ou teste jamais
+    chamou**. A varredura de órfãos a removeu em 2026-08-20 e o ADR recebeu retificação. A lição que
+    o 0032 carrega adiante: **consulta de diagnóstico sem chamador é pior que lacuna declarada,
+    porque faz a lacuna parecer coberta.** Por isso o instrumento novo nasceu com dois consumidores.
+
+  - **O campo é SEPARADO de `integro`, e isso não é detalhe de API.** `integro=true` com
+    `potesImobilizados.missoes > 0` é estado COERENTE. Fazer `integro` virar `false` ali destruiria a
+    única pergunta que a reconciliação responde com precisão para responder mal uma segunda — e o
+    projeto já pagou três vezes por confundir as duas invariantes (estorno na expiração, cunhagem de
+    ENTREGA, queima do resgate). `PoteImobilizadoTest` reprova o build se alguém tentar.
+
+  - **O marco muda por status, e sem isso o instrumento seria ruído.** `ABERTA` mede por
+    `janela_fim`; os demais, por `estado_desde` — a mesma distinção de `RegraExpiracao.Marco`. Medir
+    tudo por `estado_desde` faria toda oferta comunitária financiada com janela longa aparecer como
+    imobilizada, e esse é o estado NORMAL de uma missão esperando executor. Falso positivo no caso
+    comum mata um diagnóstico.
+
+  - **A V28 foi decidida por medição, não por instinto.** Em bancada de 50.000 missões (1 em 10 com
+    pote, 1 em 100 além do limiar — 502 candidatas): listagem **6,224 ms → 0,481 ms**, agregado
+    **5,263 ms → 0,254 ms**, com um índice parcial de **56 kB** contra 16 MB de tabela. O agregado
+    roda em TODA chamada da reconciliação, não só no endpoint novo.
+
+  - **Um comentário falso foi escrito e pego pelo próprio `EXPLAIN`, antes do commit.** A V28
+    afirmava que um `IN` com dois statuses faria o índice "deixar de ser usado, voltando ao Seq
+    Scan". Medido: vira **Bitmap Index Scan**, 1,688 ms — ~5× mais lento que hoje e ainda ~3× mais
+    rápido que sem índice. O repositório já teve três comentários falsos achados por auditoria, e o
+    que os produz é exatamente este formato: afirmação plausível sobre o planner, escrita sem rodar
+    o comando. O javadoc de `IndicePoteImobilizadoTest` repetia a mesma frase e foi corrigido junto.
+
+  - **A suíte foi sabotada, quatro vezes, e a quinta sabotagem falhou por ser fraca.** Fundir
+    `integro` com o pote → 1 vermelho; medir ABERTA por `estado_desde` → 1 vermelho; `varreduraCobre`
+    fixo em `true` → 1 vermelho; contagem perdendo o corte de idade → **5 vermelhos**. A tentativa
+    de trocar `pote_tokens > 0` por `> 1` só na contagem **não** foi detectada, e pelo motivo certo:
+    todo pote real vale muito mais que 1, então os dois predicados selecionam o mesmo conjunto.
+
+  - **A LACUNA NOVA, que é o achado de verdade desta entrega.**
+    `FinanciamentoService.validarEstado` recusa financiamento só em estado TERMINAL, em `CUNHAGEM` e
+    em `PATROCINADOR` — RASCUNHO **é** financiável, e há comentário in-line dizendo isso. Logo o pote
+    existe nos SEIS estados não-terminais, e não nos três que a query órfã olhava:
+
+    | Estado | Varredura por prazo | Porta de ADMIN | A query órfã olhava? |
+    |---|---|---|---|
+    | `RASCUNHO` | não | **nenhuma** | **não** |
+    | `ABERTA` | sim (`janela_fim`) | dispensável | **não** |
+    | `ACEITA` | não | **nenhuma** | **não** |
+    | `EM_ANDAMENTO` | sim (48 h) | `destravar` | sim |
+    | `AGUARDANDO_CONFIRMACAO` | sim (72 h) | `destravar` | sim |
+    | `EM_DISPUTA` | não | `resolver` | sim |
+
+    A regra do javadoc de `StatusMissao` — *"todo estado não-terminal precisa de saída que NÃO
+    dependa de um humano específico aparecer"* — **vale para três dos seis**. A query órfã era, além
+    de órfã, INCOMPLETA. O 0032 **não fecha** isso: mostra com `varreduraCobre=false` e registra como
+    pendência 2 do `CLAUDE.md`, porque estender `DESTRAVAR` muda a máquina de estados (17 → 20) e
+    merece ADR próprio.
+
+  - **O que continua valendo:** o instrumento é DETECTIVO e passivo. Nada avisa, alguém precisa
+    consultar — mesmo modo de falha da carta-morta. E ele cobre UMA das formas de violar a
+    conservação; emissão e queima indevidas seguem cobertas só por `ConservacaoTokensTest`.
+
 - **2026-09-10 — A carta-morta da outbox** — **a primeira das três pendências abertas por decisão
   de contrato saiu, e o que ela NÃO resolveu é a parte que precisa ficar registrada.**
 

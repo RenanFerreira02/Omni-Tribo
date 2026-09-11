@@ -10,6 +10,63 @@ Uma entrada por **fase** do projeto — a numeração de fases é a de
 
 ---
 
+## [Não lançado] — 2026-09-11 · A conservação ganha instrumento
+
+### Adicionado
+
+- **Diagnóstico de pote imobilizado** ([ADR 0032](docs/adr/0032-diagnostico-de-pote-imobilizado.md)).
+  Fecha a segunda das três armadilhas que a v1.0 registrou como abertas. Token preso em missão
+  não-terminal parada viola a **conservação** e deixa a **reconciliação** intacta — o financiamento
+  escreveu lançamento e projeção na mesma transação, e as duas somas continuam batendo. Durante dois
+  anos a resposta a isso foi um parágrafo de documentação.
+  - `GET /api/v1/admin/missoes/potes-imobilizados` — paginado, com resumo (contagem, soma, limiar)
+    **junto** da página, porque o total não é derivável de 20 linhas. Sem título, criador ou
+    coordenada: `origem_lat/lon` é endereço residencial.
+  - `GET /api/v1/admin/carteiras/reconciliacao` ganhou `potesImobilizados`, **campo separado** de
+    `integro`, apurado no mesmo snapshot transacional (`Propagation.MANDATORY`).
+    **`integro=true` com `potesImobilizados.missoes > 0` é estado COERENTE, não contradição** —
+    fundi-los destruiria a única pergunta que `integro` responde com precisão.
+  - **O marco muda por status**: `ABERTA` mede por `janela_fim`, os demais por `estado_desde`,
+    replicando `RegraExpiracao.Marco`. Sem isso toda oferta financiada com janela longa viraria
+    falso positivo — e um instrumento cujo falso positivo é o caso normal não é consultado duas
+    vezes. `RegraExpiracao.medidosPorJanelaFim()` é a fonte única, amarrada a `padrao(...)` por teste.
+  - **Limiar `PT96H`**, maior que os 72 h da varredura mais longa mais os 5 min do job: nada que a
+    expiração trate corretamente aparece na lista.
+  - **`varreduraCobre` são dois diagnósticos na mesma lista**: `true` = existe varredura e ela não
+    drenou (suspeite do job); `false` = varredura nenhuma alcança este estado.
+  - **Migration V28**, decidida por medição e não por instinto: índice parcial de **56 kB** contra
+    16 MB de tabela, que leva a listagem de 6,224 ms a 0,481 ms e o agregado de 5,263 ms a 0,254 ms
+    em bancada de 50.000 missões. O agregado roda em **toda** chamada da reconciliação.
+- **`IndicePoteImobilizadoTest`**, no molde de `IndiceGeoespacialTest`: 50 mil linhas sintéticas,
+  `ANALYZE`, e o `EXPLAIN` precisa nomear o índice. O javadoc diz o que ele **não** prova.
+
+### Corrigido
+
+- **Um comentário falso, pego antes do commit pelo próprio `EXPLAIN`.** A primeira versão da V28
+  afirmava que um `IN` com dois statuses faria o índice "deixar de ser usado, voltando ao Seq Scan".
+  Medido: vira **Bitmap Index Scan** (1,688 ms), ~5× mais lento que hoje e ainda ~3× mais rápido que
+  sem índice. O repositório já teve três comentários falsos achados por auditoria, e o que os produz
+  é exatamente isto — uma afirmação plausível sobre o planner, escrita sem rodar o comando.
+- **Cinco textos deixaram de descrever a lacuna e passaram a descrever o instrumento** —
+  `LancamentoRepository`, `ReconciliacaoService`/`Controller`/`Response`, `README.md`,
+  `docs/EVOLUCAO-ARQUITETURAL.md` (a tabela dizia "Conservação · tem endpoint? ❌ nenhum") e
+  `docs/qualidade/integridade-transacional.md`. **Nenhum passou a prometer conservação garantida:**
+  o instrumento é detectivo, passivo, e cobre UMA das formas de violá-la.
+- **O ADR 0015 recebeu a SEGUNDA retificação**, e agora no sentido oposto à primeira: a consequência
+  que ele declarou em 2026-08-11 e que a varredura de órfãos desmentiu em 2026-08-20 passou a ser
+  verdade — por outro caminho, e desta vez **com consumidor**.
+
+### Pendente
+
+- **Lacuna NOVA, achada ao implementar o diagnóstico e registrada no `CLAUDE.md`:** três dos seis
+  estados não-terminais não têm porta de ADMIN para soltar o pote. `RASCUNHO` e `ACEITA` não têm nem
+  varredura por prazo — e a query órfã removida em 2026-08-20 **nem olhava para eles**. A regra do
+  javadoc de `StatusMissao` ("todo estado não-terminal precisa de saída que não dependa de um humano
+  específico") vale para três dos seis. O diagnóstico os mostra com `varreduraCobre=false`: a lacuna
+  ficou visível, não fechada.
+
+---
+
 ## [Não lançado] — 2026-09-10 · A outbox para de perder evento em silêncio
 
 ### Corrigido

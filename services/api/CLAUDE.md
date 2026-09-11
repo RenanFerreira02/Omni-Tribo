@@ -143,6 +143,13 @@ Antes de terminar qualquer tarefa: `./mvnw verify`, e cole a saída real. Compil
   segunda muda** — foi esse o buraco do estorno na expiração, foi a cunhagem de ENTREGA, e agora é a
   queima do resgate, que é intencional. Um endpoint de reconciliação respondendo `integro=true` não
   é prova de que nenhum token se perdeu.
+- **A segunda invariante ganhou instrumento no ADR 0032, e ele é DETECTIVO.**
+  `GET /admin/missoes/potes-imobilizados` lista o token preso em missão não-terminal parada, e
+  `ReconciliacaoResponse` traz `potesImobilizados` num campo **separado** de `integro`.
+  **`integro=true` com `potesImobilizados.missoes > 0` é coerente, não contradição** — não "conserte"
+  isso fundindo os dois: `PoteImobilizadoTest` fica vermelho de propósito se alguém tentar. E ele
+  não corrige nada; quem solta o pote continua sendo a varredura por prazo e
+  `POST /missoes/{id}/destravar`, que juntas não alcançam RASCUNHO, ACEITA nem EM_DISPUTA.
 - **A conservação é de CICLO, não de estoque** (ADR 0027). `SUM(carteiras) + SUM(potes)` é constante
   dentro do ciclo de missões e muda nas duas pontas: sobe no `APORTE_PATROCINADOR`, desce no
   `RESGATE`. Um teste que afirme constância precisa dizer QUAL das duas coisas mede.
@@ -156,4 +163,6 @@ Antes de terminar qualquer tarefa: `./mvnw verify`, e cole a saída real. Compil
   que o formasse — impublicável e infinanciável ao mesmo tempo, sem erro apontando a causa.
 - **Motivo de financiamento novo entra em `LancamentoRepository.buscarFinanciamentosDaMissao` no
   mesmo commit em que entra no enum.** Aquela query é o que o estorno enxerga; um motivo fora dela
-  deixa o token preso numa missão morta, e a reconciliação continua verde.
+  deixa o token preso numa missão morta, e a reconciliação continua verde. **O diagnóstico do ADR
+  0032 também não pega este caso**, e a razão é específica: a missão já está em estado TERMINAL, e
+  ele só varre os não-terminais. A lista continua sendo a única defesa.
