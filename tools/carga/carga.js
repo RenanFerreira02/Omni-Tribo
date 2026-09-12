@@ -28,6 +28,22 @@ const SEGREDO = __ENV.SEGREDO || 'segredo-de-desenvolvimento-local';
  * Distribuir entre pontos mediria throughput e esconderia exatamente a contenção que interessa. */
 const PONTO_CUSTODIA = __ENV.PONTO_CUSTODIA || 'cccccccc-0000-0000-0000-000000000901';
 
+/* SELEÇÃO DE CENÁRIO — e a razão dela é uma medição que saiu errada, não elegância.
+ *
+ * O cenário `leituras` nasceu como um quarto bloco em `startTime: '16m30s'`, depois dos três
+ * originais. Resultado: 1.180 respostas 401 e nenhuma 200. O access token sai do `setup()`, que roda
+ * uma vez em t=0, e vale 900 s — aos 16m30s ele já tinha expirado havia mais de quinze minutos.
+ *
+ * Os 429 que vieram junto são o SEGUNDO efeito do mesmo erro, e ele é instrutivo: com o JWT
+ * inválido, `RateLimitFilter.resolverChave` não acha o `sub` e cai para `"ip:" + endereço` — os
+ * sessenta VUs, que deveriam ter um balde por usuário, passam a dividir UM balde de 300/min.
+ *
+ * A saída é rodar as leituras num processo k6 PRÓPRIO, com `setup()` fresco. Os três cenários
+ * originais continuam no mesmo processo, nos mesmos instantes, byte a byte como em
+ * docs/evidencias/f21-carga.md — misturá-los para acomodar o quarto teria custado a comparabilidade
+ * que é a única razão de eles existirem. `executar.sh` faz as duas invocações. */
+const SO_LEITURAS = __ENV.CENARIO === 'leituras';
+
 /* Zona leste, seed V903 (Cidade Líder) — é onde há missão ABERTA com origem para o radar achar. */
 const LAT_BASE = -23.55737;
 const LON_BASE = -46.46987;
@@ -60,6 +76,15 @@ const radarFrio = new Trend('radar_cache_frio_ms', true);
 const transferencia = new Trend('transferencia_ms', true);
 const webhook = new Trend('webhook_ms', true);
 
+/* Cenário 4 — leituras. Quatro Trends e não uma, porque a pergunta do cenário é COMPARATIVA: a
+ * listagem ordenada por `criadaEm` tem `idx_missao_status_criada` (V11) atrás dela; a ordenada por
+ * `tokensRecompensa` não tem índice nenhum. Uma métrica só somaria as duas e apagaria justamente a
+ * diferença que o cenário existe para medir. */
+const listaOrdemIndexada = new Trend('lista_ordem_indexada_ms', true);
+const listaOrdemSemIndice = new Trend('lista_ordem_sem_indice_ms', true);
+const detalhe = new Trend('detalhe_ms', true);
+const extrato = new Trend('extrato_ms', true);
+
 const erros = new Rate('erros_inesperados');
 const c429 = new Counter('respostas_429');
 const c422 = new Counter('respostas_422');
@@ -67,9 +92,24 @@ const convertidas = new Counter('webhook_convertida');
 const semPatrocinio = new Counter('webhook_sem_patrocinio');
 const recusadas = new Counter('webhook_recusada');
 
+const CENARIO_LEITURAS = {
+  executor: 'ramping-arrival-rate',
+  startRate: 5, timeUnit: '1s',
+  preAllocatedVUs: 60, maxVUs: 250,
+  stages: [
+    { target: 10, duration: '1m' },
+    { target: 20, duration: '1m' },
+    { target: 40, duration: '1m' },
+    { target: 60, duration: '1m' },
+    { target: 80, duration: '1m' },
+  ],
+  exec: 'cenarioLeituras',
+  startTime: '0s',
+};
+
 export const options = {
   discardResponseBodies: false,
-  scenarios: {
+  scenarios: SO_LEITURAS ? { leituras: CENARIO_LEITURAS } : {
     // Rampa e não taxa constante: o pedido é "o ponto onde degrada", e isso só aparece variando a
     // pressão. Cada patamar dura 1 min, tempo suficiente para o balde do rate limit se estabilizar.
     radar: {
@@ -130,7 +170,20 @@ export function setup() {
     }
     tokens[email] = r.json('accessToken');
   }
-  return { tokens };
+
+  /* Ids de missão para o cenário 4, colhidos AQUI e não fixados no script: os UUIDs do seed mudam
+   * quando uma migration da faixa 900+ muda, e um id literal transformaria uma alteração de seed
+   * num cenário silenciosamente medindo 404. Vazio é tolerado — `cenarioLeituras` cai para a
+   * listagem, que não depende de id. */
+  const primeiro = USUARIOS[0];
+  const lista = http.get(
+    `${API}/api/v1/missoes?tamanho=100`,
+    { headers: { Authorization: `Bearer ${tokens[primeiro]}` } },
+  );
+  const missoes = lista.status === 200 ? lista.json('conteudo').map((m) => m.id) : [];
+  console.log(`setup: ${Object.keys(tokens).length} tokens, ${missoes.length} missões para o detalhe`);
+
+  return { tokens, missoes };
 }
 
 function auth(token) {
@@ -235,4 +288,68 @@ export function cenarioWebhook() {
   }
   erros.add(r.status !== 200 && r.status !== 429);
   check(r, { 'webhook 200 ou 429': (x) => x.status === 200 || x.status === 429 });
+}
+
+// ── Cenário 4 — leituras: listagem com filtro, detalhe e extrato ──────────────────────────────
+/*
+ * Os três caminhos de leitura que os cenários 1-3 nunca exercitaram. Rotação de QUATRO e não de
+ * três: a listagem entra duas vezes, com as duas ordenações, porque é a comparação entre elas que
+ * responde se `ORDER BY tokens_recompensa` — que não tem índice — custa alguma coisa sob carga.
+ *
+ * `MissaoFiltroRequest.CampoOrdenacao` é uma whitelist justamente para impedir "ordenar por coluna
+ * sem índice", nas palavras do javadoc; duas das quatro entradas dela são colunas sem índice. Este
+ * cenário mede se isso importa, em vez de supor nos dois sentidos.
+ */
+export function cenarioLeituras(dados) {
+  const i = exec.scenario.iterationInTest;
+  const email = USUARIOS[i % USUARIOS.length];
+  const opcoes = auth(dados.tokens[email]);
+
+  let r;
+  let trend;
+  switch (i % 4) {
+    case 0:
+      // ORDER BY criada_em DESC — servido por idx_missao_status_criada (V11).
+      r = http.get(
+        `${API}/api/v1/missoes?status=ABERTA&tamanho=20&ordenarPor=CRIADA_EM&direcao=DESC`,
+        opcoes,
+      );
+      trend = listaOrdemIndexada;
+      break;
+    case 1:
+      // ORDER BY tokens_recompensa DESC — nenhum índice cobre esta coluna.
+      r = http.get(
+        `${API}/api/v1/missoes?status=ABERTA&tamanho=20&ordenarPor=TOKENS_RECOMPENSA&direcao=DESC`,
+        opcoes,
+      );
+      trend = listaOrdemSemIndice;
+      break;
+    case 2:
+      if (dados.missoes.length === 0) {
+        return;
+      }
+      // `i / 4` e não `i`: só uma iteração em quatro cai neste ramo, então indexar por `i`
+      // percorreria apenas os índices ≡ 2 (mod 4) — cinco missões das vinte, sempre as mesmas, e o
+      // cache do Postgres mediria essas cinco em vez do endpoint.
+      r = http.get(
+        `${API}/api/v1/missoes/${dados.missoes[Math.floor(i / 4) % dados.missoes.length]}`,
+        opcoes,
+      );
+      trend = detalhe;
+      break;
+    default:
+      r = http.get(`${API}/api/v1/carteira/lancamentos?tamanho=20`, opcoes);
+      trend = extrato;
+      break;
+  }
+
+  if (r.status === 429) {
+    c429.add(1);
+  } else if (r.status === 200) {
+    trend.add(r.timings.duration);
+  }
+  // 404 no detalhe é possível se o seed mudar entre o setup e a execução; conta como erro de
+  // propósito, para não passar despercebido como se o cenário tivesse medido alguma coisa.
+  erros.add(r.status !== 200 && r.status !== 429);
+  check(r, { 'leitura 200 ou 429': (x) => x.status === 200 || x.status === 429 });
 }

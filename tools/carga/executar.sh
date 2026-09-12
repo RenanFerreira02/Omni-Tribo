@@ -36,9 +36,25 @@ k6 run \
   -e API="$API" \
   "$RAIZ/tools/carga/carga.js" 2>&1 | tee "$SAIDA/k6.log"
 
+# SEGUNDA invocação, e não um quarto cenário na primeira. O access token do `setup()` vale 900 s;
+# um cenário começando aos 16m30s recebe 401 em toda requisição — medido, com 1.180 delas. Um
+# processo próprio dá um `setup()` fresco sem tocar no instante de nenhum dos três originais.
+#
+# Roda DEPOIS, contra o banco já mutado pelo cenário 3 (57 conversões) e com a JVM quente. É estado
+# diferente do da primeira invocação, e a comparação antes-e-depois só vale porque as duas execuções
+# repetem a mesma sequência.
+echo
+echo "Cenário de leituras, em processo próprio (setup fresco) ..."
+k6 run \
+  --out "csv=$SAIDA/bruto-leituras.csv" \
+  --summary-export "$SAIDA/resumo-leituras.json" \
+  -e API="$API" -e CENARIO=leituras \
+  "$RAIZ/tools/carga/carga.js" 2>&1 | tee "$SAIDA/k6-leituras.log"
+
 echo
 echo "Resumindo por patamar de 30 s ..."
 python3 "$RAIZ/tools/carga/resumir.py" "$SAIDA/bruto.csv" | tee "$SAIDA/por-patamar.md"
+python3 "$RAIZ/tools/carga/resumir.py" "$SAIDA/bruto-leituras.csv" | tee "$SAIDA/por-patamar-leituras.md"
 
 echo
 echo "Saída em $SAIDA/"
