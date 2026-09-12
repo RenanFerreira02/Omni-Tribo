@@ -83,8 +83,18 @@ acao() { # acao TOKEN MISSAO ACAO [CORPO]
     -H "Authorization: Bearer $1" -H "Idempotency-Key: mock-$3-$2" "${extra[@]}"
 }
 
+# Via wrapper, e não `docker compose` direto: numa máquina onde o Docker Desktop foi removido mas o
+# CLI ficou, o `docker` aponta para um socket morto enquanto o banco roda sob podman — e este script
+# morria no MEIO do ciclo completo, depois de já ter criado a missão. Ver tools/demo/compose.sh.
+COMPOSE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/tools/demo/compose.sh"
+
+# Silencioso porque este script consulta o banco cinco vezes e o aviso do wrapper cairia no meio do
+# ciclo completo, que é justamente o que se está lendo em voz alta. O runtime fica dito uma vez, no
+# cabeçalho abaixo.
+export OMNITRIBO_COMPOSE_SILENCIOSO=1
+
 saldo_de() { # saldo_de EMAIL — lê a projeção direto do banco, que é o número que a banca confere
-  docker compose exec -T db psql -U omnitribo -d omnitribo -tAc \
+  bash "$COMPOSE" exec -T db psql -U omnitribo -d omnitribo -tAc \
     "SELECT c.saldo_tokens FROM carteira c JOIN usuario u ON u.id = c.usuario_id
       WHERE u.email = '$1';" | tr -d ' \r'
 }
@@ -128,6 +138,8 @@ enviar() {
 echo
 echo "Webhook de transportadora → $URL"
 echo "Transportadora: $TRANSPORTADORA"
+# Dito uma vez, já que o wrapper foi silenciado acima.
+echo "Banco via: $(bash "$COMPOSE" --runtime)"
 echo
 
 # ── 1. Caminho feliz ────────────────────────────────────────────────────────────────
