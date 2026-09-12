@@ -5,7 +5,8 @@ pressupõe o preparo da seção final já feito. Se o tempo apertar, corte o blo
 opcional.
 
 **O único bloco que depende de rede externa é o 5.** Todos os outros rodam contra `localhost`. Cada
-bloco tem plano B.
+bloco tem plano B, detalhado aqui mesmo; para consultar em pé, com a banca olhando, use a folha de
+uma página em [`PLANO-B.md`](PLANO-B.md).
 
 O fio condutor é **um ciclo econômico completo, com uma pessoa só**: o patrocinador aporta → uma
 entrega falha → nasce a missão → o vizinho faz check-in → a transportadora confirma e ele é creditado
@@ -18,18 +19,30 @@ com `renan@omnitribo.dev`.
 
 ```bash
 cd Omni-Tribo
-bash tools/gerar-chaves-dev.sh          # idempotente: não faz nada se as chaves existem
-make reset                              # banco limpo, seed reconstruído no boot
+make demo     # chaves + banco do zero + espera o Postgres aceitar conexão
+```
 
+Ele termina imprimindo os dois comandos abaixo, que **precisam de terminais próprios** — por isso
+o `make` não os executa:
+
+```bash
 # terminal 1 — deixe rodando
 cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 
 # terminal 2 — deixe rodando
 cd apps/mobile && npm start
-
-# confirme, e só entre na sala depois de ver o pong:
-curl -s http://localhost:8080/api/v1/ping
 ```
+
+E só entre na sala depois de **todos os ✓**:
+
+```bash
+bash tools/demo/checar-ambiente.sh
+```
+
+> **Pare o backend antes de rodar `make demo` de novo.** Recriar o volume por baixo de um backend
+> de pé o deixa ligado a um banco **sem schema** — o Flyway só migra no boot. O `make demo` recusa
+> quando acha algo na 8080, justamente porque o sintoma (login que não responde) não aponta para a
+> causa.
 
 Guarde o token de ADMIN no terceiro terminal — os blocos 2 e 7 usam:
 
@@ -123,9 +136,16 @@ O bloco que fecha o argumento é o ciclo completo, e ele imprime o número sozin
   ..  iniciar                                EM_ANDAMENTO
   ..  check-in                               AGUARDANDO_CONFIRMACAO
   OK   confirmação → executor creditado   HTTP 200
-        saldo DEPOIS: 190 tokens  (creditados: 66)
-  OK   saldo subiu exatamente a recompensa: +66
+        saldo DEPOIS: 189 tokens  (creditados: 65)
+  OK   saldo subiu exatamente a recompensa: +65
 ```
+
+> **Leia o `+N` que o script imprimir; não decore este número.** A recompensa da missão de retirada
+> entra na base multiplicada por `multiplicador_risco`, que o `PrevisorDeRisco` deriva e a missão
+> **congela** — e um dos insumos do modelo é o clima, consultado ao vivo no Open-Meteo. A saída
+> acima foi medida em 2026-09-12, com multiplicador **1,06×**; antes dela este bloco registrava 66,
+> com as mesmas coordenadas. O script confere o crédito contra a recompensa **da própria missão**,
+> então ele acusa erro de verdade — uma diferença no valor absoluto, não.
 
 > "**Quem confirma é a transportadora, não o executor.** O check-in prova presença, não recebimento —
 > confirmar ali faria o executor confirmar a si mesmo. E `CONCLUIDA` é o **único** estado que credita:
@@ -316,14 +336,15 @@ Frase de encerramento:
 
 ## Checklist de 30 segundos, antes de começar
 
-- [ ] `curl http://localhost:8080/api/v1/ping` responde `pong`
+- [ ] `bash tools/demo/checar-ambiente.sh` — **todos os ✓** (cobre ping, banco, chaves, JDK, Node e
+      a 8080 vista da LAN, que é o que o celular usa)
 - [ ] `$ADMIN` e `$RENAN` exportados no terminal livre
 - [ ] app aberto e **já logado** como `renan@omnitribo.dev`
 - [ ] terminal livre na raiz do projeto
 - [ ] Swagger aberto numa aba
-- [ ] `make reset` feito **hoje** (banco limpo, sem lixo de ensaio)
+- [ ] `make demo` feito **hoje** (banco limpo, sem lixo de ensaio)
 - [ ] telefone no modo não perturbe
 
-> **Se você ensaiou, rode `make reset` de novo antes da apresentação.** O ensaio gasta o saldo do
+> **Se você ensaiou, rode `make demo` de novo antes da apresentação** (com o backend parado). O ensaio gasta o saldo do
 > patrocinador, ocupa vagas do ponto de custódia e queima tokens no resgate — e o bloco 7 fica com
 > `resgatados` diferente de zero antes de você resgatar ao vivo, que é justamente o efeito.
