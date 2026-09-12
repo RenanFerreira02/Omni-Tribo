@@ -47,16 +47,34 @@ describe('painel de impacto', () => {
     expect(screen.getByText('3 re-entregas evitadas × R$ 25,00')).toBeTruthy();
   });
 
-  it('declara a premissa como premissa e mostra a faixa de ±50%', async () => {
+  it('declara a premissa como premissa, em texto e não em rodapé', async () => {
     // É o requisito central da tela. Se este teste cair, o painel voltou a apresentar uma suposição
-    // com aparência de medição — que é exatamente o que uma banca ataca.
+    // com aparência de medição — que é exatamente o que uma banca ataca. A FAIXA em si tem teste
+    // próprio logo abaixo; o que se protege aqui é a palavra "premissa" estar dita na tela.
     await render(<TelaImpacto />);
 
     expect(await screen.findByText(/Premissa, não medição/)).toBeTruthy();
-    // A faixa inteira precisa estar LEGÍVEL na tela, não só disponível na resposta.
-    expect(screen.getByText(/R\$ 37,50/)).toBeTruthy();
-    expect(screen.getByText(/R\$ 112,50/)).toBeTruthy();
     expect(screen.getByText(/não mediu esse custo/)).toBeTruthy();
+  });
+
+  it('mostra as três variações da premissa LADO A LADO, não em prosa', async () => {
+    // O requisito é a COMPARAÇÃO, não a presença dos números. Enquanto os três valores viviam numa
+    // frase corrida, só o do meio tinha destaque e os outros dois liam como ressalva — e o ADR 0029
+    // §5 diz o contrário: a conclusão defensável é a ordem de grandeza que sobrevive à faixa.
+    //
+    // Consulta por rótulo, um por coluna: é assim que se prova que são três nós IRMÃOS e não um
+    // bloco único. Agrupados, o leitor de tela entregaria seis valores monetários sem separação.
+    await render(<TelaImpacto />);
+
+    expect(
+      await screen.findByLabelText('Premissa pela metade, R$ 12,50 por re-entrega: total R$ 37,50'),
+    ).toBeTruthy();
+    expect(
+      screen.getByLabelText('Premissa vigente, R$ 25,00 por re-entrega: total R$ 75,00'),
+    ).toBeTruthy();
+    expect(
+      screen.getByLabelText('Premissa uma vez e meia, R$ 37,50 por re-entrega: total R$ 112,50'),
+    ).toBeTruthy();
   });
 
   it('diz que re-entrega evitada é a missão concluída, e não outra medição', async () => {
