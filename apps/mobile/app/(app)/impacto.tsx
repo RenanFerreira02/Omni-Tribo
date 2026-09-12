@@ -87,6 +87,10 @@ function Painel({ dados }: { dados: ImpactoResponse }) {
           assume que a encomenda teria sido re-entregue. É uma interpretação do mesmo número, não
           uma segunda medição.
         </Text>
+
+        <View style={estilos.linhaDivisoria} />
+
+        <FaixaSensibilidade custoEvitado={ce} />
       </Card>
 
       <Aviso
@@ -95,9 +99,8 @@ function Painel({ dados }: { dados: ImpactoResponse }) {
         mensagem={
           `${reais(ce.premissaCustoReentregaBrl)} por re-entrega é uma PREMISSA de configuração: ` +
           `este projeto não mediu esse custo e não tem operação real para medi-lo. ` +
-          `Com a premissa pela metade o total seria ${reais(ce.menos50Brl)}; ` +
-          `uma vez e meia, ${reais(ce.mais50Brl)}. ` +
-          `O que se pode defender é a faixa, não o número do meio.`
+          `É por isso que a faixa acima existe — o que se pode defender é a ordem de grandeza que ` +
+          `sobrevive a ela, não o número do meio.`
         }
         testID="aviso-premissa"
       />
@@ -220,6 +223,71 @@ function Painel({ dados }: { dados: ImpactoResponse }) {
   );
 }
 
+/**
+ * A análise de sensibilidade em três colunas de peso IGUAL — e o peso igual é o argumento inteiro.
+ *
+ * O ADR 0029 §5 diz que "a conclusão defensável não é o número do meio, é a ordem de grandeza que
+ * sobrevive à faixa". Enquanto os três valores viviam numa frase corrida, só o do meio tinha
+ * destaque tipográfico e os outros dois liam como ressalva de rodapé — exatamente a leitura que o
+ * ADR recusa. Lado a lado, a primeira coisa que se vê é a comparação, não o total.
+ *
+ * **Os três TOTAIS vêm do servidor** (`menos50Brl`, `baseBrl`, `mais50Brl`) e nenhum é recalculado
+ * aqui. O FATOR impresso acima de cada total é outra coisa e não existe na resposta: sai de
+ * `premissaCustoReentregaBrl` vezes 0,5 e 1,5, só para dizer de QUAL premissa aquela coluna saiu.
+ * É rótulo do cenário — não a conta que produziu o número abaixo dele, que já veio pronta.
+ */
+function FaixaSensibilidade({
+  custoEvitado: ce,
+}: {
+  custoEvitado: ImpactoResponse['custoEvitado'];
+}) {
+  const cenarios = [
+    {
+      chave: 'menos50',
+      rotulo: 'Premissa ÷ 2',
+      fala: 'Premissa pela metade',
+      premissa: ce.premissaCustoReentregaBrl * 0.5,
+      total: ce.menos50Brl,
+    },
+    {
+      chave: 'base',
+      rotulo: 'Premissa vigente',
+      fala: 'Premissa vigente',
+      premissa: ce.premissaCustoReentregaBrl,
+      total: ce.baseBrl,
+    },
+    {
+      chave: 'mais50',
+      rotulo: 'Premissa × 1,5',
+      fala: 'Premissa uma vez e meia',
+      premissa: ce.premissaCustoReentregaBrl * 1.5,
+      total: ce.mais50Brl,
+    },
+  ];
+
+  return (
+    <View style={estilos.faixa} testID="faixa-sensibilidade">
+      {cenarios.map((cenario) => (
+        <View
+          key={cenario.chave}
+          style={estilos.cenario}
+          // Cada COLUNA é um nó acessível; a LINHA não. Agrupar as três num nó só entregaria seis
+          // valores monetários seguidos, sem separação audível entre cenário e cenário — que é
+          // justamente a comparação que esta faixa existe para permitir.
+          accessible
+          accessibilityLabel={`${cenario.fala}, ${reais(cenario.premissa)} por re-entrega: total ${reais(cenario.total)}`}
+        >
+          <Text style={estilos.cenarioRotulo}>{cenario.rotulo}</Text>
+          <Text style={estilos.cenarioPremissa}>{reais(cenario.premissa)}</Text>
+          <Text style={estilos.cenarioTotal} testID={`cenario-${cenario.chave}`}>
+            {reais(cenario.total)}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 /** Etapa do funil: número, barra e taxa. A barra é decorativa — quem lê o valor é o rótulo. */
 function Etapa({
   rotulo,
@@ -330,13 +398,18 @@ const estilos = StyleSheet.create({
   tela: { flex: 1, backgroundColor: cores.papel },
   conteudo: { padding: espaco.lg, gap: espaco.md, paddingBottom: espaco.xxl },
   secoes: { gap: espaco.md },
-  titulo: { ...tipografia.titulo, color: cores.tinta },
-  subtitulo: { ...tipografia.subtitulo, color: cores.tinta, marginTop: espaco.sm },
   numeroGrande: { ...tipografia.display, color: cores.verdeEscuro },
   rotulo: { ...tipografia.rotulo, color: cores.tinta70, flexShrink: 1 },
   valor: { ...tipografia.subtitulo, color: cores.tinta },
   legenda: { ...tipografia.legenda, color: textoAcessivel.suave },
   item: { gap: espaco.xs },
+  // Três colunas de mesma largura: `flex: 1` em cada, e nenhuma altura fixa — o rótulo pode quebrar
+  // em duas linhas num aparelho estreito ou com fonte aumentada sem cortar o número de baixo.
+  faixa: { flexDirection: 'row', gap: espaco.sm },
+  cenario: { flex: 1, gap: espaco.xxs },
+  cenarioRotulo: { ...tipografia.legenda, color: textoAcessivel.suave },
+  cenarioPremissa: { ...tipografia.legenda, color: cores.tinta70 },
+  cenarioTotal: { ...tipografia.subtitulo, color: cores.tinta },
   itemCabecalho: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   linhaDivisoria: { height: traco, backgroundColor: cores.linha },
 });

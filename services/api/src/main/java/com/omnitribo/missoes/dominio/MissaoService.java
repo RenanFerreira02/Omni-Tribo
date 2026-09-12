@@ -234,10 +234,25 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
    * StatusMissao.ABERTA} no construtor: é o que grava a linha PUBLICADA em {@code missao_evento}. A
    * regra "status de missão muda SEMPRE pela máquina de estados" não tem exceção para código nosso.
    *
-   * <p><b>Não exige pote.</b> {@code validarPoteSuficienteParaPublicar} devolve cedo para ENTREGA,
-   * e é deliberado: exigir pote aqui faria os vizinhos custearem a logística do varejista, que é o
-   * inverso do modelo. O token de ENTREGA é cunhado até a carteira de patrocinador existir — a
-   * lacuna documentada da Pendência #1.
+   * <p><b>Exige pote, e o financiamento vem ANTES da missão existir.</b> Quem paga é a
+   * TRANSPORTADORA, na mesma transação — não os vizinhos, que é o que tornaria a conversão o
+   * inverso do modelo. Se o patrocinador não cobrir a recompensa, {@code
+   * FinanciamentoMissao.debitarPatrocinador} devolve vazio, este método devolve {@link
+   * Optional#empty()} e o chamador grava SEM_PATROCINIO: nenhuma missão nasce e nenhuma vaga é
+   * ocupada. Ver ADR 0024.
+   *
+   * <p><b>Quem garante o pote aqui é a ORDEM do corpo, não {@code
+   * validarPoteSuficienteParaPublicar}</b> — aquele método não roda neste caminho, porque a
+   * transição chama a máquina de estados direto, sem passar por {@code aplicar}. É o que o
+   * comentário sobre {@code financiadaPeloPatrocinador()} explica adiante, e é a única coisa que
+   * impede uma missão patrocinada de nascer com o pote vazio.
+   *
+   * <p>(Este javadoc descreveu até 2026-09-09 o mundo anterior ao ADR 0024: dizia "não exige pote",
+   * atribuía a dispensa a uma checagem por CATEGORIA que nunca existiu — {@code
+   * validarPoteSuficienteParaPublicar} lê {@code fonte_pote} — e afirmava que o token de ENTREGA
+   * era cunhado na conclusão por falta de carteira de patrocinador. Contradizia o comentário do
+   * próprio corpo, trinta linhas abaixo. A cunhagem desta missão acabou na V23: hoje ela nasce
+   * {@code FontePote.PATROCINADOR} e a emissão é só {@code AporteToken}.)
    */
   @Override
   @Transactional
@@ -984,7 +999,7 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
     // Baixa da custódia: a encomenda saiu do ponto e a vaga volta a existir. No-op para toda missão
     // que não veio de entrega falida, que é a maioria.
     //
-    // SÍNCRONA, dentro desta transação, e não pela outbox. A outbox é at-least-once, e um
+    // SÍNCRONA, dentro desta transação, e não pela outbox. A entrega pela outbox pode REPETIR, e um
     // decremento de ocupação redespachado liberaria uma vaga que nunca existiu — divergência que só
     // apareceria muito depois, quando um ponto aceitasse mais encomendas do que cabe. Aqui, ou a
     // conclusão inteira commita, ou nada muda.
@@ -1010,10 +1025,10 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   /**
    * Se a conclusão paga DO POTE ou CUNHA. Lê {@code missao.fonte_pote}, congelado na criação.
    *
-   * <p><b>Era por CATEGORIA até a V23, e a troca fechou a Pendência #1.</b> A regra antiga — "TRIBO
-   * e COLETA pagam do pote, ENTREGA e AJUDA cunham" — não conseguia distinguir as duas ENTREGAs: a
-   * do webhook, que hoje tem patrocinador, e a criada por humano, que não tem. Virar a chave por
-   * categoria teria deixado a segunda impublicável, porque {@code
+   * <p><b>Era por CATEGORIA até a V23, e a troca fechou a cunhagem implícita por missão.</b> A
+   * regra antiga — "TRIBO e COLETA pagam do pote, ENTREGA e AJUDA cunham" — não conseguia
+   * distinguir as duas ENTREGAs: a do webhook, que hoje tem patrocinador, e a criada por humano,
+   * que não tem. Virar a chave por categoria teria deixado a segunda impublicável, porque {@code
    * FinanciamentoService.validarEstado} recusa financiamento de ENTREGA e o pote jamais alcançaria
    * a recompensa. Ver {@link FontePote} e ADR 0024.
    *

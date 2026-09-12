@@ -18,6 +18,12 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>É a metade de leitura do padrão descrito em {@code PublicadorEventos}. A metade de escrita
  * garante que a intenção de notificar é durável junto com o fato; esta garante que a intenção vira
  * entrega, mesmo que o destino esteja fora do ar por um tempo.
+ *
+ * <p><b>"Por um tempo" é literal: no máximo {@code maximoTentativas} despachos.</b> Depois disso a
+ * linha sai do predicado do lote e este serviço não a toca mais por conta própria — quem a devolve
+ * é {@code OutboxAdminService.reenfileirar}, por endpoint ADMIN, e ela volta a ser entregue por
+ * AQUI, sem caminho alternativo. Ver ADR 0031 e a seção "O LIMITE desta garantia" de {@code
+ * PublicadorEventos}.
  */
 @Service
 public class DrenadorOutboxService {
@@ -82,12 +88,26 @@ public class DrenadorOutboxService {
         Duration espera = backoffBase.multipliedBy(1L << evento.getTentativas());
         evento.registrarFalha(e.toString(), agora.plus(espera));
 
-        log.warn(
-            "Falha ao despachar evento {} da outbox (tentativa {} de {}): {}",
-            evento.getId(),
-            evento.getTentativas(),
-            maximoTentativas,
-            e.toString());
+        // Duas linhas de log diferentes porque são dois fatos diferentes, e antes do ADR 0031 eles
+        // eram indistinguíveis: "falhou e vai tentar de novo" é ruído operacional, "parou de
+        // tentar" é um fato do sistema que ninguém mais vai anunciar. O ERROR não substitui a
+        // carta-morta — quem coleta log aqui não existe (Prometheus/Grafana foram cortados do MVP);
+        // ele só nomeia o momento para quem estiver lendo o console.
+        if (evento.getTentativas() >= maximoTentativas) {
+          log.error(
+              "Evento {} da outbox esgotou {} tentativas e NÃO será mais despachado pelo drenador."
+                  + " Visível em GET /api/v1/admin/outbox/esgotados. Última causa: {}",
+              evento.getId(),
+              maximoTentativas,
+              e.toString());
+        } else {
+          log.warn(
+              "Falha ao despachar evento {} da outbox (tentativa {} de {}): {}",
+              evento.getId(),
+              evento.getTentativas(),
+              maximoTentativas,
+              e.toString());
+        }
       }
     }
 

@@ -47,8 +47,9 @@ class SaqueDesabilitadoTest extends TesteIntegracaoMvcBase {
    *
    * <p>Estes testes mintavam token para um id sem linha em {@code usuario}, e isso funcionava
    * porque a autenticação nunca perguntava ao banco se a conta existia — o atalho era o próprio
-   * defeito da Pendência #3. Com {@code ConsultaSessao} no filtro, aquele token responde 401 e o
-   * teste nunca alcançaria o 422 que ele existe para medir.
+   * defeito da conta anonimizada que seguia escrevendo por 15 minutos, resolvido na verificação de
+   * 2026-08-11. Com {@code ConsultaSessao} no filtro, aquele token responde 401 e o teste nunca
+   * alcançaria o 422 que ele existe para medir.
    */
   private UUID usuario;
 

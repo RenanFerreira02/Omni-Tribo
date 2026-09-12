@@ -237,7 +237,8 @@ class EntregaFalidaCicloTest extends TesteIntegracaoMvcBase {
     drenar();
     assertThat(alertasDe(FERNANDA, missaoId)).isEqualTo(1);
 
-    // Simula o at-least-once: a linha volta a pendente e é drenada de novo. Sem a checagem de
+    // Simula um redespacho: a linha volta a pendente e é drenada de novo — é exatamente o que o
+    // POST /admin/outbox/{id}/reenfileirar faz em produção (ADR 0031). Sem a checagem de
     // existência por (usuario, tipo, missao), o usuário receberia o alerta duas vezes E o
     // duplicado consumiria o teto por hora — uma falha transitória de infra silenciaria
     // notificações legítimas pela hora seguinte.

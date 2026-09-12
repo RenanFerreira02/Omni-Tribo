@@ -363,7 +363,39 @@ de cada módulo dono do dado. Três coisas que o painel diz em voz alta e o cód
 traz a mesma conta com ele em **±50%**); **"re-entrega evitada" é a missão concluída RENOMEADA**, não
 uma segunda medição; e **taxa com denominador zero é `null`, nunca 0%**. Ver ADR 0029.
 
-`/api/v1/admin/carteiras/reconciliacao` — `GET`, só ADMIN.
+`/api/v1/admin/outbox` — `GET /esgotados` (paginado) · `POST /{id}/reenfileirar`. Só ADMIN. **É a
+carta-morta da outbox** (ADR 0031): o drenador para na 5ª falha e a linha some do lote, mas não da
+tabela — a consulta a lista com `ultimo_erro`, e o POST a devolve ao lote, de onde **o mesmo
+`DrenadorOutboxService`** a despacha. Não há atalho de despacho e não há `Idempotency-Key`: a
+idempotência é por ESTADO da linha, sob `FOR UPDATE` (repetir dá `reenfileirado:false`, evento em
+backoff é no-op, evento já entregue é 409). O `payload` **não** vem na resposta — carrega coordenada
+de endereço residencial. Isto **não** torna a entrega at-least-once: o teto continua 5, e nada avisa
+que há evento esgotado.
+
+`/api/v1/admin/carteiras/reconciliacao` — `GET`, só ADMIN. Responde `integro` (ledger × projeção) e,
+desde o ADR 0032, `potesImobilizados` num campo **SEPARADO**: contagem, soma e limiar do token preso
+em missão parada. **`integro=true` com `potesImobilizados.missoes > 0` é estado COERENTE** — são
+invariantes diferentes, e fundi-las num campo só destruiria a única pergunta que `integro` responde
+com precisão.
+
+`/api/v1/admin/missoes/potes-imobilizados` — `GET` (paginado), só ADMIN. **É o instrumento da
+CONSERVAÇÃO** (ADR 0032): missões não-terminais com `pote_tokens > 0` paradas há mais que
+`app.missoes.diagnostico.pote-imobilizado-apos` (PT96H — maior que os 72 h da varredura mais longa,
+para que nada que o job trata corretamente apareça aqui). **O marco muda por status**: `ABERTA` mede
+por `janela_fim`, os demais por `estado_desde` — sem isso toda oferta financiada com janela longa
+viraria falso positivo. Cada linha traz `varreduraCobre`: `true` significa que existe varredura e ela
+NÃO drenou (suspeite do job); `false`, que varredura nenhuma alcança aquele estado. Não traz título,
+criador nem coordenada — `origem_lat/lon` é endereço residencial. **Não corrige nada**: quem solta o
+pote é `POST /missoes/{id}/destravar`, que só aceita dois dos seis estados (ver Pendências).
+
+`/api/v1/admin/pontos-custodia/recusas` — `GET` (paginado), só ADMIN. **É a FREQUÊNCIA que a
+deduplicação do alerta deixou de guardar** (ADR 0033): quantas encomendas cada ponto recusou, por
+motivo, na janela pedida (padrão 24 h, teto 30 dias). Agregado de `entrega_falida` **na hora, sem
+tabela de agregação e sem cache**, pelo argumento do ADR 0029 — o número sempre esteve ali, com
+`ponto_custodia_id`, `recusada_em` e `motivo_recusa`; o que faltava era plano (a V29 traz o índice
+parcial) e leitor. Não há recorte por transportadora: a recusa por lotação é do PONTO, não de quem
+tentou entregar. Restrito a ADMIN porque diz quais lojas do bairro estão sem espaço — é informação de
+negociação com parceiro, não de produto.
 
 `/api/v1/admin/patrocinadores` — `POST` (cadastra titular + carteira + relação com o slug) · `GET`
 (lista, SEM saldo de propósito) · `POST /{id}/aportes` (**EMITE token**; exige `Idempotency-Key`) ·
@@ -485,6 +517,17 @@ CI (`.github/workflows/`), três workflows:
     centralizado) · 0008 (ledger e idempotência) · 0009 (economia) · 0010 (uma URI de erro por
     REAÇÃO DE UI) · 0018 (fronteira de `compartilhado`) · 0020 (proximidade é distância MÍNIMA, não
     ao centroide) · 0022 (risco entra na BASE, teto 1,5×) · 0023 (retry POR DENTRO do disjuntor).
+  - **0031 fechou a carta-morta da outbox, e o que ele NÃO fez importa tanto quanto o que fez.** O
+    teto de 5 tentativas continua, a entrega continua não sendo at-least-once, e a recuperação
+    depende de um humano consultar. Ele também é o precedente de "ação administrativa idempotente
+    por ESTADO, sem `Idempotency-Key`" — leia antes de acrescentar chave a um endpoint que só faz
+    um UPDATE para estado fixo.
+  - **0032 deu à CONSERVAÇÃO o primeiro instrumento dela, e é DETECTIVO.** Leia antes de mexer em
+    `ReconciliacaoResponse`: `potesImobilizados` é campo separado de `integro` porque as duas
+    invariantes são diferentes, e fundi-las é a tentação recorrente deste repositório — já custou
+    caro três vezes. Ele também mede duas coisas que contradizem suposições plausíveis: o marco do
+    diagnóstico NÃO é uma coluna só (ABERTA usa `janela_fim`), e um `IN` com dois statuses NÃO
+    derruba o índice da V28 para Seq Scan, como o comentário original afirmava antes do `EXPLAIN`.
 - `docs/qualidade/integridade-transacional.md` — evidência de concorrência da carteira (100 threads,
   deadlock, rollback) e a seção "O que esta fase NÃO garante". É o documento a defender oralmente.
 - `docs/qualidade/modelo-previsao.md` — métricas do modelo de risco, matriz de confusão, correlações
@@ -496,7 +539,10 @@ CI (`.github/workflows/`), três workflows:
   teste no valor exato, um equivalente que **não** se conserta (a ordem do lock), e uma superfície
   pública que só o próprio teste usa. Sem gate — `./mvnw -Pmutacao …`, fora do `verify`.
 - `docs/evidencias/f21-carga.md` — a medição de carga da **F12b** (o nome diz f21 por pedido; a fase
-  é F12b). Três cenários k6, sem afinar parâmetro nenhum. É de onde vem a Pendência #3.
+  é F12b). Três cenários k6, sem afinar parâmetro nenhum. A §6 dele — as **631 linhas idênticas** em
+  `alerta` — foi a última das três pendências da v1.0 a fechar, em 2026-09-11 (ADR 0033). A medição
+  continua válida e **não** foi reescrita: o parágrafo de fecho aponta o ADR, como o da 0031 já
+  fazia.
 - `docs/seguranca/autenticacao.md` — modelo de ameaça e desenho do fluxo de auth.
 - `docs/seguranca/antifraude-geolocalizacao.md` — o que os controles de check-in **não** pegam.
 - `docs/evidencias/f6-explain-analyze.md` — saída real do `EXPLAIN ANALYZE` provando uso do índice
@@ -548,8 +594,8 @@ Banco
 - Flyway é a ÚNICA fonte de schema. ddl-auto é sempre validate. Nunca resolva divergência mudando
   ddl-auto — escreva migration.
 - **Versão de migration é sequência GLOBAL, não por diretório.** Duas faixas, separadas de propósito:
-  - `db/migration` — schema, **V1–V8 e V11–V27**; único location do perfil default/prod.
-    Próxima é **V28**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
+  - `db/migration` — schema, **V1–V8 e V11–V29**; único location do perfil default/prod.
+    Próxima é **V30**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
     antes da renomeação para `V900__seed_dev.sql`, então um banco de dev criado antes dela tem as
     versões 9 e 10 gravadas no `flyway_schema_history` com descrição de seed. Um `V9__*.sql` novo em
     `db/migration` passaria em clone novo e falharia em máquina antiga com erro de checksum ou
@@ -740,50 +786,58 @@ Seção para armadilhas diagnosticadas e ainda não corrigidas. Ao resolver uma,
 >   prova em runtime (SQLState 42501), não mais só lendo o catálogo;
 > - `EM_ANDAMENTO` e `AGUARDANDO_CONFIRMACAO` sem saída — ver a máquina de estados, que agora tem
 >   **17 transições** e varredura por prazo mais porta de ADMIN.
+>
+> **Uma saiu em 2026-09-10**: *"A outbox abandona evento em silêncio, e não há carta-morta"*. O
+> evento esgotado deixou de ser invisível — `GET /admin/outbox/esgotados` o lista com a causa e
+> `POST /admin/outbox/{id}/reenfileirar` o devolve ao lote (ADR 0031). **Cuidado com o que isso NÃO
+> resolveu:** o teto de 5 tentativas continua igual, a entrega continua não sendo at-least-once, e
+> nada avisa que há evento esgotado — é consulta ativa, então a recuperação depende de alguém olhar.
+>
+> **Outra saiu em 2026-09-11**: *"Nada acha pote imobilizado"*. `GET /admin/missoes/potes-imobilizados`
+> lista o token preso em missão não-terminal parada, e a reconciliação publica a contagem em
+> `potesImobilizados`, campo **separado** de `integro` (ADR 0032). **O que isso NÃO resolveu:** o
+> instrumento é DETECTIVO — ele não solta pote nenhum, é consulta ativa como a carta-morta, e
+> **revelou uma lacuna que ninguém tinha enunciado**, que virou a pendência 1 abaixo. Não funda
+> `potesImobilizados` em `integro`: são invariantes diferentes e `PoteImobilizadoTest` reprova o
+> build de propósito se alguém tentar.
+>
+> **A terceira saiu em 2026-09-11**: *"O alerta de ponto lotado não tem teto nem deduplicação"*. As
+> 631 linhas idênticas da rajada viraram **uma por `(tipo, referência, janela)`**, e a CONTAGEM que a
+> dedup deixa de guardar passou a ser lida em `GET /admin/pontos-custodia/recusas`, agregada de
+> `entrega_falida` — sem tabela de agregação, pelo argumento do ADR 0029 (ADR 0033). O gêmeo
+> `ENTREGA_SEM_PATROCINIO`, que tinha a mesma forma e nunca fora medido, fechou junto. **O que isso
+> NÃO resolveu:** o leitor é consulta ATIVA — é o TERCEIRO instrumento passivo seguido, e três
+> instrumentos passivos não somam um alarme; a granularidade do sinal caiu de propósito (um ponto que
+> recusa 1 vez e outro que recusa 600 produzem a mesma linha); e **o banco não obriga ninguém a
+> preencher `referencia`** — um caminho de escrita novo que grave alerta global sem chave fica fora
+> do índice parcial e não é deduplicado, sem erro e sem aviso. Quem cobre isso é
+> `DespachanteAlertaOperacionalTest`, não uma constraint.
 
-**1. A outbox abandona evento em silêncio, e não há carta-morta.** `DrenadorOutboxService` tenta no
-máximo `app.outbox.maximo-tentativas` (5) vezes; depois disso o predicado de
-`OutboxRepository.buscarPendentesParaPublicar` deixa de enxergar a linha e o evento **nunca mais é
-tentado**. Ele fica na tabela, com `publicado_em` nulo e `ultimo_erro` preenchido, e **nada o
-mostra**: não existe consulta de esgotados, endpoint de administração nem métrica. O único vestígio
-é o `log.warn` da última falha, que ninguém coleta — Prometheus e Grafana foram cortados do MVP.
+**1. Três dos seis estados não-terminais não têm porta de ADMIN para soltar o pote.** Achado ao
+implementar o diagnóstico do ADR 0032, e é lacuna NOVA: nunca esteve enunciada em lugar nenhum, e a
+query órfã removida em 2026-08-20 nem olhava para dois deles.
 
-Consequência: um `MissaoConcluida` que o despachante não consiga tratar cinco vezes desaparece. O
-executor recebeu o crédito e nunca é avisado, e não há lugar onde esse fato apareça.
+`FinanciamentoService.validarEstado` recusa financiamento só em estado TERMINAL, em `CUNHAGEM` e em
+`PATROCINADOR` — e um comentário in-line afirma, corretamente, que **RASCUNHO é financiável**
+(publicar missão comunitária exige pote, então o financiamento acontece antes da publicação). Logo o
+pote existe nos SEIS estados não-terminais:
 
-**Isto foi descoberto como comentário falso, não como bug novo** (varredura de 2026-08-20,
-`docs/auditoria/varredura-orfaos.md` §1.1). Três lugares afirmavam a garantia que não existe —
-"retry até conseguir", "entrega at-least-once" e "espera intervenção". Os três foram corrigidos para
-dizer a verdade; **a lacuna em si continua aberta de propósito**, porque fechá-la é decisão de
-projeto: uma consulta de esgotados exposta a ADMIN, um contador, ou aceitar a perda explicitamente.
-Não decida sozinho — muda o contrato de entrega de notificação.
+| Estado | Varredura por prazo | Porta de ADMIN |
+|---|---|---|
+| `RASCUNHO` | não | **nenhuma** |
+| `ABERTA` | sim (`janela_fim`) | dispensável |
+| `ACEITA` | não | **nenhuma** |
+| `EM_ANDAMENTO` | sim (48 h) | `destravar` |
+| `AGUARDANDO_CONFIRMACAO` | sim (72 h) | `destravar` |
+| `EM_DISPUTA` | não | `resolver` |
 
-**2. Nada acha pote imobilizado.** Token preso em missão não-terminal parada (`EM_ANDAMENTO`,
-`AGUARDANDO_CONFIRMACAO`, `EM_DISPUTA`) viola a CONSERVAÇÃO enquanto a reconciliação segue
-respondendo `integro=true` — são invariantes diferentes, e a primeira passa enquanto a segunda é
-violada. **Não existe consulta, endpoint nem relatório que mostre esses potes.**
+Ou seja: a regra do javadoc de `StatusMissao` — *"todo estado não-terminal precisa de saída que NÃO
+dependa de um humano específico aparecer"* — **vale para três dos seis**. Em `RASCUNHO` e `ACEITA` a
+única saída é o criador ou o executor agir; se a pessoa some, o pote fica preso e **nem um ADMIN
+consegue soltá-lo**. O diagnóstico os mostra com `varreduraCobre=false`, que é a diferença entre a
+lacuna de hoje e a de ontem: ela é visível, mas continua aberta.
 
-Existiu a aparência de um: `MissaoRepository.potesImobilizados`, com javadoc dizendo que
-"existe para dar visibilidade a essa diferença", e o ADR 0015 registrando essa visibilidade como
-consequência aceita. **Nenhum serviço, endpoint ou teste jamais a chamou.** A query foi removida
-como órfã em 2026-08-20 e o ADR 0015 recebeu a retificação, em vez de manter código morto que fazia
-a lacuna parecer coberta. A mitigação real que EXISTE é outra, e é preventiva, não detectiva: a
-varredura por prazo (`ExpiracaoMissoesService`) e a porta de ADMIN (`POST /missoes/{id}/destravar`)
-tiram a missão do limbo. O que falta é o instrumento de DIAGNÓSTICO — ver Pendência #1, que é o
-mesmo formato de problema.
-
-**3. O alerta de ponto lotado não tem teto nem deduplicação.** Achado no teste de carga de
-2026-08-25 (`docs/evidencias/f21-carga.md` §6): uma rajada de webhooks contra um ponto de custódia
-cheio gravou **631 linhas idênticas** em `alerta`, para o mesmo ponto, em menos de 3 minutos.
-
-O alerta é **global de propósito** (`usuario_id` nulo — ver `DespachanteAlertaService
-.gravarPontoLotado`), então o teto de `app.notificacoes.alertas-por-hora`, que é POR USUÁRIO,
-corretamente não se aplica: não é notificação de ninguém, é sinal de operação. A intenção do javadoc
-é boa — "um ponto que recusa encomendas com frequência é exatamente o dado que justifica negociar
-mais capacidade".
-
-**Mas 631 linhas com a mesma frase não são esse dado — são o apagamento dele**, e são amplificação
-de escrita sem limite disparada por evento externo que o sistema não controla: uma transportadora em
-laço de retry contra um ponto cheio escreve indefinidamente. Não corrigido de propósito — a medição
-foi pedida sem ajuste, e a correção (deduplicar por `(ponto, janela)`, ou contador em vez de linha)
-muda o contrato do alerta operacional. **Não decida sozinho.**
+A correção provável é estender `DESTRAVAR` a `RASCUNHO`, `ACEITA` e `EM_DISPUTA` — zero código de
+caminho de valor novo, porque `aplicar()` já estorna em CANCELADA e `DESTRAVADA_POR_ADMIN` já está no
+CHECK da V20. Mas muda a máquina de estados (17 → 20 transições) e a matriz de
+`MissaoStateMachineTest`, então é decisão com ADR próprio. **Não decida sozinho.**

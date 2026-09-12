@@ -23,8 +23,11 @@ import tools.jackson.databind.json.JsonMapper;
  * {@code alerta}, a caixa de entrada do app. O push real trocaria só o corpo deste despachante — o
  * contrato do drenador e o backoff não mudam, porque é exatamente essa separação que o padrão
  * outbox compra. O que NÃO se deve repetir daqui é a palavra "at-least-once": a entrega para na
- * quinta tentativa e o evento é abandonado sem aviso. Ver o javadoc de {@link
- * com.omnitribo.compartilhado.api.PublicadorEventos}, seção "O LIMITE desta garantia".
+ * quinta tentativa. Desde o ADR 0031 o evento parado fica visível em {@code GET
+ * /api/v1/admin/outbox/esgotados} e pode ser devolvido à fila por um ADMIN — o que muda "perda
+ * silenciosa" para "perda detectável", e não para "entrega garantida", porque nada avisa que há
+ * evento esgotado. Ver o javadoc de {@link com.omnitribo.compartilhado.api.PublicadorEventos},
+ * seção "O LIMITE desta garantia".
  *
  * <p>O mapper é construído aqui, sem injeção: Jackson é o 3 (tools.jackson) em todo o repositório e
  * não existe bean de ObjectMapper para injetar. Mesmo padrão de {@code
@@ -253,39 +256,63 @@ public class DespachanteAlertaService implements DespachoAlerta {
   }
 
   /**
-   * Aviso operacional de ponto lotado.
+   * Aviso operacional de ponto lotado — <b>uma linha por ponto por janela</b>.
    *
-   * <p>Alerta GLOBAL — {@code usuario_id} nulo, que a V7 permite de propósito. Não é notificação de
-   * usuário: é sinal de operação, e um ponto que recusa encomendas com frequência é exatamente o
-   * dado que justifica negociar mais capacidade ou abrir outro ponto no bairro. Sem isto, a recusa
-   * ficaria só na linha de {@code entrega_falida}, visível apenas para quem for procurá-la.
+   * <p>Alerta GLOBAL: {@code usuario_id} nulo, que a V7 permite de propósito. Não é notificação de
+   * usuário, é sinal de operação — um ponto que recusa encomendas com frequência é exatamente o
+   * dado que justifica negociar mais capacidade ou abrir outro ponto no bairro.
+   *
+   * <p><b>Era uma linha por EVENTO, e isso apagava o dado em vez de registrá-lo.</b> O teste de
+   * carga de 2026-08-25 gravou 631 linhas idênticas sobre o mesmo ponto em menos de 3 minutos
+   * ({@code docs/evidencias/f21-carga.md} §6): uma transportadora reenviando contra um ponto cheio
+   * é amplificação de escrita sem teto, disparada por evento externo que o sistema não controla.
+   *
+   * <p><b>Por que a frequência não se perde ao deduplicar.</b> Ela nunca esteve só aqui: {@code
+   * entrega_falida} grava TODA recusa, com ponto, instante e motivo. O número é derivável de lá e é
+   * o que {@code GET /api/v1/admin/pontos-custodia/recusas} devolve — sem tabela de agregação, pelo
+   * mesmo argumento do ADR 0029. Ver ADR 0033.
+   *
+   * <p><b>O corpo deixou de nomear a transportadora, e a omissão é obrigatória.</b> A linha agora
+   * representa a JANELA, não um evento: dentro dela cabem recusas de transportadoras diferentes.
+   * Manter o nome de uma delas seria uma afirmação falsa sobre as outras — a linha diria "recusou
+   * uma encomenda de X" enquanto cobre também as de Y.
    */
   private void gravarPontoLotado(UUID entregaFalidaId, Map<String, Object> payload) {
-    alertaRepository.save(
-        new Alerta(
+    Instant agora = Instant.now();
+    // O pontoCustodiaId já vinha no payload da outbox desde a V21 e nunca era lido — era o que
+    // faltava para deduplicar por ponto sem ter de parsear a frase do corpo.
+    String ponto = String.valueOf(payload.get("pontoCustodiaId"));
+
+    int gravados =
+        alertaRepository.inserirOperacionalSeAusente(
             UUID.randomUUID(),
-            null,
             TIPO_PONTO_LOTADO,
             "Ponto de custódia lotado",
             "O ponto "
                 + payload.get("apelidoPonto")
                 + " ("
                 + payload.get("codigoPonto")
-                + ") recusou uma encomenda de "
-                + payload.get("transportadora")
-                + " por falta de vaga. Capacidade: "
+                + ") está recusando encomendas por falta de vaga. Capacidade: "
                 + payload.get("capacidade")
-                + ".",
-            // missao_id fica nulo: não houve missão, e é justamente essa ausência que o alerta
-            // relata. Apontar para a entrega falida aqui misturaria dois identificadores na mesma
-            // coluna, que o app usa para navegar até a missão.
-            null,
-            Instant.now()));
-    log.warn("Ponto lotado registrado para entrega falida {}", entregaFalidaId);
+                + ". Esta linha cobre a janela inteira; a contagem de recusas está no painel de"
+                + " recusas por ponto.",
+            ponto,
+            janelaDe(agora),
+            agora);
+
+    if (gravados == 0) {
+      // Não é falha: é a dedup funcionando. Fica em DEBUG para que o WARN continue significando
+      // "este ponto começou a recusar agora", que é o que merece atenção.
+      log.debug(
+          "Ponto {} já tem alerta de lotação nesta janela; entrega {}", ponto, entregaFalidaId);
+    } else {
+      log.warn("Ponto lotado registrado para entrega falida {}", entregaFalidaId);
+    }
   }
 
   /**
-   * Aviso operacional de entrega recusada por falta de patrocínio.
+   * Aviso operacional de entrega recusada por falta de patrocínio — <b>uma linha por transportadora
+   * por janela</b>.
    *
    * <p>Alerta GLOBAL, como o de ponto lotado, e pela mesma razão: é sinal de OPERAÇÃO, não
    * notificação de usuário. Uma transportadora cujo patrocinador ficou sem saldo para de gerar
@@ -293,22 +320,62 @@ public class DespachanteAlertaService implements DespachoAlerta {
    * pista seria uma linha de {@code entrega_falida} que ninguém abre. É o ADMIN que precisa saber,
    * porque a correção é dele: um aporte.
    *
-   * <p>O corpo NÃO diz saldo nem valor. A causa exata — patrocinador inexistente, desativado ou sem
-   * fundos — fica fora pelo mesmo motivo que {@code MotivoRecusa.SEM_PATROCINIO} colapsa as três: o
+   * <p><b>Deduplicado junto com o de ponto lotado, e não depois.</b> Este caminho tinha exatamente
+   * a mesma forma — {@code save} incondicional por evento, sem teto — e só não apareceu na medição
+   * de §6 porque a rajada foi contra um ponto cheio, e não contra uma transportadora sem
+   * patrocinador. Corrigir um e deixar o outro reabriria a mesma pendência com outro nome.
+   *
+   * <p><b>A referência é o SLUG da transportadora, não um id de patrocinador.</b> {@code
+   * MotivoRecusa.SEM_PATROCINIO} colapsa de propósito três causas — patrocinador inexistente,
+   * desativado e sem fundos — e na primeira delas não existe patrocinador para referenciar. O slug
+   * é o único identificador presente nos três casos.
+   *
+   * <p>O corpo NÃO diz saldo nem valor, pelo mesmo motivo que o motivo colapsa as três causas: o
    * alerta é lido por gente que não precisa do estado financeiro de um parceiro para agir.
    */
   private void gravarSemPatrocinio(UUID entregaFalidaId, Map<String, Object> payload) {
-    alertaRepository.save(
-        new Alerta(
+    Instant agora = Instant.now();
+    String transportadora = String.valueOf(payload.get("transportadora"));
+
+    int gravados =
+        alertaRepository.inserirOperacionalSeAusente(
             UUID.randomUUID(),
-            null,
             TIPO_SEM_PATROCINIO,
             "Entrega sem patrocínio",
-            "Uma encomenda de "
-                + payload.get("transportadora")
-                + " não virou missão por falta de patrocínio ativo. Nenhum vizinho foi acionado.",
-            null,
-            Instant.now()));
-    log.warn("Entrega falida {} recusada por falta de patrocínio", entregaFalidaId);
+            "Encomendas de "
+                + transportadora
+                + " não estão virando missão por falta de patrocínio ativo. Nenhum vizinho foi"
+                + " acionado.",
+            transportadora,
+            janelaDe(agora),
+            agora);
+
+    if (gravados == 0) {
+      log.debug(
+          "Transportadora {} já tem alerta de falta de patrocínio nesta janela; entrega {}",
+          transportadora,
+          entregaFalidaId);
+    } else {
+      log.warn("Entrega falida {} recusada por falta de patrocínio", entregaFalidaId);
+    }
+  }
+
+  /**
+   * Trunca o instante para o início da janela de deduplicação corrente.
+   *
+   * <p>Janelas FIXAS ancoradas na época, e não uma janela deslizante contada a partir do último
+   * alerta. A diferença aparece sob rajada contínua: com janela deslizante, um fluxo constante de
+   * recusas empurraria o marco para sempre e a linha nunca seria renovada — o sinal congelaria no
+   * primeiro alerta e "este ponto ainda está cheio" deixaria de ser dito. Com janela fixa, cada
+   * hora produz no máximo uma linha e no mínimo nenhuma, que é o que a lista precisa mostrar.
+   *
+   * <p>{@code floorDiv}, e não divisão inteira comum: para instantes anteriores à época o
+   * truncamento por divisão simples arredondaria na direção errada. Não acontece em produção, mas o
+   * custo de estar certo aqui é zero e o de descobrir depois não é.
+   */
+  private Instant janelaDe(Instant agora) {
+    long janelaSegundos = parametros.janelaAlertaOperacional().toSeconds();
+    return Instant.ofEpochSecond(
+        Math.floorDiv(agora.getEpochSecond(), janelaSegundos) * janelaSegundos);
   }
 }

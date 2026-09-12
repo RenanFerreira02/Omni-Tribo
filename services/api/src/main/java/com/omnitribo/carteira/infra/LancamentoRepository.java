@@ -60,8 +60,13 @@ public interface LancamentoRepository extends JpaRepository<Lancamento, UUID> {
    * FINANCIAMENTO_PATROCINADOR} e, sem incluí-lo aqui, cancelar ou expirar uma missão de retirada
    * não devolveria nada ao patrocinador. Os tokens ficariam presos numa missão morta e a
    * reconciliação seguiria respondendo {@code integro=true}, porque ledger e projeção continuam
-   * batendo — é a Pendência #2 reaparecendo por outro caminho, invisível justamente para o endpoint
-   * que existe para achá-la.
+   * batendo — pote imobilizado reaparecendo por outro caminho, invisível justamente para o endpoint
+   * que existe para achar problema de valor.
+   *
+   * <p><b>Desde o ADR 0032 ele deixaria rastro, e mesmo assim isto continua sendo defeito.</b> O
+   * diagnóstico de pote imobilizado listaria a missão — mas ela estaria em estado TERMINAL, e o
+   * diagnóstico só olha os não-terminais. Ou seja: um motivo esquecido nesta lista continua
+   * invisível para os dois endpoints. A lista é a única defesa.
    *
    * <p>Motivo de financiamento novo entra NESTA lista no mesmo commit em que entra no enum. Não há
    * teste que pegue o esquecimento a partir do enum sozinho.

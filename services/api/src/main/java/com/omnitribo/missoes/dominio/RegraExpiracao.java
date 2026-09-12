@@ -2,6 +2,7 @@ package com.omnitribo.missoes.dominio;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 
 /**
  * O que a varredura procura, como DADO em vez de código.
@@ -28,6 +29,24 @@ public record RegraExpiracao(
     JANELA_FIM,
     /** {@code estado_desde}: quando a missão entrou no status atual. */
     ESTADO_DESDE
+  }
+
+  /**
+   * Statuses cujo prazo se conta pela JANELA DE OFERTA, e não pelo tempo parado no estado.
+   *
+   * <p>Existe porque há um SEGUNDO leitor dessa distinção, e ele não tem os prazos em mãos: o
+   * diagnóstico de pote imobilizado (ADR 0032) precisa escolher a coluna do marco por status, mas
+   * não expira nada e portanto nunca chama {@link #padrao}. Escrever {@code ABERTA} literal lá
+   * deixaria duas listas livres para divergir — foi exatamente assim que {@code
+   * FinanciamentoService.validarEstado} quase ficou fora de sincronia com o construtor de {@code
+   * Missao} quando AJUDA mudou de lado (ADR 0025).
+   *
+   * <p>{@code RegraExpiracaoTest.medidosPorJanelaFimAcompanhaOPadrao} amarra este conjunto ao que
+   * {@link #padrao} de fato produz: uma regra nova com {@code Marco.JANELA_FIM} que esqueça daqui
+   * reprova o build.
+   */
+  public static Set<StatusMissao> medidosPorJanelaFim() {
+    return Set.of(StatusMissao.ABERTA);
   }
 
   /**

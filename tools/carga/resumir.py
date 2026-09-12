@@ -34,9 +34,17 @@ def main(caminho):
     status = defaultdict(lambda: defaultdict(int))
     t0 = None
 
+    # Métricas PRÓPRIAS do script (radar quente/frio, extrato, detalhe, as duas ordenações da
+    # listagem). Elas não estavam neste resumo, e a tabela de cache de f21-carga.md precisou sair do
+    # `resumo.json` do k6 à mão — um passo manual que some aqui.
+    proprias = defaultdict(list)
+
     with open(caminho, newline='', encoding='utf-8') as f:
         for linha in csv.DictReader(f):
-            if linha.get('metric_name') != 'http_req_duration':
+            metrica = linha.get('metric_name')
+            if metrica and metrica.endswith('_ms'):
+                proprias[metrica].append(float(linha['metric_value']))
+            if metrica != 'http_req_duration':
                 continue
             ts = int(linha['timestamp'])
             if t0 is None:
@@ -51,19 +59,40 @@ def main(caminho):
 
     for cenario in sorted({c for c, _ in duracoes}):
         print(f'## `{cenario}`\n')
-        print('| Janela | req | req/s | p50 (ms) | p95 (ms) | p99 (ms) | 2xx | 429 | 4xx/5xx |')
-        print('|---:|---:|---:|---:|---:|---:|---:|---:|---:|')
+        print('| Janela | req | req/s | p50 (ms) | p95 (ms) | p99 (ms) | 2xx | 429 | 422 | outros |')
+        print('|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|')
         janelas = sorted(j for c, j in duracoes if c == cenario)
         for j in janelas:
             v = sorted(duracoes[(cenario, j)])
             st = status[(cenario, j)]
             ok = sum(n for s, n in st.items() if s.startswith('2'))
             limitado = st.get('429', 0)
-            outros = sum(n for s, n in st.items() if not s.startswith('2') and s != '429')
+            # 422 fora do balaio: é regra de NEGÓCIO recusando (saldo, janela, pote), não falha.
+            # Somado a 5xx, um cenário saudável parece ter erro — foi exatamente a leitura que a
+            # §4 de f21-carga.md precisou desfazer em prosa.
+            negocio = st.get('422', 0)
+            outros = sum(
+                n for s, n in st.items()
+                if not s.startswith('2') and s not in ('429', '422')
+            )
             print(
                 f'| {j * JANELA}–{(j + 1) * JANELA}s | {len(v)} | {len(v) / JANELA:.1f} '
                 f'| {percentil(v, 0.50):.1f} | {percentil(v, 0.95):.1f} '
-                f'| {percentil(v, 0.99):.1f} | {ok} | {limitado} | {outros} |'
+                f'| {percentil(v, 0.99):.1f} | {ok} | {limitado} | {negocio} | {outros} |'
+            )
+        print()
+
+    if proprias:
+        print('## Métricas próprias do script\n')
+        print('Agregado da execução INTEIRA, não por patamar: estas Trends existem para comparar')
+        print('caminhos entre si (quente × frio, com índice × sem índice), e a comparação é o total.\n')
+        print('| Métrica | amostras | p50 (ms) | p95 (ms) | p99 (ms) |')
+        print('|---|---:|---:|---:|---:|')
+        for nome in sorted(proprias):
+            v = sorted(proprias[nome])
+            print(
+                f'| `{nome}` | {len(v)} | {percentil(v, 0.50):.2f} '
+                f'| {percentil(v, 0.95):.2f} | {percentil(v, 0.99):.2f} |'
             )
         print()
 

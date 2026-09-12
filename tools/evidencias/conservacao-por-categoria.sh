@@ -25,11 +25,13 @@
 set -uo pipefail
 
 API=http://localhost:8080
-# Se a sua máquina usa podman em vez de Docker Desktop, exporte o socket antes:
-#   export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
-PSQL=(docker compose exec -T db psql -U omnitribo -d omnitribo -tAc)
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
+
+# Antes isto era `docker compose` direto, com um comentário mandando exportar DOCKER_HOST à mão
+# quando a máquina usasse podman. O wrapper detecta sozinho — ver tools/demo/compose.sh.
+export OMNITRIBO_COMPOSE_SILENCIOSO=1  # dezenas de consultas: o aviso por chamada poluiria a saída
+PSQL=(bash tools/demo/compose.sh exec -T db psql -U omnitribo -d omnitribo -tAc)
 
 falhas=0
 conferir() { # conferir RÓTULO ESPERADO OBTIDO

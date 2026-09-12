@@ -10,6 +10,170 @@ Uma entrada por **fase** do projeto — a numeração de fases é a de
 
 ---
 
+## [Não lançado] — 2026-09-11 · O alerta operacional para de se apagar
+
+### Adicionado
+
+- **Deduplicação do alerta operacional global**
+  ([ADR 0033](docs/adr/0033-deduplicacao-do-alerta-operacional.md)). Fecha a **terceira e última** das
+  armadilhas que a v1.0 registrou como abertas por decisão de contrato. O teste de carga de
+  2026-08-25 mediu 631 linhas idênticas em `alerta`, todas do mesmo ponto, em menos de 3 minutos — e
+  o teto `alertas-por-hora` corretamente não as pegava: ele conta `WHERE usuario_id = ?`, e estes
+  alertas têm `usuario_id` nulo de propósito.
+  - **Uma linha por `(tipo, referência, janela)`**, via `INSERT ... ON CONFLICT DO NOTHING` sobre o
+    índice parcial `uk_alerta_operacional` (V29). Contra o servidor de pé: **60 webhooks num ponto
+    cheio → 1 linha**, com as 60 recusas intactas em `entrega_falida`.
+  - `GET /api/v1/admin/pontos-custodia/recusas` — **a contagem que a dedup deixa de guardar**,
+    agregada de `entrega_falida` na hora, **sem tabela de agregação e sem cache** (ADR 0029). O
+    número nunca esteve só no alerta: `ponto_custodia_id` (V6), `recusada_em` (V21) e `motivo_recusa`
+    (V23) sempre o guardaram. Faltavam plano e leitor.
+  - **O gêmeo fechou junto.** `ENTREGA_SEM_PATROCINIO` tinha a mesma forma — `save` incondicional por
+    evento, sem teto — e só não apareceu na medição porque a rajada foi contra um ponto cheio, e não
+    contra uma transportadora sem patrocinador. Deduplica pela transportadora, e não por um
+    `patrocinador_id`: `SEM_PATROCINIO` colapsa três causas de propósito e na primeira o patrocinador
+    não existe.
+  - **Migration V29**, decidida por medição: índice parcial de **128 kB** contra 14 MB de tabela, que
+    leva a consulta do painel de **3,082 ms a 0,135 ms** (buffers 881 → 32) em bancada de 50.000
+    linhas. `idx_entrega_falida_ponto` (V21) é parcial em `recusada_em IS NULL` — o complemento
+    exato — e por isso não servia.
+  - **`DespachanteAlertaOperacionalTest`**, 9 testes: a primeira cobertura que `gravarPontoLotado`
+    recebe. Ele estava em **0/35 instruções**, e `WebhookEntregaFalidaTest` chegava a apagar
+    `PONTO_CUSTODIA_LOTADO` no `@AfterEach` sem nunca drenar a outbox — limpava um alerta que não
+    chegava a existir.
+
+### Corrigido
+
+- **Duas afirmações falsas, onde estavam.** O javadoc de `Alerta` dizia que *"nenhum caminho de
+  escrita produz [alerta global] hoje"* — dois produzem, e produziam desde a F8. O de
+  `AlertaRepository` dizia que *"não há UNIQUE na tabela"*, o que a V29 tornou falso; a frase agora
+  explica por que a dedup do fan-out por usuário continua sendo em Java (a chave dela inclui
+  `missao_id`, que é nulo nos avisos sem missão, e UNIQUE é `NULLS DISTINCT`).
+- **O corpo do alerta de ponto lotado deixou de nomear a transportadora.** A linha passou a
+  representar a JANELA, e dentro dela cabem recusas de transportadoras diferentes — manter o nome de
+  uma delas seria afirmação falsa sobre as outras. O teste trava isso.
+- **Uma sabotagem passou, e o teste foi corrigido antes do commit.** Congelar `janelaDe()` numa
+  constante não era detectado: o teste da janela seguinte funciona *envelhecendo* `janela_inicio` no
+  banco, então media "uma janela diferente não bloqueia" e não "a janela vem do relógio". Passou a
+  comparar `janela_inicio` com o `criado_em` da própria linha. **Um teste que envelhece o estado que
+  deveria estar derivando é cego para a derivação.**
+
+### Pendente
+
+- **O leitor é consulta ATIVA, e é o TERCEIRO instrumento passivo seguido** — depois da carta-morta
+  (ADR 0031) e do pote imobilizado (ADR 0032). Nada avisa que um ponto vive lotado; alguém precisa
+  olhar. Três instrumentos passivos não somam um alarme.
+- **O banco não obriga ninguém a preencher `referencia`.** Um caminho de escrita novo que grave
+  alerta global sem chave fica fora do índice parcial e não é deduplicado — sem erro e sem aviso.
+  `NULLS NOT DISTINCT` tornaria isso um erro duro, mas faria o `CREATE INDEX` falhar exatamente na
+  máquina onde a rajada de 631 foi medida. Quem cobre é o teste.
+
+---
+
+## [Não lançado] — 2026-09-11 · A conservação ganha instrumento
+
+### Adicionado
+
+- **Diagnóstico de pote imobilizado** ([ADR 0032](docs/adr/0032-diagnostico-de-pote-imobilizado.md)).
+  Fecha a segunda das três armadilhas que a v1.0 registrou como abertas. Token preso em missão
+  não-terminal parada viola a **conservação** e deixa a **reconciliação** intacta — o financiamento
+  escreveu lançamento e projeção na mesma transação, e as duas somas continuam batendo. Durante dois
+  anos a resposta a isso foi um parágrafo de documentação.
+  - `GET /api/v1/admin/missoes/potes-imobilizados` — paginado, com resumo (contagem, soma, limiar)
+    **junto** da página, porque o total não é derivável de 20 linhas. Sem título, criador ou
+    coordenada: `origem_lat/lon` é endereço residencial.
+  - `GET /api/v1/admin/carteiras/reconciliacao` ganhou `potesImobilizados`, **campo separado** de
+    `integro`, apurado no mesmo snapshot transacional (`Propagation.MANDATORY`).
+    **`integro=true` com `potesImobilizados.missoes > 0` é estado COERENTE, não contradição** —
+    fundi-los destruiria a única pergunta que `integro` responde com precisão.
+  - **O marco muda por status**: `ABERTA` mede por `janela_fim`, os demais por `estado_desde`,
+    replicando `RegraExpiracao.Marco`. Sem isso toda oferta financiada com janela longa viraria
+    falso positivo — e um instrumento cujo falso positivo é o caso normal não é consultado duas
+    vezes. `RegraExpiracao.medidosPorJanelaFim()` é a fonte única, amarrada a `padrao(...)` por teste.
+  - **Limiar `PT96H`**, maior que os 72 h da varredura mais longa mais os 5 min do job: nada que a
+    expiração trate corretamente aparece na lista.
+  - **`varreduraCobre` são dois diagnósticos na mesma lista**: `true` = existe varredura e ela não
+    drenou (suspeite do job); `false` = varredura nenhuma alcança este estado.
+  - **Migration V28**, decidida por medição e não por instinto: índice parcial de **56 kB** contra
+    16 MB de tabela, que leva a listagem de 6,224 ms a 0,481 ms e o agregado de 5,263 ms a 0,254 ms
+    em bancada de 50.000 missões. O agregado roda em **toda** chamada da reconciliação.
+- **`IndicePoteImobilizadoTest`**, no molde de `IndiceGeoespacialTest`: 50 mil linhas sintéticas,
+  `ANALYZE`, e o `EXPLAIN` precisa nomear o índice. O javadoc diz o que ele **não** prova.
+
+### Corrigido
+
+- **Um comentário falso, pego antes do commit pelo próprio `EXPLAIN`.** A primeira versão da V28
+  afirmava que um `IN` com dois statuses faria o índice "deixar de ser usado, voltando ao Seq Scan".
+  Medido: vira **Bitmap Index Scan** (1,688 ms), ~5× mais lento que hoje e ainda ~3× mais rápido que
+  sem índice. O repositório já teve três comentários falsos achados por auditoria, e o que os produz
+  é exatamente isto — uma afirmação plausível sobre o planner, escrita sem rodar o comando.
+- **Cinco textos deixaram de descrever a lacuna e passaram a descrever o instrumento** —
+  `LancamentoRepository`, `ReconciliacaoService`/`Controller`/`Response`, `README.md`,
+  `docs/EVOLUCAO-ARQUITETURAL.md` (a tabela dizia "Conservação · tem endpoint? ❌ nenhum") e
+  `docs/qualidade/integridade-transacional.md`. **Nenhum passou a prometer conservação garantida:**
+  o instrumento é detectivo, passivo, e cobre UMA das formas de violá-la.
+- **O ADR 0015 recebeu a SEGUNDA retificação**, e agora no sentido oposto à primeira: a consequência
+  que ele declarou em 2026-08-11 e que a varredura de órfãos desmentiu em 2026-08-20 passou a ser
+  verdade — por outro caminho, e desta vez **com consumidor**.
+
+### Pendente
+
+- **Lacuna NOVA, achada ao implementar o diagnóstico e registrada no `CLAUDE.md`:** três dos seis
+  estados não-terminais não têm porta de ADMIN para soltar o pote. `RASCUNHO` e `ACEITA` não têm nem
+  varredura por prazo — e a query órfã removida em 2026-08-20 **nem olhava para eles**. A regra do
+  javadoc de `StatusMissao` ("todo estado não-terminal precisa de saída que não dependa de um humano
+  específico") vale para três dos seis. O diagnóstico os mostra com `varreduraCobre=false`: a lacuna
+  ficou visível, não fechada.
+
+---
+
+## [Não lançado] — 2026-09-10 · A outbox para de perder evento em silêncio
+
+### Corrigido
+
+- **Carta-morta da outbox** ([ADR 0031](docs/adr/0031-carta-morta-da-outbox.md)). Fecha a primeira
+  das três armadilhas que a v1.0 registrou como abertas por decisão de contrato. `DrenadorOutboxService`
+  para na 5ª falha e a linha some do predicado do lote — mas não da tabela. Ela era **invisível**:
+  nenhuma consulta, nenhum endpoint, nenhuma métrica, só um `log.warn` que ninguém coleta porque
+  Prometheus e Grafana foram cortados do MVP. Um `MissaoConcluida` nessa condição significa executor
+  creditado e nunca avisado.
+  - `GET /api/v1/admin/outbox/esgotados` — paginado, com `ultimo_erro`. O `payload` **não** vem:
+    carrega coordenada de endereço residencial.
+  - `POST /api/v1/admin/outbox/{id}/reenfileirar` — zera `tentativas`, preserva `ultimo_erro`,
+    devolve a linha ao lote. **Não despacha:** quem entrega continua sendo o mesmo
+    `DrenadorOutboxService`, e um teste de integração trava justamente essa ordem.
+  - Idempotente por **estado da linha**, sob `FOR UPDATE`, sem `Idempotency-Key` — a chave existe
+    para impedir uma segunda LINHA no ledger, e aqui não há linha a criar. Repetir devolve
+    `reenfileirado:false`; evento em backoff é no-op; evento já entregue é 409.
+  - **Sem migration.** As quatro colunas usadas existem desde a V7 e a V14.
+  - `@Auditavel(acao="OUTBOX_REENFILEIRADA")` mais `RecursoAuditavel` — as duas metades, com teste
+    conferindo que `entidade_id` chega preenchido no banco.
+- **O `log.warn` da última falha virou `log.error` com texto próprio.** "Falhou e vai tentar de novo"
+  e "parou de tentar" eram a mesma linha de log; agora são duas, e a segunda nomeia o endpoint.
+- **Cinco textos deixaram de descrever a lacuna e passaram a descrever o instrumento** —
+  `PublicadorEventos`, `DespachanteAlertaService`, `EntregaFalidaService`, a descrição OpenAPI de
+  `AlertaController` (contrato publicado) e `application.yml`. **Nenhum passou a prometer
+  at-least-once**, e isso é deliberado: o teto de 5 tentativas não mudou, e a recuperação depende de
+  alguém consultar. Trocamos perda silenciosa por perda detectável, não por entrega garantida.
+- **Um teste de concorrência que não podia falhar.** Achado na revisão da própria suíte desta
+  entrega: `catch (Exception e)` dentro da tarefa submetida ao pool engolia o `AssertionError` de
+  `andExpect(status().isOk())`, e o `Future` nunca era inspecionado. Trocando o `FOR UPDATE` do
+  endpoint por SKIP LOCKED, 9 de 10 requisições recebiam 404 e a suíte ficava verde. Corrigido com
+  `catch (Throwable)` mais coleta de status por thread. **O mesmo formato está em outros dez
+  arquivos de teste do projeto e não foi auditado** — ver as Notas de manutenção do
+  [`docs/PROGRESSO.md`](docs/PROGRESSO.md).
+- **Mais OITO ocorrências de "at-least-once" foram achadas vivas, e as duas varreduras anteriores
+  não pegaram nenhuma.** Elas estavam fora do lugar onde se procurou: um diagrama
+  (`sequencia-ciclo-missao.md` ⑩), quatro javadocs/comentários que usam o termo como atalho para
+  "pode repetir" (`BaixaCustodia`, `PontoCustodia.registrarSaida`, `MissaoService` na baixa de
+  custódia, `AlertaRepository`), um comentário de teste, e **duas no
+  `docs/qualidade/integridade-transacional.md`** — que é documento de defesa oral e ainda carregava
+  a frase original *"retry até conseguir"*. Em todas, o argumento construído em cima do termo estava
+  CERTO (a entrega pode repetir); errado era o nome da garantia. O
+  [ADR 0008](docs/adr/0008-ledger-append-only-e-idempotencia.md), onde a afirmação nasceu, recebeu
+  **retificação** em vez de reescrita.
+
+---
+
 ## [v1.0] — 2026-08-25 · A economia fecha o ciclo
 
 **Primeira entrada com rótulo de versão, e não de fase.** As anteriores são por fase, e continuam

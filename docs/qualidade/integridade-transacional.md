@@ -195,11 +195,22 @@ ordem que resolva:
 São dois sistemas sem transação em comum. A outbox move a decisão para o único lugar onde a
 atomicidade existe: a MESMA transação grava o FATO (o lançamento) e a INTENÇÃO de anunciá-lo. Se a
 transação some, a intenção some junto; se commita, a intenção está durável e um processo separado a
-entrega com retry até conseguir.
+entrega com **até `app.outbox.maximo-tentativas` (5) tentativas**, com backoff.
 
-Isso dá **entrega at-least-once sem broker de mensageria nenhum** — o Kafka/RabbitMQ que o escopo do
-MVP cortou de propósito. O preço é at-least-once em vez de exactly-once: o consumidor precisa tolerar
-receber o mesmo evento duas vezes.
+Isso dispensa broker de mensageria — o Kafka/RabbitMQ que o escopo do MVP cortou de propósito. O
+preço é duplo, e as duas metades precisam ser ditas juntas:
+
+- **Pode repetir.** Não é exactly-once: uma tentativa pode entregar e falhar ao marcar, e o
+  consumidor precisa tolerar receber o mesmo evento duas vezes.
+- **Pode não acontecer.** Não é at-least-once. Na quinta falha o evento sai do predicado do lote e o
+  drenador não o tenta mais sozinho. Desde 2026-09-10 ele fica visível em
+  `GET /admin/outbox/esgotados` e um ADMIN pode devolvê-lo à fila
+  ([ADR 0031](../adr/0031-carta-morta-da-outbox.md)) — o que torna a perda **detectável**, não
+  impossível: nada avisa que há evento esgotado, e a recuperação depende de alguém consultar.
+
+> Este parágrafo dizia *"entrega com retry até conseguir"* e *"entrega at-least-once"* até
+> 2026-09-10. As duas frases foram corrigidas no código-fonte pelas varreduras de 2026-08-20 e
+> 2026-09-09, que não alcançaram este arquivo.
 
 O drenador usa **SKIP LOCKED** (`jakarta.persistence.lock.timeout = -2`) para que dois drenadores
 peguem lotes disjuntos, e **backoff exponencial** (30 s, 1 min, 2 min, 4 min…) porque retentar sem
@@ -324,7 +335,17 @@ Registrado por honestidade, e porque uma banca pergunta:
   verifica *consistência*, não *conservação*, e as duas não são a mesma coisa. `ConservacaoTokensTest`
   existe para essa segunda invariante, e roda `assertLedgerReconcilia` nos dois ramos de propósito —
   para deixar executável a demonstração de que uma passa enquanto a outra é violada.
-- **Exactly-once na notificação.** A outbox dá at-least-once. O consumidor precisa tolerar duplicata.
+
+  **Desde 2026-09-11 a segunda invariante também tem instrumento em runtime**, e não só em teste:
+  `GET /api/v1/admin/missoes/potes-imobilizados` mostra o token preso em missão parada, e a
+  reconciliação publica a contagem num campo separado de `integro`
+  ([ADR 0032](../adr/0032-diagnostico-de-pote-imobilizado.md)). Ele **não** promete conservação: é
+  detecção passiva de UMA das formas de violá-la, e depende de alguém consultar — mesmo modo de
+  falha da carta-morta da outbox.
+- **Exactly-once na notificação.** A outbox pode repetir, e o consumidor precisa tolerar duplicata.
+- **Entrega da notificação, ponto.** A outbox também **não** é at-least-once: são no máximo 5
+  tentativas, e um evento que as esgote não é entregue nenhuma vez. O que existe é detecção —
+  `GET /admin/outbox/esgotados` — e não garantia ([ADR 0031](../adr/0031-carta-morta-da-outbox.md)).
 - **Saque não transfere dinheiro.** Registra o débito e devolve protocolo; a liquidação depende de
   gateway externo, fora do escopo do MVP. O débito ser gravado no pedido é intencional — senão a
   mesma quantia poderia ser sacada duas vezes na janela entre pedido e liquidação.

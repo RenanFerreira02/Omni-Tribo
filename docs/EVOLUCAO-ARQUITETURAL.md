@@ -112,7 +112,7 @@ reconciliação não estava quebrada nem mal escrita: **ela responde a outra per
 | | Pergunta que responde | Tem endpoint? |
 |---|---|---|
 | **Reconciliação** | "o saldo desta carteira é explicado pelo histórico dela?" | ✅ `GET /admin/carteiras/reconciliacao` |
-| **Conservação** | "o total de tokens do sistema mudou sem alguém ter pago?" | ❌ nenhum |
+| **Conservação** | "o total de tokens do sistema mudou sem alguém ter pago?" | ⚠️ parcial, desde 2026-09-11 |
 
 **A lição, em uma frase: uma invariante que ninguém mede não está garantida — e um painel verde pode
 estar medindo a coisa errada.**
@@ -121,6 +121,15 @@ O mesmo cegamento apareceu depois em outro lugar, o que confirma que não era ac
 `EM_ANDAMENTO` e `AGUARDANDO_CONFIRMACAO` não tinham saída, o pote de quem financiou ficava
 imobilizado para sempre numa missão morta — e a reconciliação continuava respondendo `integro=true`,
 porque ledger e projeção seguiam batendo ([ADR 0015](adr/0015-destravamento-de-estados-sem-saida.md)).
+
+**O "⚠️ parcial" é literal, e a ressalva é a parte honesta da linha.** O
+[ADR 0032](adr/0032-diagnostico-de-pote-imobilizado.md) deu à conservação o primeiro instrumento
+dela: `GET /api/v1/admin/missoes/potes-imobilizados` lista o token preso em missão parada, e a
+própria reconciliação passou a publicar a contagem num campo **separado** de `integro` — porque
+`integro=true` com pote imobilizado é estado coerente, não contradição. Mas ele mede **uma** das
+maneiras de a conservação ser violada, a que já havia mordido o projeto duas vezes. Emissão indevida
+e queima indevida continuam sem endpoint, cobertas só por `ConservacaoTokensTest`. E o instrumento é
+detectivo e passivo: nada avisa, alguém precisa consultar.
 
 ### 2.5 A correção
 

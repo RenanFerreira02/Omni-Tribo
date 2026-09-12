@@ -28,8 +28,8 @@ tokens comunitários, resgatáveis em benefícios de parceiros do bairro.
 risco de perder o cliente; a missão de bairro é um canal de última milha mais barato que a segunda
 tentativa.
 
-Projeto acadêmico FIAP — Sistemas de Informação, RM 555833. Challenge Leroy Merlin: Sociedade 5.0 e
-Logística.
+Projeto acadêmico FIAP — Sistemas de Informação, RM 555833.
+Enterprise Challenge - Leroy Merlin SMART HAS & AI Logistic Extension.
 
 ### Se você chegou aqui pela Fase 4 procurando Flutter
 
@@ -134,12 +134,59 @@ com `integro=true` em todos os pontos
 por um humano** — não tem transportadora, logo não tem patrocinador a debitar. Ela é `FontePote
 .CUNHAGEM`, declarada na linha da missão em vez de escondida num `if` ([ADR 0024 §8](docs/adr/0024-carteira-de-patrocinador.md)).
 
-E três armadilhas diagnosticadas seguem abertas, cada uma pelo motivo escrito na seção final do
-[`CLAUDE.md`](CLAUDE.md): a **outbox abandona evento em silêncio** depois de cinco tentativas, sem
-carta-morta; **nada acha pote imobilizado** em missão parada — a mitigação que existe é preventiva,
-não detectiva; e o **alerta de ponto lotado não tem teto nem deduplicação**, o que o teste de carga
-mostrou em 631 linhas idênticas. As três estão registradas como decisão pendente, não como
-esquecimento — fechá-las muda contrato.
+E **uma** armadilha diagnosticada segue aberta, pelo motivo escrito na seção final do
+[`CLAUDE.md`](CLAUDE.md): **três dos seis estados não-terminais não têm porta de ADMIN** para soltar
+o pote — `RASCUNHO` e `ACEITA` não têm nem varredura por prazo. Está registrada como decisão
+pendente, não como esquecimento — fechá-la muda contrato.
+
+As outras três já fecharam, e o que elas NÃO resolveram importa tanto quanto o que resolveram.
+
+O **alerta de ponto lotado não tinha teto nem deduplicação** — 631 linhas idênticas em menos de 3
+minutos no teste de carga —, e isso fechou em 2026-09-11
+([ADR 0033](docs/adr/0033-deduplicacao-do-alerta-operacional.md)): uma linha por
+`(tipo, referência, janela)`, e a CONTAGEM que a dedup deixa de guardar passou a ser lida em
+`GET /admin/pontos-custodia/recusas`, agregada de `entrega_falida` — onde ela sempre esteve. **O
+painel é consulta ativa**: nada avisa que um ponto vive lotado, e a granularidade do sinal caiu de
+propósito, porque um ponto que recusa 1 vez e outro que recusa 600 produzem a mesma linha de alerta.
+
+A **outbox abandonava evento em silêncio** depois de cinco tentativas, e isso fechou em 2026-09-10
+([ADR 0031](docs/adr/0031-carta-morta-da-outbox.md)): o evento esgotado passou a ser listável e
+reenfileirável por ADMIN, pelo mesmo drenador de sempre. **O teto de cinco tentativas não mudou** —
+a entrega continua não sendo at-least-once, e a recuperação depende de alguém consultar.
+
+**Nada achava pote imobilizado**, e isso fechou em 2026-09-11
+([ADR 0032](docs/adr/0032-diagnostico-de-pote-imobilizado.md)):
+`GET /api/v1/admin/missoes/potes-imobilizados` mostra o token preso em missão parada, e a
+reconciliação publica a contagem num campo **separado** de `integro` — porque `integro=true` com pote
+imobilizado é estado coerente, não contradição. **O instrumento é detectivo: ele acha, não conserta**
+— e é ele que torna visível, a cada consulta, a armadilha dos estados sem porta de ADMIN listada
+acima.
+
+## AI Logistics Extension
+
+O componente de IA do desafio, pelo nome dele. É um **modelo de previsão de risco de falha de
+entrega** — regressão logística interpretável, em Java puro, sem serviço externo e sem chamada de
+LLM — que roda no instante em que a transportadora reporta a entrega frustrada e estima a chance de
+a próxima tentativa naquele endereço também falhar.
+
+**Onde ele está no produto:** o score não para num painel. Ele vira três coisas concretas —
+multiplicador da recompensa em TOKEN, congelado na missão e limitado a 1,50×; prioridade no alerta
+enviado aos vizinhos; e um aviso acionável na tela de detalhe da missão (*"combine o horário com o
+destinatário antes de ir"*). Toda missão criada por humano recebe o neutro 1,00×: só a entrega
+falida é avaliada.
+
+**Os dados de treino são sintéticos**, e isso está declarado no código, no YAML e nos dois documentos
+abaixo. O que o componente demonstra é o mecanismo completo — gerar, treinar, medir, publicar,
+inferir, explicar e congelar — com cada previsão justificável pelos fatores que mais pesaram nela. A
+validação contra dados reais é o próximo passo, registrado no [ADR 0022](docs/adr/0022-previsao-de-risco-de-entrega.md).
+
+| | |
+|---|---|
+| **O componente, ponta a ponta** | [`docs/AI-LOGISTICS-EXTENSION.md`](docs/AI-LOGISTICS-EXTENSION.md) — o caminho do dado em diagrama, as 14 features com o coeficiente real de cada uma, e como a previsão vira dinheiro |
+| **Métricas e limites** | [`docs/qualidade/modelo-previsao.md`](docs/qualidade/modelo-previsao.md) — matriz de confusão, calibração, e a resposta para *"sua acurácia é menor que a de um chute?"* |
+
+`./mvnw verify` re-treina o modelo do zero a cada build e confere os coeficientes publicados:
+**editar um deles à mão quebra o build**, de propósito.
 
 ## Arquitetura
 

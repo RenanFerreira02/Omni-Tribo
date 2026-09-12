@@ -123,6 +123,20 @@ app:
       # adia a devolução de um pote que, sem varredura nenhuma, ficaria preso PARA SEMPRE.
       prazo-execucao: PT48H      # EM_ANDAMENTO sem check-in → EXPIRADA, estorna o pote
       prazo-confirmacao: PT72H   # AGUARDANDO_CONFIRMACAO sem resposta → CONCLUIDA, PAGA o executor
+    diagnostico:
+      # A partir de quanto tempo parada uma missão não-terminal com pote entra em
+      # GET /admin/missoes/potes-imobilizados e no campo potesImobilizados da reconciliação.
+      #
+      # NÃO é arbitrário: 96h é estritamente maior que o maior prazo de varredura (72h de
+      # confirmação) mais o intervalo do job (5min). Ou seja, nada que a varredura trate
+      # CORRETAMENTE chega a aparecer aqui — quem aparece num estado varrido é sinal de que o job
+      # não conseguiu drenar a missão, e ExpiracaoMissoesJob isola falha por item sem derrubar o
+      # lote, então esse erro não aparece em lugar nenhum sozinho.
+      #
+      # Encurtar isto abaixo de 72h faz o diagnóstico acusar missão que a varredura ainda vai
+      # buscar, e um instrumento cujo falso positivo é o caso normal para de ser consultado.
+      # Ver ADR 0032.
+      pote-imobilizado-apos: PT96H
     # Calibração da fórmula de recompensa. A FÓRMULA é código (CalculadoraDeRecompensa); os NÚMEROS
     # são configuração, porque a relação esforço↔recompensa se ajusta com uso real.
     #
@@ -209,9 +223,12 @@ app:
   outbox:
     intervalo: PT10S             # varredura frequente: é latência de notificação, não de dados
     atraso-inicial: PT30S
-    # Depois da quinta falha o evento sai do predicado do lote e NUNCA mais é tentado. Não existe
-    # consulta, endpoint nem métrica que mostre um evento esgotado — ele fica na tabela, invisível.
-    # Este comentário já dizia "espera intervenção", e não havia com o que intervir (Pendência #4).
+    # Depois da quinta falha o evento sai do predicado do lote e o drenador não o tenta mais por
+    # conta própria. Ele NÃO some: fica com publicado_em nulo e tentativas no teto, e é o que
+    # GET /api/v1/admin/outbox/esgotados lista — de onde um ADMIN pode devolvê-lo à fila (ADR 0031).
+    # Mudar este número muda os DOIS lados: a consulta lê a mesma chave, de propósito.
+    # Isto não torna a entrega at-least-once. O teto continua sendo 5, e a recuperação depende de
+    # alguém consultar: nada avisa que há evento esgotado.
     maximo-tentativas: 5
     backoff-base: PT30S          # exponencial: 30s, 1min, 2min, 4min, 8min
 
@@ -253,6 +270,12 @@ app:
     # cinco entregas triviais chegando antes não silenciem a difícil pela hora seguinte — que é a que
     # mais precisa de alguém e a que paga melhor. Folga, não isenção.
     alertas-alta-prioridade-por-hora: 8
+    # Janela de deduplicação do alerta operacional GLOBAL (ponto lotado, entrega sem patrocínio).
+    # Uma linha por (tipo, referência, janela) — o teto acima é POR USUÁRIO e não alcança alerta de
+    # usuario_id nulo. Uma hora é a granularidade em que "este ponto vive cheio" já se lê na lista;
+    # o NÚMERO de recusas não mora aqui e não se perde: está em entrega_falida, lido por
+    # GET /admin/pontos-custodia/recusas. Ver ADR 0033.
+    janela-alerta-operacional: PT1H
 
   identidade:
     # Conquistas DERIVADAS de xp/nivel/streak — não há tabela. A FÓRMULA é código
@@ -399,9 +422,11 @@ app:
 
       # Teto do multiplicador de recompensa em TOKEN, aplicado linearmente na probabilidade.
       #
-      # ESTREITO DE PROPÓSITO. Missões de ENTREGA hoje CUNHAM token — não pagam de pote —, porque o
-      # financiador correto delas é o patrocinador, que ainda não existe (Pendência #1). Sem teto, o
-      # multiplicador multiplicaria essa cunhagem pelo risco. Com ele, a ampliação é limitada,
-      # conhecida e documentada. Mínimo 1,0: risco nunca REDUZ recompensa.
+      # ESTREITO DE PROPÓSITO, mas a razão MUDOU com a V23 e o número não. Era monetária: ENTREGA
+      # cunhava token e o multiplicador ampliaria a cunhagem. Hoje só o webhook produz multiplicador,
+      # e toda missão dele nasce fonte_pote=PATROCINADOR — paga do pote da transportadora. A que
+      # ainda cunha é a ENTREGA criada por humano, que nunca é avaliada e recebe 1,00. Nenhuma missão
+      # que cunha recebe multiplicador. O teto hoje limita quanto a transportadora paga por conversão,
+      # não a emissão. Mínimo 1,0: risco nunca REDUZ recompensa. Ver PrevisorDeRisco.multiplicadorDe.
       multiplicador-minimo: 1.00
       multiplicador-maximo: 1.50

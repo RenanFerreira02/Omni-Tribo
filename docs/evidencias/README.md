@@ -18,6 +18,7 @@ daqui ou de [`../qualidade/`](../qualidade/).
 | [`f13-ci-github-actions.md`](f13-ci-github-actions.md) | 2026-08-17 | O histórico **real** do GitHub Actions: 113 runs. Gitleaks verde em 48/48; Mobile CI vermelho de 08-09 a 08-13; `Security Scan` reprovado desde `ca328fc` pelo job de dependências | `curl` na API pública — comando no arquivo |
 | [`impacto-conferido-por-sql.md`](impacto-conferido-por-sql.md) | 2026-08-23 | O painel `GET /admin/impacto` **batendo com uma contagem manual por SQL**, métrica a métrica, no mesmo banco e no mesmo instante — inclusive a mediana conferida contra o `percentile_cont` do PostgreSQL. Mostra também a premissa de custo mudando o resultado por configuração | `make reset`, `spring-boot:run`, `bash tools/carrier-mock/enviar.sh`, `curl` e `psql` — todos no doc |
 | [`f21-carga.md`](f21-carga.md) | 2026-08-25 | **A medição que faltava para a F12b.** 14.967 requisições, **0 respostas 5xx**: radar a 74,6 req/s com p95 de 4,3 ms e sem joelho, cache por geohash economizando 41% do p50, transferências na MESMA carteira sem um deadlock, e os três tetos de rate limit batendo com os configurados. Achado: o alerta de ponto lotado escreve 631 linhas idênticas sem teto nem dedup | `make reset`, `spring-boot:run`, `bash tools/carga/executar.sh` |
+| [`desempenho-antes-de-otimizar.md`](desempenho-antes-de-otimizar.md) | 2026-09-11 | **A segunda linha de base, e o que ela derruba.** A carga repetiu o trabalho de agosto dígito por dígito (14.967 req, 57 CONVERTIDA, 631 RECUSADA, 269 × 422) em **~3× o tempo** — causa medida: CPU a 1.353 MHz contra 4.600 de máximo, campo que `f21-carga.md` nunca registrou. Mede também o que nenhum teste media: **queries por requisição** (o fan-out custa 2+4N), **plano sob 200 mil linhas** (`ORDER BY tokens_recompensa` é **682×** mais lento que por `criada_em`) e **renders no mobile** (50/50 pontos de custódia montados fora da virtualização). Nenhuma otimização aplicada; três hipóteses refutadas | `bash tools/carga/executar.sh` e os três `-Dtest=` no cabeçalho do arquivo |
 | [`f21-dependency-check.md`](f21-dependency-check.md) | 2026-08-24 | **Uma tentativa que FALHOU**, e a hipótese que ela derrubou: o Dependency-Check 13.0.0 não tem acesso anônimo à NVD, e chave ausente produz o mesmo erro de chave vazia. Nenhum CVE listado — nenhuma varredura completou | `./mvnw -Pseguranca verify -DskipTests` (sem `-Dnvd.api.key`) |
 
 > `impacto-conferido-por-sql.md` é o único arquivo **sem prefixo de fase**: o painel de impacto não
@@ -29,6 +30,10 @@ daqui ou de [`../qualidade/`](../qualidade/).
 
 Vale mais que a lista acima, porque é onde uma banca vai empurrar:
 
+- **Comparação de latência ENTRE execuções.** A medição de 2026-09-11 provou que o mesmo
+  trabalho custa ~3× mais tempo com a CPU em `powersave` a 1.353 MHz. Governor e frequência
+  passaram a ser campos obrigatórios do quadro de ambiente; sem eles, dois documentos deste
+  diretório não podem ter seus percentis comparados, e `f21-carga.md` não os tem.
 - **Carga além de uma máquina e de cinco minutos.** Existe medição desde 2026-08-25
   ([`f21-carga.md`](f21-carga.md)), e ela é de UMA máquina, com k6, JVM e Postgres dividindo os
   mesmos 16 núcleos, sobre dado de seed, por 5 minutos por cenário. Não há soak, não há segundo nó,

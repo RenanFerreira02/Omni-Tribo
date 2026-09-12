@@ -53,6 +53,239 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-09-11 — A deduplicação do alerta operacional** — **a última das três pendências abertas por
+  decisão de contrato saiu, e a resposta não foi nenhuma das duas opções que a pendência oferecia.**
+
+  A pendência perguntava: deduplicar por `(ponto, janela)`, ou trocar a linha por um contador? Ver
+  [ADR 0033](adr/0033-deduplicacao-do-alerta-operacional.md).
+
+  - **Entre as duas, o contador preserva melhor a intenção — e mesmo assim perde.** O dado que o
+    javadoc de `gravarPontoLotado` nomeia é literalmente uma FREQUÊNCIA ("um ponto que recusa
+    encomendas com frequência"), e deduplicar joga o número fora: não distingue 1 recusa de 631. O
+    contador é a dedup mais o número. **O que desempata é que a frequência nunca esteve só no
+    alerta**: `entrega_falida` grava toda recusa com `ponto_custodia_id` (V6), `recusada_em` (V21) e
+    `motivo_recusa` (V23). O contador seria segunda fonte de verdade para um agregado derivável — o
+    que o ADR 0029 recusou para o painel de impacto — e nem resolveria a amplificação de escrita:
+    631 `UPDATE` na mesma linha são 631 tuplas mortas por MVCC. O que ele limita é linha VIVA.
+
+  - **A descoberta que reenquadrou a pendência: o alerta global é WRITE-ONLY.** Os seis métodos de
+    `AlertaRepository` têm `UsuarioId` no predicado, e `usuario_id = <uuid>` nunca casa com `NULL`.
+    Não há endpoint, query ou projeção sobre `usuario_id IS NULL` em todo `src/main/java`. **As 631
+    linhas nunca chegaram a ninguém.** Deduplicar sozinho trocaria 631 linhas não lidas por até 24
+    por dia não lidas — o espelho exato do erro que o ADR 0032 registrou, onde uma consulta sem
+    chamador fazia a lacuna parecer coberta.
+
+  - **O gêmeo, que a medição não pegou.** `gravarSemPatrocinio` tinha a MESMA forma — global, `save`
+    incondicional por evento, sem teto nem dedup — e só não apareceu no teste de carga porque a
+    rajada foi contra um ponto cheio, e não contra uma transportadora sem patrocinador. Fechou junto.
+    A referência dele é o SLUG e não um `patrocinador_id`: `SEM_PATROCINIO` colapsa três causas de
+    propósito, e na primeira o patrocinador não existe.
+
+  - **O `ON CONFLICT` precisa repetir o predicado parcial inteiro, e isso foi verificado no banco.**
+    Sem repetir: `ERROR: there is no unique or exclusion constraint matching the ON CONFLICT
+    specification`. O índice também exclui explicitamente `referencia IS NULL` — em PostgreSQL o
+    UNIQUE é `NULLS DISTINCT`, então sem isso ele cobriria as linhas legadas sem deduplicar nenhuma,
+    e o `CREATE INDEX` sugeriria uma garantia que não dá. `NULLS NOT DISTINCT` foi descartada por
+    fazer o índice **falhar exatamente na máquina onde a rajada de 631 foi medida**.
+
+  - **A V29 foi decidida por medição.** Consulta real do endpoint, schema real, 50.000 linhas:
+    **3,082 ms → 0,135 ms**, buffers **881 → 32**, Seq Scan (49.878 linhas descartadas no filtro) →
+    Index Scan, com índice parcial de **128 kB** contra 14 MB de tabela. `idx_entrega_falida_ponto`
+    da V21 é parcial em `recusada_em IS NULL` — o complemento EXATO desta consulta — e por isso não
+    servia.
+
+  - **Uma sabotagem passou, e o teste foi consertado antes do commit.** Congelar `janelaDe()` numa
+    constante não era detectado: o teste da janela seguinte funciona ENVELHECENDO `janela_inicio` no
+    banco, então media "uma janela diferente não bloqueia" e não "a janela vem do relógio". Passou a
+    comparar `janela_inicio` com o `criado_em` da própria linha. **Um teste que envelhece o estado
+    que deveria estar derivando é cego para a derivação** — vale para qualquer marco temporal deste
+    repositório. Com a correção, as quatro sabotagens fortes ficam vermelhas (8, 2, 1 e 1 teste); a
+    quinta, inverter o `ORDER BY` do painel, não é detectada porque o teste cria um grupo só.
+
+  - **A cobertura saiu do zero.** `gravarPontoLotado` estava em **0/35 instruções**, e
+    `WebhookEntregaFalidaTest` chegava a apagar `PONTO_CUSTODIA_LOTADO` no `@AfterEach` sem nunca
+    drenar a outbox — limpava um alerta que não chegava a existir. A suíte foi de 735 para **744**.
+
+  - **O que continua valendo:** o painel é DETECTIVO e passivo, o **terceiro** seguido depois da
+    carta-morta e do pote imobilizado. Nada avisa; alguém precisa consultar. E a granularidade do
+    sinal caiu de propósito: um ponto que recusa 1 vez e um que recusa 600 produzem a mesma linha.
+
+- **2026-09-11 — O diagnóstico de pote imobilizado** — **a segunda das três pendências abertas por
+  decisão de contrato saiu, e ela revelou uma terceira que ninguém tinha enunciado.**
+
+  Token preso em missão não-terminal parada viola a CONSERVAÇÃO e deixa a RECONCILIAÇÃO intacta: o
+  financiamento debitou a carteira e creditou o pote na MESMA transação, com lançamento e projeção
+  escritos juntos, então as duas somas continuam batendo exatamente. O que não existe é a viagem de
+  volta. Ver [ADR 0032](adr/0032-diagnostico-de-pote-imobilizado.md).
+
+  - **A lacuna era EMBARAÇOSA, e é por isso que vale registrar.** O ADR 0015 declarou esta
+    visibilidade como consequência positiva em 2026-08-11, apoiado em
+    `MissaoRepository.potesImobilizados` — uma query que **nenhum serviço, endpoint ou teste jamais
+    chamou**. A varredura de órfãos a removeu em 2026-08-20 e o ADR recebeu retificação. A lição que
+    o 0032 carrega adiante: **consulta de diagnóstico sem chamador é pior que lacuna declarada,
+    porque faz a lacuna parecer coberta.** Por isso o instrumento novo nasceu com dois consumidores.
+
+  - **O campo é SEPARADO de `integro`, e isso não é detalhe de API.** `integro=true` com
+    `potesImobilizados.missoes > 0` é estado COERENTE. Fazer `integro` virar `false` ali destruiria a
+    única pergunta que a reconciliação responde com precisão para responder mal uma segunda — e o
+    projeto já pagou três vezes por confundir as duas invariantes (estorno na expiração, cunhagem de
+    ENTREGA, queima do resgate). `PoteImobilizadoTest` reprova o build se alguém tentar.
+
+  - **O marco muda por status, e sem isso o instrumento seria ruído.** `ABERTA` mede por
+    `janela_fim`; os demais, por `estado_desde` — a mesma distinção de `RegraExpiracao.Marco`. Medir
+    tudo por `estado_desde` faria toda oferta comunitária financiada com janela longa aparecer como
+    imobilizada, e esse é o estado NORMAL de uma missão esperando executor. Falso positivo no caso
+    comum mata um diagnóstico.
+
+  - **A V28 foi decidida por medição, não por instinto.** Em bancada de 50.000 missões (1 em 10 com
+    pote, 1 em 100 além do limiar — 502 candidatas): listagem **6,224 ms → 0,481 ms**, agregado
+    **5,263 ms → 0,254 ms**, com um índice parcial de **56 kB** contra 16 MB de tabela. O agregado
+    roda em TODA chamada da reconciliação, não só no endpoint novo.
+
+  - **Um comentário falso foi escrito e pego pelo próprio `EXPLAIN`, antes do commit.** A V28
+    afirmava que um `IN` com dois statuses faria o índice "deixar de ser usado, voltando ao Seq
+    Scan". Medido: vira **Bitmap Index Scan**, 1,688 ms — ~5× mais lento que hoje e ainda ~3× mais
+    rápido que sem índice. O repositório já teve três comentários falsos achados por auditoria, e o
+    que os produz é exatamente este formato: afirmação plausível sobre o planner, escrita sem rodar
+    o comando. O javadoc de `IndicePoteImobilizadoTest` repetia a mesma frase e foi corrigido junto.
+
+  - **A suíte foi sabotada, quatro vezes, e a quinta sabotagem falhou por ser fraca.** Fundir
+    `integro` com o pote → 1 vermelho; medir ABERTA por `estado_desde` → 1 vermelho; `varreduraCobre`
+    fixo em `true` → 1 vermelho; contagem perdendo o corte de idade → **5 vermelhos**. A tentativa
+    de trocar `pote_tokens > 0` por `> 1` só na contagem **não** foi detectada, e pelo motivo certo:
+    todo pote real vale muito mais que 1, então os dois predicados selecionam o mesmo conjunto.
+
+  - **A LACUNA NOVA, que é o achado de verdade desta entrega.**
+    `FinanciamentoService.validarEstado` recusa financiamento só em estado TERMINAL, em `CUNHAGEM` e
+    em `PATROCINADOR` — RASCUNHO **é** financiável, e há comentário in-line dizendo isso. Logo o pote
+    existe nos SEIS estados não-terminais, e não nos três que a query órfã olhava:
+
+    | Estado | Varredura por prazo | Porta de ADMIN | A query órfã olhava? |
+    |---|---|---|---|
+    | `RASCUNHO` | não | **nenhuma** | **não** |
+    | `ABERTA` | sim (`janela_fim`) | dispensável | **não** |
+    | `ACEITA` | não | **nenhuma** | **não** |
+    | `EM_ANDAMENTO` | sim (48 h) | `destravar` | sim |
+    | `AGUARDANDO_CONFIRMACAO` | sim (72 h) | `destravar` | sim |
+    | `EM_DISPUTA` | não | `resolver` | sim |
+
+    A regra do javadoc de `StatusMissao` — *"todo estado não-terminal precisa de saída que NÃO
+    dependa de um humano específico aparecer"* — **vale para três dos seis**. A query órfã era, além
+    de órfã, INCOMPLETA. O 0032 **não fecha** isso: mostra com `varreduraCobre=false` e registra como
+    pendência 2 do `CLAUDE.md`, porque estender `DESTRAVAR` muda a máquina de estados (17 → 20) e
+    merece ADR próprio.
+
+  - **O que continua valendo:** o instrumento é DETECTIVO e passivo. Nada avisa, alguém precisa
+    consultar — mesmo modo de falha da carta-morta. E ele cobre UMA das formas de violar a
+    conservação; emissão e queima indevidas seguem cobertas só por `ConservacaoTokensTest`.
+
+- **2026-09-10 — A carta-morta da outbox** — **a primeira das três pendências abertas por decisão
+  de contrato saiu, e o que ela NÃO resolveu é a parte que precisa ficar registrada.**
+
+  `DrenadorOutboxService` para na 5ª falha e a linha sai do predicado do lote. Ela nunca foi
+  apagada — ficava na tabela com `publicado_em` nulo, `tentativas` no teto e `ultimo_erro`
+  preenchido —, mas **nada a mostrava**: `OutboxRepository` tinha uma única query, não havia
+  endpoint nem métrica, e o único vestígio era um `log.warn` que ninguém coleta, porque Prometheus
+  e Grafana foram cortados do MVP de propósito. Um `MissaoConcluida` nessa condição é um executor
+  creditado e nunca avisado. Ver [ADR 0031](adr/0031-carta-morta-da-outbox.md).
+
+  - **A lacuna ficou aberta de propósito desde 2026-08-20**, quando a varredura de órfãos a
+    encontrou — não como bug novo, mas como **comentário falso**: três lugares afirmavam
+    "retry até conseguir", "at-least-once" e "espera intervenção", e um quarto (a descrição OpenAPI
+    de `AlertaController`, contrato publicado) só caiu em 2026-09-09. Os textos foram corrigidos na
+    época; o instrumento era decisão de projeto, porque muda o contrato de entrega.
+
+  - **Três opções foram postas na mesa, com a consequência negativa de cada uma**: só a consulta;
+    consulta mais reenfileiramento; ou aceitar a perda com um contador. O contador foi recusado por
+    um motivo concreto — sem Prometheus, `/actuator/metrics` é estado do processo em memória e
+    **zera a cada reinício**, e ele diria *quantos*, nunca *quais*.
+
+  - **Reenfileirar NÃO despacha, e é isso que torna a decisão defensável.** O endpoint só devolve a
+    linha ao predicado; quem entrega continua sendo o mesmo `DrenadorOutboxService`. Medido no
+    `curl` do ADR: entre o POST e a varredura o evento está na fila e **não** entregue, e o alerta
+    do executor só aparece depois que o drenador roda.
+
+  - **Sem migration e sem `Idempotency-Key`.** As colunas existem desde a V7 e a V14; a idempotência
+    é por ESTADO da linha, sob `FOR UPDATE` — a chave existe no projeto para impedir uma segunda
+    LINHA no ledger, e aqui não há linha a criar.
+
+  - **A consequência negativa medida:** o `AuditoriaAspecto` é `@AfterReturning`, então grava
+    também no no-op. Dois POSTs, **um** reenfileiramento real, **duas** linhas em `auditoria` — a
+    trilha não é uma contagem de reenfileiramentos, e o ADR diz isso em vez de deixar alguém supor
+    o contrário.
+
+  - **O que continua valendo:** o teto de 5 tentativas não mudou, a entrega **não** é at-least-once,
+    e nada avisa que há evento esgotado. É consulta ativa, com o mesmo modo de falha do endpoint de
+    reconciliação — só é olhado por quem já desconfia. Perda silenciosa virou perda detectável, e
+    nenhum dos cinco textos corrigidos pode dizer mais que isso.
+
+  - **Um `grep at-least-once` no repositório inteiro achou MAIS OITO ocorrências vivas, e as duas
+    varreduras anteriores não pegaram nenhuma delas.** A de 2026-08-20 procurou em comentários Java
+    (achou três) e a de 2026-09-09 em strings de anotação (achou a quarta). Nenhuma varreu `docs/`,
+    e nenhuma pegou os usos em que o termo aparece como **atalho para "pode repetir"** — que são a
+    maioria:
+
+    | Onde | Como aparecia |
+    |---|---|
+    | `docs/diagramas/sequencia-ciclo-missao.md` ⑩ | *"a outbox é at-least-once"* |
+    | `logistica/api/BaixaCustodia.java` | *"a entrega é at-least-once, e um decremento redespachado…"* |
+    | `logistica/dominio/PontoCustodia.registrarSaida` | *"a entrega da outbox é at-least-once"* |
+    | `missoes/dominio/MissaoService` (baixa de custódia) | *"A outbox é at-least-once"* |
+    | `notificacoes/infra/AlertaRepository` | *"A entrega da outbox é at-least-once"* |
+    | `EntregaFalidaCicloTest:240` | *"Simula o at-least-once"* |
+    | `docs/qualidade/integridade-transacional.md` ×2 | *"entrega at-least-once"* — **e ainda a frase ORIGINAL, "entrega com retry até conseguir"**, que o Java corrigiu em 2026-08-20 |
+
+    **Em todas, o argumento construído em cima do termo está CERTO** — a entrega pode repetir, logo
+    a baixa de custódia é síncrona e o alerta é deduplicado. Errado é o nome da garantia, que promete
+    também a metade que não existe. A correção trocou a garantia pela repetição em cada uma, sem
+    tocar no raciocínio. O `integridade-transacional.md` é o mais grave dos oito: é **documento de
+    defesa oral**, e afirmava numa seção chamada "O que esta fase NÃO garante" que a outbox *dá*
+    at-least-once.
+
+    O [ADR 0008](adr/0008-ledger-append-only-e-idempotencia.md), onde a afirmação nasceu, recebeu
+    **retificação no topo** em vez de reescrita — mesmo molde dos ADRs 0015 e 0022.
+
+    **Fica o método para a próxima varredura:** procurar a frase em `docs/` e não só em `services/`,
+    e procurar o termo usado como ATALHO, não só como promessa — foi assim que oito passaram por
+    duas auditorias.
+
+  - **A revisão da suíte achou um teste que NÃO PODIA FALHAR, e vale mais que o endpoint.** O
+    teste de concorrência usava `catch (Exception e)` dentro da tarefa submetida ao pool — e
+    `andExpect(status().isOk())` falha com `AssertionError`, que **não é** `Exception`. Com o
+    `Future` do `submit` nunca inspecionado, o erro sumia. A asserção
+    `as("nenhuma requisição pode falhar")` era lida como rede e era decoração: trocando o
+    `FOR UPDATE` do endpoint por SKIP LOCKED, **9 das 10 requisições recebiam 404** e a suíte
+    continuava verde. Hoje o teste captura `Throwable`, coleta o status de cada thread e exige as
+    dez respostas 200.
+
+    **Este formato está em outros dez arquivos de teste do projeto** — `ConclusaoConcorrenteTest`,
+    `SaqueConcorrenteTest`, `CarteiraConcorrenteTest`, `TransferenciaDeadlockTest`,
+    `MissaoAceiteConcorrenteTest`, `ResgateBeneficioTest`, `PatrocinadorAdminTest`,
+    `RefreshTokenFamiliaTest`, `FinanciamentoControllerTest` e `EntregaFalidaCicloTest`. **Não
+    foram auditados** (vários podem afirmar o status fora da thread), e o `CLAUDE.md` exige teste de
+    concorrência multi-thread em toda operação de valor — ou seja, é exatamente a linha em que a
+    rede pode estar furada nas outras. Fica como próximo passo, e não como parte desta entrega.
+
+  - **Dois off-by-one sobreviviam com 100% de branch no JaCoCo.** A suíte exercitava
+    `tentativas = 2` e `tentativas = <teto>`, nunca `teto - 1` — o único valor que distingue `>=` de
+    `>` deslocado por um. É o 49 m e 51 m do check-in outra vez. E o profile `mutacao` não alcança
+    `compartilhado.dominio` (`targetClasses` cobre só `missoes.dominio` e `carteira.dominio`), então
+    o PIT também não os veria: **cobertura cheia, mutação cega, dois defeitos vivos**. Se valer a
+    pena incluir `compartilhado.dominio` no PIT é decisão sua — os dois achados são
+    `CONDITIONALS_BOUNDARY`, exatamente o que ele pega.
+
+  - **A suíte foi sabotada em seis pontos para provar que tem dentes**, e as seis ficam vermelhas.
+    Tabela com o antes-e-depois no [ADR 0031](adr/0031-carta-morta-da-outbox.md), seção "A suíte foi
+    sabotada para provar que tem dentes". Três delas ficavam **verdes** antes da revisão.
+
+  - **Achado de ambiente, sem relação com a mudança:** o volume de dev desta máquina tem uma
+    `V28__remover_extensao_logistica` e uma `V907__seed_apoiadores` aplicadas em 2026-08-30 que **não
+    existem em nenhum ref do git**. O `spring-boot:run` no perfil `dev` morre no boot com *"Detected
+    applied migration not resolved locally: 28"*. É o mesmo formato das versões queimadas V9/V10, e a
+    consequência prática é que **um `V28__*.sql` novo em `db/migration` falharia neste banco** até um
+    `make reset`. A evidência de `curl` foi tirada contra um Postgres descartável em outra porta, em
+    vez de destruir o volume.
+
 - **2026-08-25 (1) — F12b** — **A última fase pendente fechou, e o achado não é um número de
   latência.**
 
