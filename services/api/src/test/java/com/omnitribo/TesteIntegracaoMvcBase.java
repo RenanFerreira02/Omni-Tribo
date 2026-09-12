@@ -25,7 +25,7 @@ import tools.jackson.databind.json.JsonMapper;
  * Spring Framework 7.1 deixaria de ignorar.
  */
 @SpringBootTest(webEnvironment = WebEnvironment.MOCK)
-@Import({MockMvcTestConfig.class, OperadorBancoTestConfig.class})
+@Import({MockMvcTestConfig.class, OperadorBancoTestConfig.class, ContadorDeQueries.Registro.class})
 @ActiveProfiles("test")
 public abstract class TesteIntegracaoMvcBase extends ContainerConfig {
 
