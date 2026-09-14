@@ -50,7 +50,25 @@ class PlanoConsultasQuentesTest extends TesteIntegracaoBase {
 
   private static final int LANCAMENTOS_POR_CARTEIRA = 500;
 
-  /** Prefixos sentinela. O seed usa dddddddd-/bbbbbbbb-; IndiceGeoespacialTest usa eeee0000-. */
+  /**
+   * Prefixos sentinela, com o registro COMPLETO da faixa {@code eeee*}.
+   *
+   * <p>A lista antiga era incompleta e por isso inútil: ela citava só {@code
+   * IndiceGeoespacialTest}, e {@code IndicePoteImobilizadoTest} tinha adotado {@code eeee1111-} — o
+   * mesmo de {@code PREFIXO_MISSAO} abaixo — com um javadoc próprio afirmando exclusividade. Os
+   * dois {@code @AfterAll} varriam a faixa um do outro por {@code DELETE ... LIKE}. Mantenha esta
+   * lista ao acrescentar um prefixo, senão o próximo autor lê uma lista incompleta e reocupa faixa
+   * viva.
+   *
+   * <ul>
+   *   <li>{@code eeee0000-} — {@code IndiceGeoespacialTest}
+   *   <li>{@code eeee1111-} / {@code eeee2222-} / {@code eeee3333-} / {@code eeee4444-} — esta
+   *       classe
+   *   <li>{@code eeee5555-} — {@code IndicePoteImobilizadoTest}
+   * </ul>
+   *
+   * <p>O seed usa {@code dddddddd-} e {@code bbbbbbbb-}.
+   */
   private static final String PREFIXO_MISSAO = "eeee1111-0000-0000-0000-";
 
   private static final String PREFIXO_USUARIO = "eeee2222-0000-0000-0000-";

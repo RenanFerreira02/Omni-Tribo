@@ -6,6 +6,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.omnitribo.compartilhado.dominio.AcessoNegadoException;
 import com.omnitribo.compartilhado.dominio.TransicaoInvalidaException;
 import com.omnitribo.missoes.MissaoFixture;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -37,12 +40,17 @@ class MissaoStateMachineTest {
     // Saída de rascunho financiado: sem ela, o pote de uma missão comunitária abandonada antes da
     // publicação ficaria preso, porque o estorno só roda em CANCELADA e EXPIRADA.
     ESPERADAS.put(chave(StatusMissao.RASCUNHO, EventoMissao.CANCELAR), StatusMissao.CANCELADA);
+    // ADR 0034: RASCUNHO é financiável (publicar exige pote), então um rascunho financiado cujo
+    // criador desaparece prendia o pote sem que nem um ADMIN pudesse soltá-lo.
+    ESPERADAS.put(chave(StatusMissao.RASCUNHO, EventoMissao.DESTRAVAR), StatusMissao.CANCELADA);
     ESPERADAS.put(chave(StatusMissao.ABERTA, EventoMissao.ACEITAR), StatusMissao.ACEITA);
     ESPERADAS.put(chave(StatusMissao.ABERTA, EventoMissao.CANCELAR), StatusMissao.CANCELADA);
     ESPERADAS.put(chave(StatusMissao.ABERTA, EventoMissao.EXPIRAR), StatusMissao.EXPIRADA);
     ESPERADAS.put(chave(StatusMissao.ACEITA, EventoMissao.INICIAR), StatusMissao.EM_ANDAMENTO);
     ESPERADAS.put(chave(StatusMissao.ACEITA, EventoMissao.DESISTIR), StatusMissao.ABERTA);
     ESPERADAS.put(chave(StatusMissao.ACEITA, EventoMissao.CANCELAR), StatusMissao.CANCELADA);
+    // ADR 0034: DESISTIR é do executor, CANCELAR é do criador. Se os dois somem, ninguém entrava.
+    ESPERADAS.put(chave(StatusMissao.ACEITA, EventoMissao.DESTRAVAR), StatusMissao.CANCELADA);
     ESPERADAS.put(
         chave(StatusMissao.EM_ANDAMENTO, EventoMissao.CHECKIN),
         StatusMissao.AGUARDANDO_CONFIRMACAO);
@@ -73,6 +81,10 @@ class MissaoStateMachineTest {
         chave(StatusMissao.EM_DISPUTA, EventoMissao.RESOLVER_CONCLUIR), StatusMissao.CONCLUIDA);
     ESPERADAS.put(
         chave(StatusMissao.EM_DISPUTA, EventoMissao.RESOLVER_CANCELAR), StatusMissao.CANCELADA);
+    // ADR 0034: mesmo destino de RESOLVER_CANCELAR, e é de propósito — o que separa as duas é a
+    // trilha. `resolver` obriga o ADMIN a julgar o mérito; `destravar` é para a disputa que ficou
+    // sem informação, com as duas partes ausentes, em que não há mérito a julgar.
+    ESPERADAS.put(chave(StatusMissao.EM_DISPUTA, EventoMissao.DESTRAVAR), StatusMissao.CANCELADA);
   }
 
   private static String chave(StatusMissao origem, EventoMissao evento) {
@@ -91,6 +103,7 @@ class MissaoStateMachineTest {
     Missao missao = MissaoFixture.no(origem);
     AtorMissao ator = MissaoFixture.atorCorretoPara(evento, missao);
     StatusMissao destinoEsperado = ESPERADAS.get(chave(origem, evento));
+    Instant estadoDesdeAntes = missao.getEstadoDesde();
 
     if (destinoEsperado != null) {
       MissaoEvento trilha =
@@ -102,6 +115,18 @@ class MissaoStateMachineTest {
       assertThat(trilha.getDeStatus()).isEqualTo(origem.name());
       assertThat(trilha.getParaStatus()).isEqualTo(destinoEsperado.name());
       assertThat(trilha.getCriadoEm()).isEqualTo(MissaoFixture.AGORA);
+
+      // O carimbo do marco, nas 20 transições válidas. Sem esta asserção, um setStatus que não
+      // tocasse estadoDesde passava a suíte INTEIRA verde: todo teste de integração que mede
+      // expiração ou pote imobilizado sobrescreve a coluna por SQL para montar o cenário, então
+      // nenhum deles observa quem a escreve. O efeito em produção é a varredura de prazo medir o
+      // estado ANTERIOR e expirar missão recém-transicionada.
+      assertThat(missao.getEstadoDesde())
+          .as("transição válida carimba estadoDesde com o instante da transição")
+          .isEqualTo(MissaoFixture.AGORA);
+      assertThat(missao.getEstadoDesde())
+          .as("o carimbo avança: não pode continuar valendo o instante de criação")
+          .isAfter(missao.getCriadaEm());
     } else {
       assertThatThrownBy(
               () ->
@@ -113,7 +138,42 @@ class MissaoStateMachineTest {
       assertThat(missao.getStatus())
           .as("transição recusada não pode deixar mutação parcial")
           .isEqualTo(origem);
+      assertThat(missao.getEstadoDesde())
+          .as("transição recusada não pode carimbar o marco")
+          .isEqualTo(estadoDesdeAntes);
     }
+  }
+
+  /**
+   * O carimbo do marco visto pelo lado de quem o CONSOME: a varredura de prazo.
+   *
+   * <p>A matriz acima prova que toda transição válida escreve {@code estadoDesde}. Este teste diz
+   * por que isso importa, com a aritmética que a varredura faz. Uma missão criada há 30 dias e
+   * aceita agora tem de ser medida a partir do ACEITE — se o carimbo continuasse valendo a criação,
+   * a varredura de 48 h a expiraria na hora seguinte, tirando missão de quem está executando de
+   * boa-fé.
+   *
+   * <p>Ele mede o estado desde o ACEITE porque {@code ACEITA} é um dos estados que a varredura mede
+   * por {@code estadoDesde}, e não por {@code janelaFim} — ver {@link RegraExpiracao}.
+   */
+  @Test
+  void missaoAntigaRecemTransicionadaNaoParecerParadaHaDias() {
+    Missao missao = MissaoFixture.no(StatusMissao.ABERTA);
+    Instant trintaDiasAtras = MissaoFixture.AGORA.minus(30, ChronoUnit.DAYS);
+    missao.setStatus(StatusMissao.ABERTA, trintaDiasAtras);
+
+    MissaoStateMachine.transicionar(
+        missao,
+        EventoMissao.ACEITAR,
+        AtorMissao.usuario(MissaoFixture.EXECUTOR),
+        null,
+        MissaoFixture.AGORA);
+
+    assertThat(missao.getStatus()).isEqualTo(StatusMissao.ACEITA);
+    assertThat(missao.getEstadoDesde()).isEqualTo(MissaoFixture.AGORA);
+    assertThat(Duration.between(missao.getEstadoDesde(), MissaoFixture.AGORA))
+        .as("parada há ZERO tempo no estado novo, não há 30 dias")
+        .isZero();
   }
 
   /** Exigido nominalmente: não existe atalho de ABERTA para CONCLUIDA por nenhum evento. */

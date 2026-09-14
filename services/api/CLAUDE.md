@@ -118,6 +118,25 @@ Antes de terminar qualquer tarefa: `./mvnw verify`, e cole a saída real. Compil
     threads). Não é 100 porque as threads serializam atrás de um único `FOR UPDATE` na missão; 40 é
     margem para runner de CI lento não virar `SQLTransientConnectionException` — que apareceria como
     500 e seria lido como bug de concorrência em vez do problema de infra que é.
+- **`ContadorDeQueries` (F15) mede QUERIES POR REQUISIÇÃO**, e é registrado em
+  `TesteIntegracaoMvcBase` — não precisa de setup por teste. Use-o quando a pergunta for "isto faz
+  N+1?": o fan-out de entrega falida custa **2+4N** queries, medido em `FanOutContagemDeQueriesTest`.
+  Duas armadilhas: `Captura.porTabela()` depende de um `Pattern` e devolve **mapa vazio em silêncio**
+  se ele não casar (asserte com `containsEntry`, nunca só com `isNotEmpty`), e
+  `ContagemDeQueriesTest.jdbcclient_da_suite_conecta_como_dono_do_banco` **documenta um achado em vez
+  de selar um invariante** — a suíte liga o `JdbcClient` ao papel de DONO, não a `omnitribo_app`. Isso
+  vale **só para a suíte**: em produção as conexões do pool são todas `omnitribo_app`, medido, e o
+  `REVOKE` do ADR 0017 continua valendo. A consequência prática é que **uma escrita nova em
+  `ConsultasGeoespaciais` passaria verde no `verify` e estouraria `permission denied` em produção** —
+  se você acrescentar SQL de escrita ali, teste com o papel restrito à mão.
+- **Prefixo sentinela de teste de carga: consulte o registro antes de escolher.** `eeee0000-`
+  (`IndiceGeoespacialTest`), `eeee1111-`…`eeee4444-` (`PlanoConsultasQuentesTest`), `eeee5555-`
+  (`IndicePoteImobilizadoTest`); o seed usa `dddddddd-` e `bbbbbbbb-`. Dois testes já ocuparam a mesma
+  faixa com javadocs afirmando exclusividade, e cada `@AfterAll` varria a faixa do outro por
+  `DELETE ... LIKE`.
+- **`@Tag("geo")` não exclui nada**: não há `<excludedGroups>` no pom nem filtro no CI, então
+  `PlanoConsultasQuentesTest` semeia 200 mil missões e 500 mil lançamentos em todo `verify`. São
+  ~12 s, a 2ª classe mais lenta do projeto. A tag é rótulo, não filtro — não conte com ela.
 - Para autenticar em teste sem passar pelo `/auth/login`, use `JwtTestConfig.gerarTokenValido(...)`
   e `gerarTokenExpirado(...)`. Login real esbarra no bloqueio de 5 tentativas/min, e um teste com
   muitos usuários falharia por 429 em vez de pela regra em avaliação. Fixtures: `MissaoFixture` e

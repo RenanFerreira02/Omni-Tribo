@@ -408,11 +408,15 @@ public class MissaoController {
   @Operation(
       summary = "Destravar missão parada",
       description =
-          "EM_ANDAMENTO ou AGUARDANDO_CONFIRMACAO → CANCELADA, estornando o pote aos "
-              + "financiadores. Exclusivo de ADMIN. Existe porque a varredura automática resolve o "
+          "RASCUNHO, ACEITA, EM_ANDAMENTO, AGUARDANDO_CONFIRMACAO ou EM_DISPUTA → CANCELADA, "
+              + "estornando o pote aos financiadores. ABERTA fica de fora de propósito: ela já sai "
+              + "pela varredura de `janela_fim`, que é o prazo prometido ao executor. "
+              + "Exclusivo de ADMIN. Existe porque a varredura automática resolve o "
               + "caso comum por prazo, não o excepcional — missão em disputa silenciosa, ou parada "
               + "por um motivo que a regra de prazo não previu. A justificativa é obrigatória e "
-              + "fica na trilha: destravar é ato discricionário e precisa de motivo registrado.")
+              + "fica na trilha: destravar é ato discricionário e precisa de motivo registrado. "
+              + "Em EM_DISPUTA prefira `resolver` quando houver mérito a julgar; `destravar` é para "
+              + "a disputa sem informação, em que só se quer liberar o pote (ADR 0034).")
   @ApiResponses({
     @ApiResponse(responseCode = "200", description = "Missão destravada e pote estornado"),
     @ApiResponse(responseCode = "400", ref = "#/components/responses/RequisicaoInvalida"),

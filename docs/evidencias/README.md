@@ -20,11 +20,13 @@ daqui ou de [`../qualidade/`](../qualidade/).
 | [`f21-carga.md`](f21-carga.md) | 2026-08-25 | **A medição que faltava para a F12b.** 14.967 requisições, **0 respostas 5xx**: radar a 74,6 req/s com p95 de 4,3 ms e sem joelho, cache por geohash economizando 41% do p50, transferências na MESMA carteira sem um deadlock, e os três tetos de rate limit batendo com os configurados. Achado: o alerta de ponto lotado escreve 631 linhas idênticas sem teto nem dedup | `make reset`, `spring-boot:run`, `bash tools/carga/executar.sh` |
 | [`desempenho-antes-de-otimizar.md`](desempenho-antes-de-otimizar.md) | 2026-09-11 | **A segunda linha de base, e o que ela derruba.** A carga repetiu o trabalho de agosto dígito por dígito (14.967 req, 57 CONVERTIDA, 631 RECUSADA, 269 × 422) em **~3× o tempo** — causa medida: CPU a 1.353 MHz contra 4.600 de máximo, campo que `f21-carga.md` nunca registrou. Mede também o que nenhum teste media: **queries por requisição** (o fan-out custa 2+4N), **plano sob 200 mil linhas** (`ORDER BY tokens_recompensa` é **682×** mais lento que por `criada_em`) e **renders no mobile** (50/50 pontos de custódia montados fora da virtualização). Nenhuma otimização aplicada; três hipóteses refutadas | `bash tools/carga/executar.sh` e os três `-Dtest=` no cabeçalho do arquivo |
 | [`f21-dependency-check.md`](f21-dependency-check.md) | 2026-08-24 | **Uma tentativa que FALHOU**, e a hipótese que ela derrubou: o Dependency-Check 13.0.0 não tem acesso anônimo à NVD, e chave ausente produz o mesmo erro de chave vazia. Nenhum CVE listado — nenhuma varredura completou | `./mvnw -Pseguranca verify -DskipTests` (sem `-Dnvd.api.key`) |
+| [`entrega-final-verificacao-2026-09-12.md`](entrega-final-verificacao-2026-09-12.md) | 2026-09-12 | **A verificação que sustenta a seção Estado do README**, numa execução única e inteira: 755 testes no backend e 225 no mobile, `BugInstance size is 0`, os dois gates JaCoCo com *All coverage checks have been met*, e a cobertura real (92,68% global · 92,60% em `dominio` · **BRANCH em 76,37% e sem gate**). Substitui a citação de `f13-make-test.md`, que é de 2026-08-16 e registra outros números. Documenta duas substituições na skill `/verificar`: `DOCKER_HOST` exportado, e `make ps` no lugar de `docker compose ps` — **o passo 4 da skill está desatualizado** | a skill `/verificar`, com as duas substituições da §1 do arquivo |
 
-> `impacto-conferido-por-sql.md` é o único arquivo **sem prefixo de fase**: o painel de impacto não
-> foi entregue como uma fase numerada, e inventar um `f15-` criaria contradição com o
-> `PROGRESSO.md`, que é a numeração de verdade. Mesmo motivo pelo qual as duas auditorias do mobile
-> não seguem o padrão `FN.md`.
+> **Dois arquivos sem prefixo de fase**, pelo mesmo motivo. `impacto-conferido-por-sql.md`: o painel
+> de impacto não foi entregue como fase numerada, e inventar um `f15-` criaria contradição com o
+> `PROGRESSO.md`, que é a numeração de verdade. `entrega-final-verificacao-2026-09-12.md`: a tabela de
+> fases do `PROGRESSO.md` **não tem F14 a F17**, todas mergeadas, então um `f18-` contradiria o mesmo
+> arquivo. Mesmo motivo pelo qual as duas auditorias do mobile não seguem o padrão `FN.md`.
 
 ## O que **não** está provado aqui
 
@@ -48,9 +50,17 @@ Vale mais que a lista acima, porque é onde uma banca vai empurrar:
 - **Antifraude de geolocalização.** O que os controles de check-in **não** pegam está listado em
   [`../seguranca/antifraude-geolocalizacao.md`](../seguranca/antifraude-geolocalizacao.md) — spoofing
   com root é mitigável e não eliminável, presença não é execução, conluio não é detectado.
-- **Conservação em ENTREGA.** O ciclo de ENTREGA nasce do webhook e envolve ponto de custódia; a
-  medição por categoria refez AJUDA e TRIBO. O caso de ENTREGA (Δ=+60) foi medido na
-  [auditoria F7](../auditoria/F7.md).
+- **Conservação em ENTREGA criada por HUMANO.** Este item já foi mais amplo e ficou desatualizado: o
+  ciclo de ENTREGA que nasce do **webhook** tem Δ=0 medido, primeiro em
+  [`f14-conservacao-quatro-categorias.md`](f14-conservacao-quatro-categorias.md) e de novo na
+  [auditoria de entrega final](../auditoria/entrega-final.md), com o pote pago pelo patrocinador na
+  própria conversão. O que continua **fora** de toda medição é a ENTREGA que um usuário cria no app:
+  ela é a única `fonte_pote = CUNHAGEM` que sobrou (ADR 0025), logo a única em que a soma **sobe** na
+  conclusão. Nenhum ciclo do script a exercita — ele usa o webhook para ENTREGA, que é o caso com
+  patrocinador. O caso foi medido pela primeira vez no
+  [adendo de 2026-09-13](../auditoria/entrega-final.md#adendo-de-2026-09-13--a-cunhagem-que-sobrou-medida):
+  **Δ=+22**, crédito sem contraparte, com a reconciliação respondendo `integro=true`. O Δ=+60 da
+  [auditoria F7](../auditoria/F7.md) é o registro histórico de quando ENTREGA e AJUDA cunhavam.
 - **Ausência de CVE nas dependências.** A varredura OWASP **nunca concluiu**, nem local nem no CI —
   falta a chave da NVD. O gate está configurado; o resultado não existe. A tentativa mais recente
   está medida em [`f21-dependency-check.md`](f21-dependency-check.md), que também derrubou a

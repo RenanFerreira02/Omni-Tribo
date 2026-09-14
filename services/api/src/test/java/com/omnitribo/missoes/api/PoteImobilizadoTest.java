@@ -21,6 +21,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Import;
@@ -290,6 +292,79 @@ class PoteImobilizadoTest extends TesteIntegracaoMvcBase {
     assertLedgerReconcilia(jdbcTemplate);
   }
 
+  /**
+   * Os TRÊS estados que o ADR 0034 acrescentou, e a razão de eles virem juntos num teste só.
+   *
+   * <p>Antes dele, `varreduraCobre=false` no diagnóstico significava duas coisas ao mesmo tempo:
+   * "nenhuma varredura alcança este estado" e "ninguém alcança este estado". Em `RASCUNHO` e
+   * `ACEITA` a única saída era o criador ou o executor agir, e se a pessoa desaparecia o pote
+   * ficava preso **sem que nem um ADMIN pudesse soltá-lo** — era a lacuna que a implementação do
+   * ADR 0032 revelou, medida no banco de demonstração como uma missão `ACEITA` com 42 tokens
+   * presos.
+   *
+   * <p>`EM_DISPUTA` é o caso menos óbvio dos três: ele **tinha** porta de ADMIN (`resolver`), mas
+   * ela obriga a julgar o mérito, e há disputa que fica sem informação com as duas partes ausentes.
+   * O teste assere que `DESTRAVAR` grava `DESTRAVADA_POR_ADMIN`, e não o tipo de `resolver` — a
+   * diferença entre as duas saídas é a trilha, porque o efeito no dinheiro é o mesmo.
+   *
+   * <p>Parametrizado pelos três estados porque a asserção é idêntica e o que varia é só a origem:
+   * um teste por estado repetiria quatro asserções três vezes e esconderia que a propriedade medida
+   * é "todo estado não-terminal tem saída de ADMIN", não "este estado específico funciona".
+   */
+  @ParameterizedTest(name = "destravar solta o pote em {0}")
+  @ValueSource(strings = {"RASCUNHO", "ACEITA", "EM_DISPUTA"})
+  @DisplayName("ADR 0034: os três estados sem porta ganham saída de ADMIN, com estorno")
+  void destravarSoltaOPoteNosTresEstadosNovos(String estado) throws Exception {
+    long circulacaoAntes = tokensEmCirculacao(jdbcTemplate);
+
+    // ANTES_DE_TUDO não é necessário aqui — a porta de ADMIN não tem prazo —, mas mantém o cenário
+    // idêntico ao do teste acima, para que a única variável entre eles seja o estado de origem.
+    UUID missaoId = missaoParadaEm(estado, ANTES_DE_TUDO);
+    assertThat(potePersistido(missaoId))
+        .as("o cenário só é válido se houver pote preso: sem isso o teste passaria por vácuo")
+        .isPositive();
+
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/destravar", missaoId)
+                .header("Authorization", bearer(ADMIN, "ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"justificativa\":\"As duas partes sumiram; liberando o pote.\"}"))
+        .andExpect(status().isOk());
+
+    assertThat(statusPersistido(missaoId)).isEqualTo("CANCELADA");
+    assertThat(potePersistido(missaoId)).as("pote estornado a quem financiou").isZero();
+    assertThat(tokensEmCirculacao(jdbcTemplate))
+        .as("CONSERVAÇÃO: o estorno move token de lugar, não cria nem destrói")
+        .isEqualTo(circulacaoAntes);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM missao_evento WHERE missao_id = ?"
+                    + " AND tipo = 'DESTRAVADA_POR_ADMIN'",
+                Long.class,
+                missaoId))
+        .as("a trilha distingue destravar de resolver, que chega ao mesmo destino")
+        .isEqualTo(1L);
+    assertLedgerReconcilia(jdbcTemplate);
+  }
+
+  /** Nos três estados novos a porta continua sendo SÓ do ADMIN — a extensão não afrouxou nada. */
+  @ParameterizedTest(name = "criador não destrava em {0}")
+  @ValueSource(strings = {"RASCUNHO", "ACEITA", "EM_DISPUTA"})
+  void destravarNosEstadosNovosContinuaExigindoAdmin(String estado) throws Exception {
+    UUID missaoId = missaoParadaEm(estado, ANTES_DE_TUDO);
+
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/destravar", missaoId)
+                .header("Authorization", bearer(criador, "USUARIO"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"justificativa\":\"Quero cancelar do meu jeito.\"}"))
+        .andExpect(status().isForbidden());
+
+    assertThat(statusPersistido(missaoId)).isEqualTo(estado);
+  }
+
   // ─── Autorização e validação de entrada ─────────────────────────────────────────────────────
 
   @Test
@@ -373,6 +448,11 @@ class PoteImobilizadoTest extends TesteIntegracaoMvcBase {
   private long potePersistido(UUID missaoId) {
     return jdbcTemplate.queryForObject(
         "SELECT pote_tokens FROM missao WHERE id = ?", Long.class, missaoId);
+  }
+
+  private String statusPersistido(UUID missaoId) {
+    return jdbcTemplate.queryForObject(
+        "SELECT status FROM missao WHERE id = ?", String.class, missaoId);
   }
 
   private long totalDeMissoesImobilizadas() throws Exception {

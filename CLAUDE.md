@@ -99,7 +99,8 @@ Módulo só fala com módulo por porta em `api/`. As de hoje:
 - `carteira/api/` — `CreditoRecompensa`, `FinanciamentoMissao` (o `debitarPatrocinador` devolve
   `Optional` VAZIO em saldo insuficiente, em vez de lançar: a encomenda já está na loja e a recusa
   precisa ser GRAVADA), `EstornoPote`, `ProvisionamentoCarteira`,
-  `AporteToken` (o ÚNICO ponto de emissão de token do sistema — ver Economia)
+  `AporteToken` (o único ponto de emissão EXPLÍCITO e auditado; a cunhagem implícita de ENTREGA
+  criada por humano sobrevive em `fonte_pote = CUNHAGEM` — ver Economia)
 - `missoes/api/` — `ConversaoEntregaFalida` (o webhook de transportadora cria a missão de retirada
   por aqui; `logistica` não pode importar `missoes.dominio`), `ConfirmacaoRetirada` (a contraparte:
   a transportadora confirma o recebimento e a missão conclui pagando o executor — ADR 0026)
@@ -144,7 +145,12 @@ O schema de TODOS já existe desde V4–V7: o banco está à frente do código. 
 código correspondente é o estado esperado, não resíduo. Mesma coisa fora de `services/api/`:
 `tools/seed/` (`make seed`) é diretório reservado, hoje vazio. `tools/carrier-mock/` tem
 `enviar.sh`, que exercita o webhook contra o servidor de pé, e `tools/dataset/` tem `gerar.sh` mais
-os artefatos do modelo de risco (CSV, coeficientes, relatório de métricas).
+os artefatos do modelo de risco (CSV, coeficientes, relatório de métricas). `tools/carga/` tem o k6 e
+as saídas medidas; `tools/evidencias/conservacao-por-categoria.sh` mede a invariante nas quatro
+categorias; e **`tools/demo/` (F16b) é o que o Makefile usa para tudo que toca contêiner** —
+`compose.sh` resolve o runtime (o CLI do Docker sobreviveu ao Desktop desinstalado e aponta para um
+socket morto; o banco roda sob podman) e `checar-ambiente.sh` responde ✓/✗ por item antes da
+apresentação. **Todo alvo de compose passa por `compose.sh`, nunca por `docker compose` direto.**
 
 `RegrasArquiteturaTest` aplica a regra aos 7 módulos de negócio; `compartilhado` fica fora do array
 `MODULOS` porque é shared por design. Mas **`compartilhado/infra` tem regra própria** e é fechado a
@@ -207,15 +213,28 @@ criação — não pela categoria (ADR 0024). `COMUNIDADE` (TRIBO/COLETA) tem po
 pagar do pote como TRIBO, porque o argumento que a mantinha fora ("vizinhos custeando logística de
 varejista") descreve ENTREGA e nunca foi sobre ela.
 
-**A cunhagem não sumiu — mudou de lugar, e é isso que a torna defensável.** O único ponto de emissão
-é `APORTE_PATROCINADOR`, por endpoint ADMIN, auditado e idempotente.
+**A cunhagem quase toda mudou de lugar, e o que sobrou é UM caso.** O único ponto de emissão
+**explícito e auditado** é `APORTE_PATROCINADOR`, por endpoint ADMIN e idempotente. Mas a emissão
+implícita por conclusão **não desapareceu**: ela sobrevive em `fonte_pote = CUNHAGEM`, que desde o
+ADR 0025 é só ENTREGA criada por humano. Medido em 2026-09-13, num ciclo completo por HTTP: Δ=**+22**,
+`CREDITO` de `RECOMPENSA_MISSAO` sem contraparte, `integro=true`. Ver o adendo de
+`docs/auditoria/entrega-final.md` e as Pendências.
 
-**A economia é um CICLO, não um estoque** (ADR 0027). O enunciado exato da invariante, e ele tem duas
+**A economia é um CICLO, não um estoque** (ADR 0027). O enunciado exato da invariante, e ele tem
 partes que não podem ser encurtadas numa:
-`SUM(carteira.saldo_tokens) + SUM(missao.pote_tokens)` é constante **dentro do ciclo de missões**,
-nas quatro categorias — e muda nas DUAS pontas: **sobe** no `APORTE_PATROCINADOR` (emite) e **desce**
-no `RESGATE` (queima). Nenhuma outra operação a altera; todas as demais movem token de lugar.
-Dizer só "a soma é constante" descreve um estoque fechado, que nunca foi o desenho. Antes da V23 a emissão acontecia na CONCLUSÃO de toda
+`SUM(carteira.saldo_tokens) + SUM(missao.pote_tokens)` é constante **dentro do ciclo de missões** para
+as categorias com financiador — e muda em **TRÊS** pontas:
+
+| Ponta | Efeito | Explícita? |
+|---|---|---|
+| `APORTE_PATROCINADOR` | **sobe** (emite) | sim — endpoint ADMIN, auditado, idempotente |
+| conclusão de ENTREGA com `fonte_pote = CUNHAGEM` | **sobe** (emite) | **não** — implícita, por missão |
+| `RESGATE` | **desce** (queima) | sim — endpoint, com `Idempotency-Key` |
+
+Nenhuma outra operação a altera; todas as demais movem token de lugar. **Dizer "duas pontas" era o
+erro que esta linha carregava até 2026-09-13**, e ele é da mesma família do defeito histórico: descreve
+o desenho pretendido em vez do comportamento medido. Dizer só "a soma é constante" é pior ainda —
+descreve um estoque fechado, que nunca foi o desenho. Antes da V23 a emissão acontecia na CONCLUSÃO de toda
 ENTREGA e AJUDA, implícita, por missão e invisível para a reconciliação — ledger e projeção batem
 quando se cria token do nada.
 
@@ -739,7 +758,7 @@ notifica por tribo com consentimento e teto por hora, e dá baixa na custódia q
 o pote já financiado pela transportadora, e a antiga cunhagem por missão virou um aporte ADMIN
 auditado e idempotente.
 
-**Mobile: F9 a F12 implementadas** em `apps/mobile/` — 11 telas mais a rota-porta `app/index.tsx`
+**Mobile: F9 a F12 implementadas** em `apps/mobile/` — **12** telas mais a rota-porta `app/index.tsx`
 (um `<Redirect>` que decide entre onboarding, `(auth)` e `(tabs)` durante a renderização, não num
 `useEffect`), design system, sessão com access token só em memória e refresh em
 `expo-secure-store`, rotas `(auth)`/`(tabs)`/`(app)` protegidas — toda tela autenticada fora das
@@ -785,7 +804,7 @@ Seção para armadilhas diagnosticadas e ainda não corrigidas. Ao resolver uma,
 >   própria com DDL. `MigracaoTest.aplicacao_nao_consegue_apagar_nem_alterar_o_ledger_em_runtime`
 >   prova em runtime (SQLState 42501), não mais só lendo o catálogo;
 > - `EM_ANDAMENTO` e `AGUARDANDO_CONFIRMACAO` sem saída — ver a máquina de estados, que agora tem
->   **17 transições** e varredura por prazo mais porta de ADMIN.
+>   **20 transições** (ADR 0034) e varredura por prazo mais porta de ADMIN.
 >
 > **Uma saiu em 2026-09-10**: *"A outbox abandona evento em silêncio, e não há carta-morta"*. O
 > evento esgotado deixou de ser invisível — `GET /admin/outbox/esgotados` o lista com a causa e
@@ -813,31 +832,32 @@ Seção para armadilhas diagnosticadas e ainda não corrigidas. Ao resolver uma,
 > do índice parcial e não é deduplicado, sem erro e sem aviso. Quem cobre isso é
 > `DespachanteAlertaOperacionalTest`, não uma constraint.
 
-**1. Três dos seis estados não-terminais não têm porta de ADMIN para soltar o pote.** Achado ao
-implementar o diagnóstico do ADR 0032, e é lacuna NOVA: nunca esteve enunciada em lugar nenhum, e a
-query órfã removida em 2026-08-20 nem olhava para dois deles.
+> **A última saiu em 2026-09-13**: *"Três dos seis estados não-terminais não têm porta de ADMIN para
+> soltar o pote"*. `DESTRAVAR` passou a ser aceito em `RASCUNHO`, `ACEITA` e `EM_DISPUTA`, e a máquina
+> foi de **17 para 20 transições** (ADR 0034). Os SEIS estados não-terminais satisfazem agora a regra
+> do javadoc de `StatusMissao`, e **não pelo mesmo mecanismo**: cinco têm porta de ADMIN, e `ABERTA`
+> sai pela varredura de `janela_fim` — ela não tem porta de ADMIN de propósito, porque o prazo
+> prometido ao executor já é a saída. **O que isso NÃO resolveu:** `RESOLVER_CANCELAR` e `DESTRAVAR`
+> chegam ao mesmo destino por caminhos semanticamente diferentes (julgar o mérito × desistir de
+> julgar), e **o código não impede um ADMIN de escolher a errada** — o que separa as duas é o tipo na
+> trilha mais o texto da justificativa. E continua sendo consulta ATIVA mais ação humana: é o quarto
+> instrumento que depende de alguém olhar.
 
-`FinanciamentoService.validarEstado` recusa financiamento só em estado TERMINAL, em `CUNHAGEM` e em
-`PATROCINADOR` — e um comentário in-line afirma, corretamente, que **RASCUNHO é financiável**
-(publicar missão comunitária exige pote, então o financiamento acontece antes da publicação). Logo o
-pote existe nos SEIS estados não-terminais:
+**Nenhuma pendência aberta.** As seis que esta seção acumulou foram fechadas, e o que cada uma
+**não** resolveu está registrado acima — é essa metade que impede a correção de virar esquecimento.
 
-| Estado | Varredura por prazo | Porta de ADMIN |
-|---|---|---|
-| `RASCUNHO` | não | **nenhuma** |
-| `ABERTA` | sim (`janela_fim`) | dispensável |
-| `ACEITA` | não | **nenhuma** |
-| `EM_ANDAMENTO` | sim (48 h) | `destravar` |
-| `AGUARDANDO_CONFIRMACAO` | sim (72 h) | `destravar` |
-| `EM_DISPUTA` | não | `resolver` |
+O que **não** é pendência e é decisão sua, registrada na auditoria de entrega final:
 
-Ou seja: a regra do javadoc de `StatusMissao` — *"todo estado não-terminal precisa de saída que NÃO
-dependa de um humano específico aparecer"* — **vale para três dos seis**. Em `RASCUNHO` e `ACEITA` a
-única saída é o criador ou o executor agir; se a pessoa some, o pote fica preso e **nem um ADMIN
-consegue soltá-lo**. O diagnóstico os mostra com `varreduraCobre=false`, que é a diferença entre a
-lacuna de hoje e a de ontem: ela é visível, mas continua aberta.
+**A cunhagem que sobrou.** A conclusão de ENTREGA com `fonte_pote = CUNHAGEM` — isto é, ENTREGA
+criada por um usuário no app — **emite token**: publicar não exige pote (`MissaoService:615` retorna
+cedo) e a conclusão credita o executor sem debitar pote nenhum. Medido em 2026-09-13: Δ=**+22**, um
+`CREDITO` de `RECOMPENSA_MISSAO` sem contraparte, com a reconciliação respondendo `integro=true`.
+Ver o adendo em `docs/auditoria/entrega-final.md`.
 
-A correção provável é estender `DESTRAVAR` a `RASCUNHO`, `ACEITA` e `EM_DISPUTA` — zero código de
-caminho de valor novo, porque `aplicar()` já estorna em CANCELADA e `DESTRAVADA_POR_ADMIN` já está no
-CHECK da V20. Mas muda a máquina de estados (17 → 20 transições) e a matriz de
-`MissaoStateMachineTest`, então é decisão com ADR próprio. **Não decida sozinho.**
+Isso significa que a invariante desta seção tem **três** pontas, não duas — sobe no
+`APORTE_PATROCINADOR`, sobe também aqui, e desce no `RESGATE`. O código é honesto sobre isso (o
+javadoc de `FontePote.CUNHAGEM` chama a si mesmo de "a última lacuna de cunhagem, declarada em vez de
+escondida"); o que estava errado era a afirmação de topo. **Fechá-la exige decidir quem financia uma
+ENTREGA que nenhuma transportadora reportou** — exigir pote da tribo faria vizinhos custearem
+logística de varejista, que é o inverso do modelo, e não há patrocinador a debitar. É candidata a ADR
+próprio, e nenhum ciclo medido a exercita porque o script de conservação usa o webhook para ENTREGA.
