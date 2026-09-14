@@ -98,6 +98,17 @@
   tem guarda de sessão — o grupo entre parênteses não entra na URL.
 - **Path param interpolado passa por `seg()`** (`src/api/caminho.ts`). Axios não escapa segmento de
   path, e um id com `/` remonta a requisição contra outro endpoint com o Bearer junto.
+- **`src/testes/perfilador.tsx` (F15) mede CUSTO DE RENDER**, via `<Profiler>` do React, e
+  `app/__tests__/renderizacao.test.tsx` o usa. O que ele pegou: os **50 pontos de custódia do rodapé
+  do radar montam fora da virtualização**. Cuidado ao ler esses testes — dois dos três comparam
+  proporção (50 nós contra 5), que é propriedade do React e não deste app; o que de fato prende
+  comportamento é a contagem de nós montados.
+- **O painel de impacto mostra a premissa em TRÊS colunas** (`app/(app)/impacto.tsx`, F17b): base,
+  −50% e +50%, lado a lado. O **rótulo** de cada premissa é derivado no cliente (`× 0,5` e `× 1,5`),
+  mas os **três totais vêm prontos da API** (`menos50Brl`, `baseBrl`, `mais50Brl`) e **não podem ser
+  recalculados aqui** — é a mesma regra de nunca duplicar a fórmula do servidor. O teste que prende
+  isso usa fixture deliberadamente INCONSISTENTE, porque com uma fixture coerente as duas
+  implementações passam.
 - TypeScript strict. `any` só com comentário justificando.
 - Toda chamada de API tem estado de carregando, vazio e erro tratados na UI.
 - npx expo install, nunca npm install, para pacotes do ecossistema Expo.
@@ -143,7 +154,7 @@ que faz a carteira nunca imprimir `R$`. **A garantia hoje é do SERVIDOR**, em d
 o teste de que a tela não reintroduz `R$` por copy própria.
 
 **O catálogo vem da API** — `GET /api/v1/beneficios`, por tribo ou por proximidade. Era dado LOCAL
-enquanto o sumidouro não existia; a F16 (V24-V26, ADR 0027) o trouxe, e `src/features/beneficios/
+enquanto o sumidouro não existia; a fase do RESGATE (V24-V26, ADR 0027) o trouxe, e `src/features/beneficios/
 catalogo.ts` encolheu para só `estadoDoResgate`.
 
 **O resgate QUEIMA token, e o saldo só muda quando o servidor confirma.** `POST /api/v1/resgates`

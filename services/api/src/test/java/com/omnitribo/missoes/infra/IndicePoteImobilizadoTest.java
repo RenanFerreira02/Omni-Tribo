@@ -44,8 +44,29 @@ class IndicePoteImobilizadoTest extends TesteIntegracaoBase {
 
   private static final int LINHAS_SINTETICAS = 50_000;
 
-  /** Prefixo sentinela próprio: o seed usa dddddddd-…, o teste geoespacial usa eeee0000-…. */
-  private static final String PREFIXO_SINTETICO = "eeee1111-0000-0000-0000-";
+  /**
+   * Prefixo sentinela próprio, e o registro completo da faixa {@code eeee*} para que "próprio"
+   * continue sendo verdade.
+   *
+   * <p>Era {@code eeee1111-}, o MESMO de {@code PlanoConsultasQuentesTest.PREFIXO_MISSAO} — e os
+   * dois javadocs afirmavam exclusividade. Não explodia por sorte: as duas classes são
+   * {@code @Transactional} e a suíte roda sequencial (não há {@code junit-platform.properties} nem
+   * {@code parallel} no pom). Mas os dois {@code @AfterAll} faziam {@code DELETE ... LIKE
+   * 'eeee1111-%'}, então cada classe varria a faixa da outra. Tirar um {@code @Transactional} ou
+   * ligar execução paralela viraria {@code duplicate key value violates unique constraint}.
+   *
+   * <p>Registro da faixa, e mantenha-o ao acrescentar um prefixo novo:
+   *
+   * <ul>
+   *   <li>{@code eeee0000-} — {@code IndiceGeoespacialTest}
+   *   <li>{@code eeee1111-} / {@code eeee2222-} / {@code eeee3333-} / {@code eeee4444-} — {@code
+   *       PlanoConsultasQuentesTest} (missão, usuário, carteira, lançamento)
+   *   <li>{@code eeee5555-} — esta classe
+   * </ul>
+   *
+   * <p>O seed usa {@code dddddddd-} e {@code bbbbbbbb-}.
+   */
+  private static final String PREFIXO_SINTETICO = "eeee5555-0000-0000-0000-";
 
   private static final String CRIADOR_SEED = "bbbbbbbb-0000-0000-0000-000000000001";
 

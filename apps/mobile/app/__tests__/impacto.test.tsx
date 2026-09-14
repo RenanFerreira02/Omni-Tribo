@@ -77,6 +77,46 @@ describe('painel de impacto', () => {
     ).toBeTruthy();
   });
 
+  it('os três totais VÊM do servidor, e não de uma conta refeita no cliente', async () => {
+    // A fixture padrão é internamente consistente — 3 × R$ 25,00 = R$ 75,00, e as pontas são
+    // exatamente metade e uma vez e meia. Isso faz o teste acima passar dos dois jeitos: lendo
+    // `menos50Brl` do servidor, ou multiplicando no cliente. Trocar `total: ce.menos50Brl` por
+    // `ce.reentregasEvitadas * cenario.premissa` não quebraria nada — e reintroduziria no app a
+    // duplicação de fórmula que o CLAUDE.md proíbe e que o ADR 0029 fecha do lado do servidor.
+    //
+    // Aqui os totais são DELIBERADAMENTE incompatíveis com a multiplicação: 3 × R$ 10,00 daria
+    // R$ 30,00, e o servidor diz R$ 41,00. Só a leitura do campo passa.
+    servidor.use(
+      http.get(`${BASE}/admin/impacto`, () =>
+        HttpResponse.json({
+          ...IMPACTO,
+          custoEvitado: {
+            reentregasEvitadas: 3,
+            premissaCustoReentregaBrl: 20.0,
+            baseBrl: 82.0,
+            menos50Brl: 41.0,
+            mais50Brl: 123.0,
+          },
+        }),
+      ),
+    );
+
+    await render(<TelaImpacto />);
+
+    // O RÓTULO da premissa é derivado no cliente de propósito (0,5× e 1,5×), só para dizer de qual
+    // premissa a coluna saiu — é o total que não pode ser recalculado. Por isso cada asserção
+    // carrega os dois: premissa derivada, total lido.
+    expect(
+      await screen.findByLabelText('Premissa pela metade, R$ 10,00 por re-entrega: total R$ 41,00'),
+    ).toBeTruthy();
+    expect(
+      screen.getByLabelText('Premissa vigente, R$ 20,00 por re-entrega: total R$ 82,00'),
+    ).toBeTruthy();
+    expect(
+      screen.getByLabelText('Premissa uma vez e meia, R$ 30,00 por re-entrega: total R$ 123,00'),
+    ).toBeTruthy();
+  });
+
   it('diz que re-entrega evitada é a missão concluída, e não outra medição', async () => {
     await render(<TelaImpacto />);
 

@@ -47,6 +47,24 @@ import org.springframework.test.web.servlet.MockMvc;
  * deduplicação na escrita e a consulta que devolve a frequência que a deduplicação deixa de
  * guardar. Uma sem a outra não fecha a pendência — deduplicar sozinho trocaria 631 linhas não lidas
  * por 24 por dia não lidas.
+ *
+ * <h2>Esta é a classe que a V29 quis nomear, e nomeou errado</h2>
+ *
+ * <p>{@code V29__dedup_alerta_operacional.sql:62} diz, sobre a lacuna de {@code referencia} nula:
+ * <i>"Quem cobre isso é DespachanteAlertaPontoLotadoTest, não o banco"</i>. Essa classe <b>não
+ * existe</b>; a cobertura é esta, e ela mora em {@code logistica.api} e não em {@code
+ * notificacoes}.
+ *
+ * <p>A correção fica aqui, e não lá, porque <b>migration aplicada é imutável</b>: editar o
+ * comentário muda o checksum e o Flyway reprova o boot com {@code Migration checksum mismatch} em
+ * toda máquina que já aplicou a V29 — o CI não sofreria (clona do zero) e o ambiente de quem
+ * desenvolve, sim.
+ *
+ * <p>O aviso da V29 está correto no que importa: o índice parcial <b>não</b> obriga ninguém a
+ * preencher {@code referencia}. Quem cobre a lacuna é {@link
+ * #aLinhaGravadaCarregaReferenciaEJanela} mais os dois caminhos de escrita exercitados aqui, e não
+ * uma constraint. Um caminho de escrita novo que passe {@code null} explicitamente reabre a rajada,
+ * sem erro e sem aviso.
  */
 @Import(JwtTestConfig.class)
 @DisplayName("Alerta operacional: rajada, deduplicação e a frequência preservada")
@@ -308,6 +326,81 @@ class DespachanteAlertaOperacionalTest extends TesteIntegracaoMvcBase {
         .andExpect(jsonPath("$.conteudo[0].capacidade").value(2))
         .andExpect(jsonPath("$.conteudo[0].primeiraRecusa").isNotEmpty())
         .andExpect(jsonPath("$.conteudo[0].ultimaRecusa").isNotEmpty());
+  }
+
+  /**
+   * A ordem do painel é a razão de ele existir: quem negocia capacidade com o bairro precisa saber
+   * QUAL loja está pior, e o primeiro item da página é a resposta.
+   *
+   * <p>O teste acima assere sobre {@code conteudo[0]} com um grupo só na resposta — então o índice
+   * 0 é trivialmente a única linha, e inverter o {@code ORDER BY} da consulta não quebrava nada.
+   * Era a sabotagem declarada como "passou" nas notas de manutenção de 2026-09-11. Com DOIS pontos
+   * de volumes diferentes, o índice passa a significar ordem.
+   */
+  @Test
+  void painelOrdenaPelaLojaQueRecusouMais() throws Exception {
+    jdbcTemplate.update(
+        "UPDATE ponto_custodia SET ocupacao = capacidade WHERE id = ?", OUTRO_PONTO);
+    try {
+      // Volumes deliberadamente desiguais e ambos > 1: com 1 e 1 a ordem seria decidida pelo
+      // desempate de recusada_em, e o teste mediria outra coisa.
+      for (int i = 0; i < RAJADA; i++) {
+        recusar(SLUG, SEGREDO, PONTO_LOTADO);
+      }
+      recusar(SLUG, SEGREDO, OUTRO_PONTO);
+      recusar(SLUG, SEGREDO, OUTRO_PONTO);
+      recusar(SLUG, SEGREDO, OUTRO_PONTO);
+      drenar();
+
+      mockMvc
+          .perform(admin(get("/api/v1/admin/pontos-custodia/recusas")))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.totalElementos").value(2))
+          .andExpect(jsonPath("$.conteudo[0].pontoCustodiaId").value(PONTO_LOTADO.toString()))
+          .andExpect(jsonPath("$.conteudo[0].recusas").value(RAJADA))
+          .andExpect(jsonPath("$.conteudo[1].pontoCustodiaId").value(OUTRO_PONTO.toString()))
+          .andExpect(jsonPath("$.conteudo[1].recusas").value(3));
+    } finally {
+      jdbcTemplate.update("UPDATE ponto_custodia SET ocupacao = 1 WHERE id = ?", OUTRO_PONTO);
+    }
+  }
+
+  /**
+   * A janela é o recorte do painel, e o teto de 30 dias é o que impede a consulta de degradar para
+   * varredura do índice inteiro. Nenhum dos dois tinha teste: {@code RecusaFiltroRequest} era o
+   * único dos três endpoints ADMIN novos sem cobertura de validação, enquanto os irmãos ({@code
+   * OutboxAdminTest} e {@code PoteImobilizadoTest}) já tinham a sua.
+   */
+  @Test
+  void painelDeRecusasRecusaJanelaEPaginacaoForaDosLimites() throws Exception {
+    String problemaInvalido = "https://omnitribo.dev/problemas/requisicao-invalida";
+
+    mockMvc
+        .perform(admin(get("/api/v1/admin/pontos-custodia/recusas").param("horas", "721")))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.type").value(problemaInvalido))
+        .andExpect(jsonPath("$.errors[0].campo").value("horas"));
+
+    mockMvc
+        .perform(admin(get("/api/v1/admin/pontos-custodia/recusas").param("horas", "0")))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors[0].campo").value("horas"));
+
+    mockMvc
+        .perform(admin(get("/api/v1/admin/pontos-custodia/recusas").param("tamanho", "101")))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors[0].campo").value("tamanho"));
+
+    mockMvc
+        .perform(admin(get("/api/v1/admin/pontos-custodia/recusas").param("pagina", "-1")))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors[0].campo").value("pagina"));
+
+    // A borda que vale: 720 h é o teto e tem de PASSAR, senão o teste acima estaria medindo
+    // "qualquer número grande dá 400" em vez do limite declarado.
+    mockMvc
+        .perform(admin(get("/api/v1/admin/pontos-custodia/recusas").param("horas", "720")))
+        .andExpect(status().isOk());
   }
 
   @Test
