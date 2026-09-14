@@ -1,5 +1,9 @@
 # Roteiro de demonstração — 10 minutos
 
+> **Este é o roteiro da ARGUIÇÃO, e continua valendo inteiro.** O vídeo-pitch de 5 minutos da
+> Atividade 4 tem roteiro próprio, todo dentro do app e sem terminal em quadro:
+> [`ROTEIRO-PITCH-5MIN.md`](ROTEIRO-PITCH-5MIN.md). Os dois compartilham o fio condutor e o seed.
+
 **Regra número um: nada é instalado, clonado ou compilado durante a demonstração.** Tudo abaixo
 pressupõe o preparo da seção final já feito. Se o tempo apertar, corte o bloco 7 — ele é o único
 opcional.
