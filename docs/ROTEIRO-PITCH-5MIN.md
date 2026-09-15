@@ -220,6 +220,105 @@ depois deste vídeo.
 
 ---
 
+## De onde você grava decide se o check-in passa
+
+**A origem da missão de retirada é a coordenada do ponto de custódia**, e o servidor exige o aparelho
+a menos de **200 m** dela (`app.missoes.entrega-falida.raio-checkin-m`). A distância é medida pelo
+PostGIS, no servidor — o app não tem voto. Os pontos do seed vivem na zona leste de São Paulo, então
+gravar de qualquer outro lugar reprova o check-in com a mensagem de
+`AvaliacaoAntifraude.MOTIVO_DISTANCIA`:
+
+```
+Você está a <N> m da origem da missão; o raio permitido é 200 m.
+```
+
+O `<N>` é a distância real medida no servidor — e ela não precisa ser grande para reprovar. Num caso
+medido em 2026-09-15, o ponto de gravação estava a **210 m** do LOCKER Cidade Líder: dez metros
+além do raio, com o aparelho praticamente encostado no ponto do seed.
+
+Duas coisas que NÃO resolvem, e é melhor saber antes de tentar:
+
+- **Nenhuma variável do `pitch-armar.sh`.** Quem manda a posição é o GPS do aparelho; o script só
+  assiste. (Ele *tinha* `CHECKIN_LAT`/`CHECKIN_LON` copiadas do `carrier-mock`, onde o próprio script
+  faz o check-in por HTTP. Eram variáveis mortas e foram removidas.)
+- **App de mock de GPS.** `AvaliacaoAntifraude.avaliar` rejeita antes de qualquer outra checagem
+  quando `mocked` é true, com motivo `LOCALIZACAO_SIMULADA`. É a primeira cláusula do método.
+
+### A solução: traga a missão para você — uma vez, e só uma vez
+
+```bash
+bash tools/demo/ponto-aqui.sh <LAT> <LON> "Padaria da esquina"
+```
+
+Cria um ponto de custódia nas suas coordenadas, dentro da **Tribo Cidade Líder** — a mesma do
+`renan`. No Google Maps, o clique com o botão direito no local dá o par `lat, lon` para colar,
+**nessa ordem**.
+
+Prefira um **comércio ou esquina** a menos de 200 m de onde você vai gravar, em vez da sua porta: o
+modelo do produto é custódia comercial (ADR 0020), e o apelido do ponto aparece no app como "onde a
+encomenda está".
+
+Depois disso, **arme sem variável nenhuma**:
+
+```bash
+bash tools/demo/pitch-armar.sh
+```
+
+Ele lê `tools/demo/.env.ponto` — arquivo local, gitignored por `.gitignore:25` (`.env.*`), onde as
+coordenadas ficam. **Elas nunca entram no git**, e é por isso que este ponto não é um seed da faixa
+900: endereço de quem grava não é fixture pública.
+
+E ele **recria o ponto sozinho** quando ele não está mais no banco, o que acontece depois de todo
+`make demo`.
+
+> **A ordem importa, e ela não é óbvia: o backend antes do ponto.** `make demo` recria o volume, e
+> quem cria o schema é o **Flyway, no boot do backend** — o alvo não sobe backend nenhum, de
+> propósito. Então logo depois de um `make demo` o banco tem só as tabelas de sistema do PostGIS, e
+> criar o ponto ali devolve `ERROR: relation "ponto_custodia" does not exist` — mensagem que não diz
+> em lugar nenhum que o que falta é subir o backend. Os dois scripts hoje detectam isso e dizem
+> exatamente o que fazer; e o `make demo`, que chegou a tentar recriar o ponto ali, agora só **avisa**
+> que ele morreu com o volume.
+
+A sequência que funciona, e é a do checklist:
+
+```
+make demo  →  sobe o backend (Flyway migra)  →  pitch-armar.sh (recria o ponto e arma)
+```
+
+> **Isto já falhou, e vale saber por quê.** O `pitch-armar.sh` tinha um padrão silencioso: sem
+> `PONTO_CUSTODIA`, ele usava o LOCKER Cidade Líder. Então esquecer o `ponto-aqui.sh`, rodar
+> `make demo` depois dele, ou esquecer de colar a variável que ele imprimia davam **todos** o mesmo
+> sintoma — missão criada, alerta entregue, radar mostrando, e o check-in reprovado por distância já
+> com a câmera ligada. O padrão foi removido: hoje o script **se recusa a armar** e diz o que fazer.
+
+A fase 1 passou a imprimir a coordenada contra a qual o servidor vai medir o seu check-in, lida do
+banco:
+
+```
+  OK     desfecho=CONVERTIDA  missão d4b40782-…
+         o check-in exige o APARELHO em: -23.54500, -46.63900  (raio 200 m)
+```
+
+**Confira essa linha antes de pegar o telefone.** Se ela mostrar `-23.55650, -46.46850`, a missão
+nasceu no locker do seed e o check-in vai reprovar.
+
+Três coisas que continuam funcionando ao mudar o ponto, conferidas no código antes de eu afirmar:
+
+| O quê | Por quê |
+|---|---|
+| o **alerta** do bloco 1:00 | o fan-out procura tribos por **distância mínima a qualquer ponto da tribo** (`SQL_TRIBOS_NO_RAIO`, ADR 0020), não até um centro. O ponto novo é um ponto da tribo, então a distância é **0 m** e a Cidade Líder entra no raio de onde quer que você esteja |
+| **aceitar** a missão | não há checagem de tribo em `MissaoService` nem na máquina de estados |
+| o **catálogo e o resgate** | a tela filtra pela tribo do usuário (`beneficios.tsx:66-68`), não por proximidade — os parceiros da Cidade Líder continuam listados |
+
+### O que eu NÃO recomendo
+
+Afrouxar `raio-checkin-m` no perfil de dev. Funciona, e nenhum teste dourado guarda esse número —
+mas o roteiro diz em voz alta, no bloco 3:00, que *"quem valida a distância é o servidor"*. Gravar
+isso com um raio de 50 km torna a frase verdadeira e vazia ao mesmo tempo, e é o tipo de coisa que
+uma pergunta da banca desmonta.
+
+---
+
 ## Checklist de gravação
 
 ### Na véspera, ou de manhã
@@ -230,6 +329,12 @@ depois deste vídeo.
 - [ ] `cd apps/mobile && npm start` noutro
 - [ ] `bash tools/demo/checar-ambiente.sh` — **todos os ✓** (cobre ping, banco, chaves, JDK, Node e a
       8080 vista da LAN, que é o que o celular usa)
+- [ ] **se você não vai gravar em pé no locker do seed**, crie o ponto onde você está — **uma vez, e
+      só uma vez**:
+      ```bash
+      bash tools/demo/ponto-aqui.sh <LAT> <LON> "Padaria da esquina"
+      ```
+      Depois disso `make demo` e o `pitch-armar.sh` o recriam sozinhos. Ver "De onde você grava".
 
 ### Uma vez, no app, antes de gravar
 
@@ -256,6 +361,8 @@ depois deste vídeo.
       ```bash
       bash tools/demo/pitch-armar.sh
       ```
+      **Leia a linha "o check-in exige o APARELHO em"** que ele imprime, e confira que é onde você
+      está. Se o script recusar, ele diz o comando que falta.
 - [ ] espere a fase 1 imprimir `OK  desfecho=CONVERTIDA` e **conte ~15 segundos** — a outbox varre a
       cada 10 s, e o alerta só existe na caixa de entrada depois dessa varredura
 - [ ] **deixe o script rodando.** A fase 2 fica observando a missão e confirma sozinha no instante em
@@ -276,10 +383,13 @@ depois deste vídeo.
 |---|---|---|
 | alerta não chega em Avisos | consentimento faltando, ou a outbox ainda não varreu | espere 10 s e puxe de novo; se não vier, vá direto para a aba Missões — a missão existe |
 | a missão não aparece na aba Missões | modo "Perto" sem permissão de localização | toque em "Todas" |
-| check-in reprovado por distância | você está longe da origem | o raio é de 200 m; use as coordenadas do LOCKER Cidade Líder |
+| check-in reprovado por distância | a missão nasceu em outro ponto | confira a linha "o check-in exige o APARELHO em" que a fase 1 imprimiu; se não for onde você está, rode `tools/demo/ponto-aqui.sh` e arme de novo |
+| check-in reprovado por localização simulada | mock de GPS no aparelho | não há contorno: o servidor rejeita `mocked=true`. Use `ponto-aqui.sh` |
 | carteira não creditou | a fase 2 do script morreu | confira o terminal fora de quadro; `TEMPO ESGOTADO` diz em que estado a missão parou |
 | script diz `RECUSADA` | ponto de custódia lotado pelo ensaio | `make demo` de novo, com o backend parado |
 | script diz `SEM_PATROCINIO` | patrocinador sem saldo para o pote | `make demo` de novo |
+| `relation "ponto_custodia" does not exist` | banco recriado e backend ainda não subiu — o Flyway migra no boot | suba o backend e rode de novo; nada a consertar |
+| script diz que o backend não respondeu | idem, ou porta 8080 ocupada | suba o backend; `ss -lptn 'sport = :8080'` mostra quem está lá |
 
 ---
 

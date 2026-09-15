@@ -86,6 +86,20 @@ demo: .env ## Prepara a demonstração do zero e imprime os dois comandos restan
 	 done; \
 	 printf '\r  ok  banco aceitando conexão (%ss)     \n' "$$tentativa"
 	@echo ""
+	@# O ponto de gravação do vídeo-pitch NÃO pode ser recriado aqui, e a tentativa de fazê-lo foi
+	@# um defeito real: o `reset` acima acabou de recriar o volume, e quem cria o schema é o Flyway,
+	@# no BOOT DO BACKEND — que este alvo deliberadamente não sobe. Neste ponto o banco tem só as
+	@# tabelas de sistema do PostGIS, e o INSERT morria com
+	@# `relation "ponto_custodia" does not exist`.
+	@#
+	@# Quem recria é o tools/demo/pitch-armar.sh, que roda depois do backend de pé e já faz isso
+	@# sozinho lendo tools/demo/.env.ponto. Aqui só avisamos que o ponto morreu no reset.
+	@if [ -f tools/demo/.env.ponto ]; then \
+	  echo "  !   o ponto de gravação do pitch foi apagado com o volume."; \
+	  echo "      O pitch-armar.sh o recria sozinho (tools/demo/.env.ponto) depois que o"; \
+	  echo "      backend subir e o Flyway migrar. Nada a fazer agora."; \
+	  echo ""; \
+	fi
 	@echo "==> 4/4  Falta você, em DOIS terminais separados:"
 	@echo ""
 	@echo "   terminal 1   cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev"

@@ -151,6 +151,14 @@ categorias; e **`tools/demo/` (F16b) é o que o Makefile usa para tudo que toca 
 `compose.sh` resolve o runtime (o CLI do Docker sobreviveu ao Desktop desinstalado e aponta para um
 socket morto; o banco roda sob podman) e `checar-ambiente.sh` responde ✓/✗ por item antes da
 apresentação. **Todo alvo de compose passa por `compose.sh`, nunca por `docker compose` direto.**
+Ali moram também os dois scripts do vídeo-pitch de 5 min (`docs/ROTEIRO-PITCH-5MIN.md`):
+`pitch-armar.sh` dispara, FORA DE QUADRO, os dois atos que são da transportadora e não têm gatilho
+na UI — o reporte da entrega falida e a confirmação que credita o executor (ADR 0026) —, e
+`ponto-aqui.sh` cria um ponto de custódia nas coordenadas de quem grava, porque a origem da missão é
+o ponto e o check-in exige o aparelho a 200 m dela. **As coordenadas ficam em `tools/demo/.env.ponto`,
+que o `.gitignore` já pega por `.env.*`**: endereço de quem grava não é fixture pública, e é por isso
+que aquele ponto não é seed da faixa 900 — o preço é que `make demo` o apaga com o volume, e quem o
+recria é o `pitch-armar.sh`, DEPOIS de o backend subir, porque o Flyway só migra no boot.
 
 `RegrasArquiteturaTest` aplica a regra aos 7 módulos de negócio; `compartilhado` fica fora do array
 `MODULOS` porque é shared por design. Mas **`compartilhado/infra` tem regra própria** e é fechado a
