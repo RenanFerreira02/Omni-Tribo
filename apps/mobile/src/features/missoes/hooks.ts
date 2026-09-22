@@ -1,4 +1,10 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 
 import type { ErroApi } from '@/api/erros';
 import { chavesCarteira } from '@/features/carteira/hooks';
@@ -51,6 +57,11 @@ export function useMissoesInfinitas(categoria?: CategoriaMissao) {
         tamanho: TAMANHO_PAGINA,
       }),
     getNextPageParam: (ultimaPagina) => (ultimaPagina.ultima ? undefined : ultimaPagina.pagina + 1),
+    // A categoria entra na CHAVE, então todo toque num chip de filtro criava uma chave sem cache,
+    // `isLoading` virava true e a tela trocava a lista inteira por três esqueletos — um pisca de
+    // tela cheia no caminho mais usado do app. Com o resultado anterior segurado, a lista fica onde
+    // está e só é substituída quando a nova chega.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -72,6 +83,9 @@ export function useMissoesProximas(
         categoria,
         limite: 50,
       }),
+    // Mesmo motivo de `useMissoesInfinitas`: a categoria está na chave, e o radar ainda leva a
+    // coordenada, que muda a cada arraste do mapa.
+    placeholderData: keepPreviousData,
     // O backend cacheia o radar por 30 s. Repetir isso no cliente evita uma ida à rede a cada
     // reentrada na aba sem atrasar o dado além do que o servidor já atrasa.
     staleTime: 30_000,

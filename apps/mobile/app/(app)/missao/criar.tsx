@@ -23,9 +23,17 @@ import { useCriarMissao, usePreviaRecompensa } from '@/features/missoes/hooks';
 import { useLocalizacao } from '@/features/missoes/useLocalizacao';
 import { useAnuncio } from '@/lib/anunciar';
 import { useDebounce } from '@/lib/debounce';
-import { rotuloCategoria } from '@/lib/formatar';
+import { rotuloCategoria, rotuloTipoPonto } from '@/lib/formatar';
 import { criarMissaoSchema, type CriarMissaoForm } from '@/schemas';
-import { cores, coresCategoria, glifoCategoria, espaco, textoAcessivel, tipografia } from '@/theme';
+import {
+  cores,
+  coresCategoria,
+  coresMarcador,
+  espaco,
+  glifoCategoria,
+  textoAcessivel,
+  tipografia,
+} from '@/theme';
 
 /**
  * Altura do mapa embutido no seletor de ponto.
@@ -417,7 +425,10 @@ export default function CriarMissao() {
                 id: 'origem',
                 lat: valores.origemLat,
                 lon: valores.origemLon,
-                cor: coresCategoria[valores.categoria].texto,
+                cor: coresMarcador[valores.categoria],
+                // Mesmo segundo canal do radar: sem o glifo, o pino da origem era a única marca do
+                // app que dependia só de matiz.
+                glifo: glifoCategoria[valores.categoria],
                 forma: 'pino',
                 rotulo: 'Origem da missão',
               },
@@ -450,7 +461,7 @@ export default function CriarMissao() {
         {(pontos.data ?? []).map((ponto) => (
           <Botao
             key={ponto.id}
-            titulo={`${ponto.apelido} · ${ponto.tipo.toLowerCase()}`}
+            titulo={`${ponto.apelido} · ${rotuloTipoPonto(ponto.tipo)}`}
             variante="secundario"
             onPress={() => {
               setValue('pontoCustodiaId', ponto.id, { shouldValidate: true });
@@ -512,7 +523,21 @@ const estilos = StyleSheet.create({
   ajuda: { ...tipografia.legenda, color: textoAcessivel.suave },
   erro: { ...tipografia.legenda, color: textoAcessivel.coral },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: espaco.sm },
-  cardRecompensa: { backgroundColor: cores.verdeClaro, gap: espaco.xs },
+  /**
+   * DESTAQUE POR BORDA, e não por preenchimento — e a troca é de contraste, não de gosto.
+   *
+   * O fundo era `cores.verdeClaro`, uma superfície que a auditoria de contraste da F12 nunca
+   * cobriu: ela mediu os pares sobre `papel`, `branco` e os quatro fundos de chip. Sobre
+   * `verdeClaro` (L≈0,865, mais escuro que o `ambarClaro` que o javadoc de `textoAcessivel` assume
+   * como pior caso) os dois textos deste card reprovavam em WCAG AA — `suave` dava ≈4,16:1 e
+   * `ambar` ≈4,39:1, contra os 4,5:1 que ambos precisam. O `xp` é `subtitulo`, 17 px, abaixo do
+   * limiar de texto grande, então não há desconto a aplicar.
+   *
+   * Voltando ao branco do `Card`, os dois tokens ficam sobre o fundo em que FORAM auditados —
+   * `suave` 4,78:1 e `ambar` 5,04:1 —, e o card continua destacado. É o mesmo recurso que as
+   * conquistas já usam no perfil: borda verde em vez de fundo tingido, sem token novo.
+   */
+  cardRecompensa: { borderColor: cores.verdePrimario, gap: espaco.xs },
   recompensa: { flexDirection: 'row', alignItems: 'center', gap: espaco.lg },
   xp: { ...tipografia.subtitulo, color: textoAcessivel.ambar },
   mapaSeletor: { height: ALTURA_SELETOR_MAPA },

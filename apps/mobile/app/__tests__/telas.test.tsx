@@ -10,7 +10,7 @@ import TelaPerfil from '../(tabs)/perfil';
 import Onboarding from '../onboarding';
 import { sacar } from '@/api/carteira';
 import { paraErroApi } from '@/api/erros';
-import { PERFIL, VIZINHO, alerta, problema } from '@/testes/fixtures';
+import { CONSENTIMENTOS, PERFIL, VIZINHO, alerta, problema } from '@/testes/fixtures';
 import { render } from '@/testes/render';
 import { servidor } from '@/testes/servidor';
 import { useSessao } from '@/stores/sessao';
@@ -507,6 +507,108 @@ describe('perfil', () => {
 });
 
 // ─── Notificações ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * O DEFEITO RELATADO: mexer num interruptor fazia os três piscarem.
+ *
+ * `disabled` vinha de `definirConsentimento.isPending` cru, e a mutation é UMA só para os três
+ * itens — então o `Switch` nativo, que esmaece quando desabilitado, apagava e acendia a lista
+ * inteira a cada toque. O teste prende o escopo: durante o voo, só a linha tocada está travada.
+ *
+ * O PUT fica pendurado de propósito. Sem isso não há "durante": a resposta chegaria dentro do
+ * `fireEvent` e o estado intermediário — que é justamente o que se quer medir — nunca seria
+ * observável.
+ */
+it('salvar UM consentimento não trava nem esmaece os outros', async () => {
+  let liberar: () => void = () => undefined;
+  const pendurado = new Promise<void>((resolve) => {
+    liberar = resolve;
+  });
+  servidor.use(
+    http.put(`${BASE}/usuarios/me/consentimentos/:tipo`, async ({ params }) => {
+      await pendurado;
+      return HttpResponse.json({
+        tipo: params.tipo,
+        concedido: false,
+        versaoTexto: '2026-08-01',
+        registradoEm: '2026-08-09T00:00:00Z',
+      });
+    }),
+  );
+
+  await render(<TelaPerfil />);
+  await fireEvent.press(await screen.findByTestId('botao-privacidade'));
+  await fireEvent(await screen.findByTestId('consentimento-LOCALIZACAO'), 'valueChange', false);
+
+  // `finally`, e ele não é zelo decorativo: uma asserção que falhasse aqui deixaria a promessa
+  // pendurada para sempre, e o `msw` a segura dentro do resolver. O processo do jest não terminaria
+  // — sem linha vermelha, sem estourar o `testTimeout`, apenas parado. É a mesma armadilha que o
+  // `apps/mobile/CLAUDE.md` registra para o `unmount()` sem `await`.
+  try {
+    // A linha tocada trava, e ANUNCIA que a trava é temporária — `busy`, e não só `disabled`.
+    await waitFor(() => expect(screen.getByTestId('salvando-LOCALIZACAO')).toBeTruthy());
+    const tocado = screen.getByTestId('consentimento-LOCALIZACAO');
+    expect(tocado.props.disabled).toBe(true);
+    expect(tocado.props.accessibilityState).toMatchObject({ busy: true });
+
+    // As outras duas seguem operáveis. Era exatamente isto que falhava.
+    expect(screen.getByTestId('consentimento-TERMOS').props.disabled).toBe(false);
+    expect(screen.getByTestId('consentimento-NOTIFICACAO').props.disabled).toBe(false);
+    expect(screen.queryByTestId('salvando-TERMOS')).toBeNull();
+    expect(screen.queryByTestId('salvando-NOTIFICACAO')).toBeNull();
+  } finally {
+    liberar();
+  }
+
+  await waitFor(() => expect(screen.queryByTestId('salvando-LOCALIZACAO')).toBeNull());
+});
+
+/**
+ * O sucesso GRAVA a resposta do PUT; não refaz o GET da lista.
+ *
+ * `invalidateQueries` substituía o array inteiro e remontava os três interruptores — o segundo
+ * lampejo do defeito acima. Aqui o teste conta requisições: se o GET voltar a acontecer depois do
+ * PUT, a regressão voltou junto.
+ */
+it('alterar consentimento NÃO refaz o GET da lista', async () => {
+  let gets = 0;
+  servidor.use(
+    http.get(`${BASE}/usuarios/me/consentimentos`, () => {
+      gets += 1;
+      return HttpResponse.json(CONSENTIMENTOS);
+    }),
+  );
+
+  await render(<TelaPerfil />);
+  await fireEvent.press(await screen.findByTestId('botao-privacidade'));
+  await screen.findByTestId('consentimento-LOCALIZACAO');
+  expect(gets).toBe(1);
+
+  await fireEvent(screen.getByTestId('consentimento-LOCALIZACAO'), 'valueChange', false);
+
+  // O estado novo veio do servidor — só que da resposta do PUT, e não de uma segunda viagem.
+  await waitFor(() =>
+    expect(screen.getByTestId('consentimento-LOCALIZACAO').props.value).toBe(false),
+  );
+  expect(gets).toBe(1);
+});
+
+/**
+ * Excluir conta não pode empilhar as duas folhas.
+ *
+ * `setPrivacidadeAberta(false)` não era chamado neste caminho: as duas ficavam montadas, os dois
+ * véus de 35% se somavam, e fechar a folha da senha devolvia a pessoa à de privacidade em vez de à
+ * tela de perfil.
+ */
+it('a folha de privacidade FECHA ao abrir a confirmação por senha', async () => {
+  await render(<TelaPerfil />);
+  await fireEvent.press(await screen.findByTestId('botao-privacidade'));
+  await fireEvent.press(await screen.findByTestId('botao-excluir-conta'));
+  await fireEvent.press(await screen.findByTestId('dialogo-excluir-confirmar'));
+
+  expect(await screen.findByTestId('campo-senha-exclusao')).toBeTruthy();
+  expect(screen.queryByTestId('folha-privacidade')).toBeNull();
+});
 
 it('falha ao alterar consentimento DEIXA DE SER SILENCIOSA', async () => {
   // Não era só invisível para leitor de tela: o erro não era renderizado em lugar NENHUM. O

@@ -202,6 +202,31 @@ export default function DetalheMissao() {
   const erroAcao = acao.error;
   const ocupado = acao.isPending || checkin.isPending;
 
+  /**
+   * Qual botão gira — o que foi TOCADO, e não o primário da lista.
+   *
+   * Era `carregando={ocupado && item.variante === 'primario'}`, que amarra o indicador à VARIANTE
+   * em vez de à ação despachada. As duas mutations já dizem o que está em voo — `acao.variables`
+   * traz a ação, e o check-in é uma mutation separada —, então não é preciso estado novo.
+   *
+   * <b>O que foi MEDIDO, e é menos dramático do que parece.</b> Hoje o botão errado só chega a
+   * acender no tique entre o `mutate()` e a escrita otimista de `onMutate`: toda ação desta tela
+   * exceto `checkin` está em `STATUS_OTIMISTA`, então o conjunto de botões é trocado quase
+   * imediatamente e o botão tocado some da árvore. Um teste que tentasse prender o estado
+   * intermediário não achava sequer o botão — foi assim que isto foi descoberto.
+   *
+   * Vale corrigir mesmo assim: a expressão antiga acerta por COINCIDÊNCIA — `checkin` é a única
+   * ação sem status otimista, e por acaso é a primária. A primeira ação sem previsão otimista que
+   * não for primária (`destravar` e `resolver`, que o backend já expõe e esta tela ainda não
+   * oferece) passaria a acender o botão errado de forma permanente, e não por um tique.
+   *
+   * `ocupado` continua governando o `disabled` de TODOS: travar as demais transições enquanto uma
+   * está no ar é correto, e nunca foi o defeito.
+   */
+  const acaoEmVoo = acao.isPending ? acao.variables?.acao : undefined;
+  const carregandoItem = (item: AcaoDisponivel) =>
+    item.acao === 'checkin' ? checkin.isPending : acaoEmVoo === item.acao;
+
   return (
     <SafeAreaView style={estilos.raiz}>
       <ScrollView contentContainerStyle={estilos.conteudo}>
@@ -334,7 +359,7 @@ export default function DetalheMissao() {
               <Botao
                 titulo={item.rotulo}
                 variante={item.variante}
-                carregando={ocupado && item.variante === 'primario'}
+                carregando={carregandoItem(item)}
                 disabled={ocupado || item.bloqueio !== undefined}
                 hint={HINT_ACAO[item.acao]}
                 onPress={() => aoTocar(item)}

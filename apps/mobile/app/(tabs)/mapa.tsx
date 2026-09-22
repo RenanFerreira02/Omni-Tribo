@@ -23,8 +23,8 @@ import { useMissoesProximas } from '@/features/missoes/hooks';
 import { useLocalizacao } from '@/features/missoes/useLocalizacao';
 import { usePerfil } from '@/features/perfil/hooks';
 import { useCallbackComDebounce } from '@/lib/debounce';
-import { formatarDistancia, rotuloCategoria } from '@/lib/formatar';
-import { cores, coresCategoria, espaco, glifoCategoria, textoAcessivel, tipografia } from '@/theme';
+import { formatarDistancia, rotuloCategoria, rotuloTipoPonto } from '@/lib/formatar';
+import { cores, coresMarcador, espaco, glifoCategoria, textoAcessivel, tipografia } from '@/theme';
 
 /** Fallback final: centro de São Paulo, quando não há nem GPS nem tribo com missões. */
 const CENTRO_PADRAO = { lat: -23.5505, lon: -46.6333 };
@@ -99,7 +99,7 @@ export default function TelaMapa() {
           id: `missao:${item.missao.id}`,
           lat: origemLat,
           lon: origemLon,
-          cor: coresCategoria[item.missao.categoria].texto,
+          cor: coresMarcador[item.missao.categoria],
           forma: 'pino',
           // A forma da categoria dentro do pino: sem ela, as quatro categorias no mapa se
           // distinguiam só por matiz, e não há texto ao lado para desempatar.
@@ -285,7 +285,7 @@ export default function TelaMapa() {
         {pontoSelecionado ? (
           <View style={estilos.resumo}>
             <Text style={estilos.linhaResumo}>
-              Ponto de custódia · {pontoSelecionado.tipo.toLowerCase()}
+              Ponto de custódia · {rotuloTipoPonto(pontoSelecionado.tipo)}
             </Text>
             <Text style={estilos.linhaResumo}>Código {pontoSelecionado.codigo}</Text>
             {pontoSelecionado.distanciaM !== null ? (

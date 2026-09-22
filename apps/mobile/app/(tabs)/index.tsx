@@ -54,6 +54,16 @@ export default function TelaMissoes() {
   const carregando = modoEfetivo === 'perto' ? radar.isLoading : lista.isLoading;
   const erro = modoEfetivo === 'perto' ? radar.error : lista.error;
   const atualizando = modoEfetivo === 'perto' ? radar.isRefetching : lista.isRefetching;
+  /**
+   * A lista na tela é a ANTERIOR, e a desta chave ainda está vindo.
+   *
+   * Categoria e recorte entram na query key, então todo toque num chip criava uma chave sem cache:
+   * `isLoading` virava true e a `FlatList` inteira era desmontada e trocada por três esqueletos, e
+   * voltava. Com `keepPreviousData` nos hooks, `carregando` passou a ser só a PRIMEIRA carga —
+   * daqui em diante o que sinaliza "tem coisa nova vindo" é isto, e a lista continua legível
+   * enquanto isso. Esmaecer diz que o conteúdo está defasado sem tirá-lo do lugar.
+   */
+  const desatualizada = modoEfetivo === 'perto' ? radar.isPlaceholderData : lista.isPlaceholderData;
 
   function recarregar() {
     if (modoEfetivo === 'perto') {
@@ -142,6 +152,7 @@ export default function TelaMissoes() {
           data={itens}
           keyExtractor={(item) => item.missao.id}
           contentContainerStyle={estilos.corpo}
+          style={desatualizada ? estilos.listaDesatualizada : undefined}
           refreshControl={
             <RefreshControl
               refreshing={atualizando}
@@ -200,7 +211,16 @@ export default function TelaMissoes() {
   );
 }
 
+/**
+ * Opacidade da lista enquanto o recorte novo ainda está vindo. Ver `desatualizada`.
+ *
+ * Não pertence a `espaco` nem a `tipografia` — não é respiro nem texto —, e por isso é nomeada aqui
+ * em vez de aparecer como um `0.55` solto no meio do estilo.
+ */
+const OPACIDADE_LISTA_DESATUALIZADA = 0.55;
+
 const estilos = StyleSheet.create({
+  listaDesatualizada: { opacity: OPACIDADE_LISTA_DESATUALIZADA },
   tela: { flex: 1, backgroundColor: cores.papel },
   cabecalho: { paddingHorizontal: espaco.lg, paddingTop: espaco.md, gap: espaco.md },
   titulo: { ...tipografia.titulo, color: cores.tinta },

@@ -2,6 +2,7 @@ import type { CategoriaMissao, StatusMissao } from '@/api/tipos';
 
 import {
   coresCategoria as mapaCategoria,
+  coresMarcador as mapaMarcador,
   coresStatus as mapaStatus,
   glifoCategoria as mapaGlifo,
 } from './tokens';
@@ -29,3 +30,12 @@ export const coresStatus: Record<StatusMissao, ParCorCategoria> = mapaStatus;
 
 /** Mesma disciplina: categoria nova sem glifo não compila — e a cor deixaria de ter dupla. */
 export const glifoCategoria: Record<CategoriaMissao, string> = mapaGlifo;
+
+/**
+ * Mesma disciplina: categoria nova sem cor de MARCADOR não compila.
+ *
+ * Papel distinto de `coresCategoria` — preenchimento sob glifo branco, e não fundo de chip sob
+ * texto escuro. Ver o javadoc de `coresMarcador` em `tokens.ts`: confundir os dois foi o que deixou
+ * a categoria TRIBO invisível no mapa.
+ */
+export const coresMarcador: Record<CategoriaMissao, string> = mapaMarcador;

@@ -64,6 +64,26 @@
   O glifo é decorativo (`importantForAccessibility="no"`) e por isso o `Chip` carrega
   `accessibilityLabel` explícito — sem ele o leitor de tela anunciaria "losango Entrega". Vale
   também no marcador do mapa, onde as quatro categorias eram indistinguíveis sem texto ao lado.
+- **Cor de categoria tem TRÊS papéis, não dois.** `coresCategoria[c].fundo` é preenchimento de chip
+  sob texto escuro; `.texto` é o texto sobre aquele fundo; e **`coresMarcador[c]` é o preenchimento
+  do pino do mapa, que carrega um glifo BRANCO por cima** e por isso precisa ser escuro. Usar
+  `.texto` como pino deixou a categoria **TRIBO invisível no mapa** — `cores.branco` sobre borda
+  branca e glifo branco, uma mancha sem contorno nos tiles claros. Nenhum lint pega isso: o par
+  existe, só estava trocado. TRIBO é `cores.tinta` e não `verdeEscuro` porque ENTREGA já ocupa o
+  verde escuro — a mesma colisão que o javadoc de `coresCategoria` registra para os chips.
+- **Consulta cuja CHAVE muda por interação do usuário leva `placeholderData: keepPreviousData`.**
+  Filtro de categoria, recorte "perto/todas" e a coordenada do mapa entram na query key: sem isso,
+  cada toque ou arraste cria uma chave sem cache, `data` volta a `undefined` e a tela **pisca** —
+  a lista vira três esqueletos, os pinos do Leaflet são apagados e o card de clima sai do layout
+  empurrando tudo. Quem segura o anterior sinaliza a defasagem sem tirar o conteúdo do lugar
+  (`isPlaceholderData` esmaece a lista em `(tabs)/index.tsx`). A troca assumida é mostrar por um
+  instante o dado da região anterior; `isLoading` passa a significar só a PRIMEIRA carga.
+- **Estado de "em voo" é POR ITEM, e `mutation.variables` é quem diz qual.** Uma instância de
+  mutation servindo uma lista com `disabled={m.isPending}` trava a lista inteira — foi assim que
+  alternar um consentimento apagava e acendia os três `Switch`. `m.isPending ? m.variables?.x : …`
+  resolve sem estado novo; e como `variables` sobrevive ao fim da mutation, o ERRO também sabe de
+  qual linha era. Vale para o spinner do detalhe da missão pela mesma razão: `carregando` segue a
+  ação despachada, nunca a variante do botão.
 - **O radar tem DUAS apresentações da mesma rota** (ADR 0030): `Mapa | Lista`, com a escolha
   persistida em `src/features/mapa/apresentacao.ts`. A lista existe porque a WebView do Leaflet não
   expõe semântica — e o ponto de custódia só existia lá dentro. **Não é tela separada**: duas rotas
