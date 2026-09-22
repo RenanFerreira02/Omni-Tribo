@@ -87,6 +87,21 @@ public final class TipoProblema {
    */
   public static final URI NIVEL_INSUFICIENTE = URI.create(BASE + "nivel-insuficiente");
 
+  /**
+   * 422: publicar ou editar recusado porque o pote não cobre a recompensa em token.
+   *
+   * <p>URI própria pelo critério do ADR 0010 — uma por REAÇÃO DE UI. Nos 422 comuns a tela pede
+   * para corrigir o pedido e tentar de novo; aqui o pedido está certo e não há o que corrigir nele.
+   * As saídas são outras duas, e ambas são ações diferentes: pedir a um vizinho da tribo que
+   * financie o pote, ou editar o rascunho para recompensar só em XP (ADR 0035). A mesma requisição
+   * volta a funcionar sozinha quando alguém financiar — como no nível insuficiente, e diferente de
+   * "os dados enviados não satisfazem a regra".
+   *
+   * <p>Acompanha as extensões {@code recompensaTokens} e {@code poteTokens}, para que o app monte
+   * "faltam N tokens" sem ler número de dentro do {@code detail}.
+   */
+  public static final URI POTE_INSUFICIENTE = URI.create(BASE + "pote-insuficiente");
+
   /** 409 de colisão de {@code @Version}: alguém alterou o recurso no meio do caminho. */
   public static final URI CONFLITO_CONCORRENCIA = URI.create(BASE + "conflito-concorrencia");
 

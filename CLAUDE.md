@@ -202,7 +202,11 @@ que não as produziu, e some a resposta para "este crédito estava certo quando 
 **Complexidade: derivada onde há dado.** ENTREGA e COLETA exigem peso e volume, e o servidor deriva —
 declarar junto é 400. TRIBO e AJUDA declaram, porque não movem objeto. A conclusão LÊ o congelado,
 nunca recalcula. `POST /missoes/previa-recompensa` mostra o valor sem criar nada; o app nunca duplica
-a fórmula.
+a fórmula. **`PATCH /missoes/{id}` RECALCULA a recompensa em RASCUNHO** (ADR 0036): ali não há
+promessa a ninguém, e deixá-la congelada permitiria criar com um conjunto de insumos e executar com
+outro. A partir de ABERTA ela não muda, e `recompensaEmToken`/`complexidade` viram 409. Reduzir a
+recompensa abaixo do pote já financiado é 422 — a diferença ficaria presa numa missão que nunca a
+paga, e a reconciliação continuaria respondendo `integro=true`.
 
 XP: reputação, não transferível, monotônico, sem ledger. Nível é DERIVADO do XP por `RegraNivel`,
 nunca incrementado — a coluna `usuario.nivel` é cache recalculado a cada concessão.
@@ -355,7 +359,7 @@ sem ela o plugin aborta com "Invalid API Key, length of 0". Não configure a cha
 
 `/api/v1/missoes` — `GET` (lista paginada com filtro) · `GET /proximas` (radar geoespacial) ·
 `POST /previa-recompensa` (calcula sem criar) · `POST`
-· `GET /{id}` · `PATCH /{id}`, mais as ações `POST /{id}/{acao}`: `publicar`, `aceitar`, `iniciar`,
+· `GET /{id}` · `PATCH /{id}` (recalcula a recompensa em RASCUNHO — ADR 0036), mais as ações `POST /{id}/{acao}`: `publicar`, `aceitar`, `iniciar`,
 `desistir`, `cancelar`, `contestar`, `checkin`, `confirmar`, `resolver` e `destravar` (os dois
 últimos só ADMIN).
 
@@ -549,6 +553,14 @@ CI (`.github/workflows/`), três workflows:
     depende de um humano consultar. Ele também é o precedente de "ação administrativa idempotente
     por ESTADO, sem `Idempotency-Key`" — leia antes de acrescentar chave a um endpoint que só faz
     um UPDATE para estado fixo.
+  - **0035 e 0036 são do uso real do app, em 2026-09-22**, e o par é o exemplo mais limpo do
+    repositório de um trade-off registrado que veio cobrar. O 0035 fecha a Negativa que o ADR 0025
+    escreveu sobre si mesmo ("se financiar favor alheio se mostrar pouco atraente, AJUDA fica
+    represada em RASCUNHO") — e a evidência de que ela cobrou é que `ciclo.e2e.test.ts` ficou
+    VERMELHO por um mês sem ninguém ver, porque `test:e2e` fica fora do CI. O 0036 é a decisão
+    separada que o 0035 obrigou: tornar a forma de recompensa editável obriga a dizer o que o PATCH
+    faz com a recompensa congelada. **Leia o 0036 antes de mexer no `PATCH`**: ele nomeia, sem
+    resolver, o fato de que ABERTA ainda altera peso e coordenada sem recalcular.
   - **0032 deu à CONSERVAÇÃO o primeiro instrumento dela, e é DETECTIVO.** Leia antes de mexer em
     `ReconciliacaoResponse`: `potesImobilizados` é campo separado de `integro` porque as duas
     invariantes são diferentes, e fundi-las é a tentação recorrente deste repositório — já custou
@@ -621,8 +633,8 @@ Banco
 - Flyway é a ÚNICA fonte de schema. ddl-auto é sempre validate. Nunca resolva divergência mudando
   ddl-auto — escreva migration.
 - **Versão de migration é sequência GLOBAL, não por diretório.** Duas faixas, separadas de propósito:
-  - `db/migration` — schema, **V1–V8 e V11–V29**; único location do perfil default/prod.
-    Próxima é **V30**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
+  - `db/migration` — schema, **V1–V8 e V11–V30**; único location do perfil default/prod.
+    Próxima é **V31**. **V9 e V10 estão queimadas — nunca as reutilize.** Foram os arquivos de seed
     antes da renomeação para `V900__seed_dev.sql`, então um banco de dev criado antes dela tem as
     versões 9 e 10 gravadas no `flyway_schema_history` com descrição de seed. Um `V9__*.sql` novo em
     `db/migration` passaria em clone novo e falharia em máquina antiga com erro de checksum ou

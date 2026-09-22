@@ -11,6 +11,7 @@ import { chavesCarteira } from '@/features/carteira/hooks';
 import { chavesPerfil } from '@/features/perfil/hooks';
 import {
   aplicarAcao,
+  atualizarMissao,
   buscarMissao,
   criarMissao,
   listarMissoes,
@@ -20,6 +21,7 @@ import {
   type AcaoMissao,
 } from '@/api/missoes';
 import type {
+  AtualizarMissaoRequest,
   CategoriaMissao,
   CriarMissaoRequest,
   MissaoProximaResponse,
@@ -37,6 +39,15 @@ export const chaves = {
   todasAsListas: ['missoes', 'lista'] as const,
   todosOsRadares: ['missoes', 'proximas'] as const,
   lista: (categoria?: CategoriaMissao) => ['missoes', 'lista', categoria ?? 'todas'] as const,
+  /**
+   * Rascunhos do próprio usuário. Chave PRÓPRIA, e por baixo do prefixo `todasAsListas`.
+   *
+   * Reusar `lista()` colidiria: ela não distingue escopo nem status, então a lista pública de
+   * ABERTAS e os rascunhos do criador cairiam na mesma entrada de cache e uma sobrescreveria a
+   * outra. Ficar SOB o prefixo é o que faz `useAcaoMissao` invalidar esta lista ao publicar — sem
+   * isso o rascunho publicado continuaria aparecendo na tela de rascunhos.
+   */
+  rascunhos: ['missoes', 'lista', 'rascunhos'] as const,
   proximas: (lat: number, lon: number, categoria?: CategoriaMissao) =>
     // Coordenada arredondada a 4 casas (~11 m) na chave: sem isso, cada tremida do GPS geraria uma
     // entrada de cache nova e o radar refetcharia sem parar enquanto o usuário está parado.
@@ -62,6 +73,30 @@ export function useMissoesInfinitas(categoria?: CategoriaMissao) {
     // tela cheia no caminho mais usado do app. Com o resultado anterior segurado, a lista fica onde
     // está e só é substituída quando a nova chega.
     placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * Os RASCUNHOS de quem está logado.
+ *
+ * `minhas: 'CRIADAS'` não é redundante com o filtro de status: o backend já esconde rascunho
+ * alheio dentro da própria consulta — nem o `totalElementos` o conta —, mas sem o escopo esta
+ * lista traria também rascunho de missão que o usuário só executa, que não é o que a tela mostra.
+ */
+export function useRascunhos() {
+  return useInfiniteQuery<PaginaResponse<MissaoResponse>, ErroApi>({
+    queryKey: chaves.rascunhos,
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      listarMissoes({
+        status: 'RASCUNHO',
+        minhas: 'CRIADAS',
+        pagina: pageParam as number,
+        tamanho: TAMANHO_PAGINA,
+        ordenarPor: 'CRIADA_EM',
+        direcao: 'DESC',
+      }),
+    getNextPageParam: (ultimaPagina) => (ultimaPagina.ultima ? undefined : ultimaPagina.pagina + 1),
   });
 }
 
@@ -204,6 +239,27 @@ export function useCriarMissao() {
     onSuccess: (missao) => {
       queryClient.setQueryData(chaves.detalhe(missao.id), missao);
       queryClient.invalidateQueries({ queryKey: chaves.missoes });
+    },
+    throwOnError: false,
+  });
+}
+
+/**
+ * Edição de missão em RASCUNHO ou ABERTA.
+ *
+ * `setQueryData` no detalhe com a resposta do servidor, e NÃO com o corpo enviado: em RASCUNHO o
+ * servidor recalcula a recompensa (ADR 0036), então o corpo que saiu daqui não descreve mais a
+ * missão que voltou. Otimismo aqui mostraria a recompensa antiga por um instante.
+ */
+export function useAtualizarMissao(id: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<MissaoResponse, ErroApi, AtualizarMissaoRequest>({
+    mutationFn: (corpo) => atualizarMissao(id, corpo),
+    onSuccess: (missao) => {
+      queryClient.setQueryData(chaves.detalhe(id), missao);
+      queryClient.invalidateQueries({ queryKey: chaves.todasAsListas });
+      queryClient.invalidateQueries({ queryKey: chaves.todosOsRadares });
     },
     throwOnError: false,
   });

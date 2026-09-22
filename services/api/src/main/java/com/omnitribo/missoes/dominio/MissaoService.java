@@ -14,6 +14,7 @@ import com.omnitribo.compartilhado.dominio.Coordenadas;
 import com.omnitribo.compartilhado.dominio.Geohash;
 import com.omnitribo.compartilhado.dominio.RecursoNaoEncontradoException;
 import com.omnitribo.compartilhado.dominio.RegraNegocioVioladaException;
+import com.omnitribo.compartilhado.dominio.TransicaoInvalidaException;
 import com.omnitribo.geolocalizacao.api.ComandoCheckin;
 import com.omnitribo.geolocalizacao.api.RegistroCheckin;
 import com.omnitribo.geolocalizacao.api.ResultadoCheckin;
@@ -191,6 +192,113 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   }
 
   /**
+   * Recusa trocar entre "só XP" e "com token" fora de RASCUNHO.
+   *
+   * <p>Não é validação de corpo e por isso não cabe em {@code EdicaoMissaoVerificador}: depende da
+   * missão, que o verificador não vê. É <b>409</b>, e não 422, porque a frase é literalmente "não
+   * cabe neste estado, caberia em outro" — a mesma edição funcionaria enquanto a missão fosse
+   * rascunho. Publicar congela a fonte porque a partir dali a recompensa é promessa feita a quem
+   * está prestes a aceitar (ADR 0036).
+   */
+  private static void validarTrocaDeRecompensa(Missao missao, Boolean recompensaEmToken) {
+    if (recompensaEmToken == null) {
+      return;
+    }
+    if (missao.getStatus() != StatusMissao.RASCUNHO) {
+      throw new TransicaoInvalidaException(
+          "A forma de recompensa só pode mudar enquanto a missão está em rascunho.");
+    }
+    boolean carregaCoisa =
+        missao.getCategoria() == CategoriaMissao.ENTREGA
+            || missao.getCategoria() == CategoriaMissao.COLETA;
+    if (!recompensaEmToken && carregaCoisa) {
+      throw new RegraNegocioVioladaException(
+          "Só missões TRIBO e AJUDA podem recompensar apenas em XP.");
+    }
+  }
+
+  /**
+   * Recalcula e recongela a recompensa de um rascunho editado (ADR 0036).
+   *
+   * <p>Em RASCUNHO não há promessa: ninguém viu a missão e ninguém a aceitou. Deixar a recompensa
+   * congelada aqui seria pior que recalcular — permitiria criar a missão com um conjunto de insumos
+   * e executá-la com outro, mantendo o valor do primeiro.
+   *
+   * <p><b>A guarda do pote é o ponto delicado.</b> Reduzir a recompensa abaixo do que já foi
+   * financiado deixaria a diferença presa: a conclusão debita exatamente {@code tokensRecompensa} e
+   * CONCLUIDA é terminal, então o resto nunca volta a ninguém — e a reconciliação seguiria
+   * respondendo {@code integro=true}, porque ledger e projeção continuam batendo. É a perda que o
+   * ADR 0032 existe para caçar, e aqui ela é barata de evitar: quem quiser mesmo reduzir cancela a
+   * missão, que estorna aos financiadores.
+   */
+  private void recongelarRecompensaDoRascunho(
+      Missao missao, Boolean recompensaEmToken, ComplexidadeMissao complexidade) {
+    boolean comToken =
+        recompensaEmToken != null
+            ? recompensaEmToken
+            : missao.getFontePote() != FontePote.SEM_TOKEN;
+
+    // Mesma regra (3) da criação, aqui como 422 em vez de 400: ela depende de peso e volume DA
+    // MISSÃO, que o verificador de corpo não enxerga. Recusar, e não ignorar, pela razão de sempre
+    // — ignorar faria a tela mostrar um esforço que não teve efeito na recompensa.
+    boolean derivaDoObjeto = missao.getPesoKg() != null && missao.getVolumeL() != null;
+    if (complexidade != null && derivaDoObjeto) {
+      throw new RegraNegocioVioladaException(
+          "Complexidade é derivada de peso e volume nesta missão — não a informe.");
+    }
+
+    CalculadoraDeRecompensa.Recompensa nova = calcularRecompensaDe(missao, comToken, complexidade);
+
+    if (nova.tokens() < missao.getPoteTokens()) {
+      throw new PoteInsuficienteException(
+          "Esta edição baixaria a recompensa para "
+              + nova.tokens()
+              + " tokens, abaixo dos "
+              + missao.getPoteTokens()
+              + " já financiados. Cancele a missão para estornar quem financiou.",
+          nova.tokens(),
+          missao.getPoteTokens());
+    }
+
+    missao.recongelarRecompensa(nova);
+  }
+
+  /**
+   * Recompensa que a missão teria com os dados que ela tem AGORA.
+   *
+   * <p>Só é chamada para rascunho. Por isso o valor ofertado entra como nulo: ele só existe em
+   * missão de retirada, que nasce ABERTA e nunca passa por aqui. O multiplicador de risco congelado
+   * é preservado pela razão inversa — se algum dia um rascunho tiver um, recalcular com 1,00 o
+   * apagaria em silêncio.
+   */
+  private CalculadoraDeRecompensa.Recompensa calcularRecompensaDe(
+      Missao missao, boolean comToken, ComplexidadeMissao complexidadeNova) {
+    Double distanciaM = null;
+    if (missao.getDestino() != null) {
+      distanciaM =
+          consultasGeoespaciais.distanciaMetros(
+              Coordenadas.latitude(missao.getOrigem()),
+              Coordenadas.longitude(missao.getOrigem()),
+              Coordenadas.latitude(missao.getDestino()),
+              Coordenadas.longitude(missao.getDestino()));
+    }
+
+    CalculadoraDeRecompensa.Recompensa recompensa =
+        CalculadoraDeRecompensa.calcular(
+            new CalculadoraDeRecompensa.Insumos(
+                missao.getCategoria(),
+                complexidadeNova != null ? complexidadeNova : missao.getComplexidade(),
+                missao.getPesoKg(),
+                missao.getVolumeL(),
+                distanciaM,
+                null,
+                missao.getMultiplicadorRisco()),
+            parametrosRecompensa);
+
+    return comToken ? recompensa : recompensa.semToken();
+  }
+
+  /**
    * Monta os insumos e chama a calculadora.
    *
    * <p>A distância só é medida quando há destino — TRIBO nunca tem, e uma consulta ao PostGIS para
@@ -205,18 +313,26 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
               req.origemLat(), req.origemLon(), req.destinoLat(), req.destinoLon());
     }
 
-    return CalculadoraDeRecompensa.calcular(
-        new CalculadoraDeRecompensa.Insumos(
-            req.categoria(),
-            req.complexidade(),
-            req.pesoKg(),
-            req.volumeL(),
-            distanciaM,
-            // Missão criada por usuário nunca tem valor ofertado: o DTO não tem o campo e não deve
-            // ter — quem cria a missão não paga (ADR 0009). Só a conversão de entrega falida
-            // preenche isto, com o valor que a TRANSPORTADORA declarou.
-            null),
-        parametrosRecompensa);
+    CalculadoraDeRecompensa.Recompensa recompensa =
+        CalculadoraDeRecompensa.calcular(
+            new CalculadoraDeRecompensa.Insumos(
+                req.categoria(),
+                req.complexidade(),
+                req.pesoKg(),
+                req.volumeL(),
+                distanciaM,
+                // Missão criada por usuário nunca tem valor ofertado: o DTO não tem o campo e não
+                // deve ter — quem cria a missão não paga (ADR 0009). Só a conversão de entrega
+                // falida preenche isto, com o valor que a TRANSPORTADORA declarou.
+                null),
+            parametrosRecompensa);
+
+    // Zerar a parte em token acontece AQUI, e não dentro da calculadora, por duas razões. A
+    // calculadora é função pura da FÓRMULA, e "este criador abriu mão da moeda" não é insumo de
+    // fórmula nenhuma — é decisão de produto. E este método é o ponto que POST /missoes e
+    // POST /missoes/previa-recompensa compartilham (MissaoController), então a prévia nunca promete
+    // token que a criação não paga. Ver ADR 0035.
+    return req.recompensaEmTokenEfetiva() ? recompensa : recompensa.semToken();
   }
 
   /**
@@ -552,9 +668,11 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
             .orElseThrow(() -> new RecursoNaoEncontradoException(NAO_ENCONTRADA));
 
     MissaoStateMachine.validarEdicao(missao, ator);
+    validarTrocaDeRecompensa(missao, req.recompensaEmToken());
 
-    // Campos nulos preservam o valor atual. Recompensa, categoria, status e executor não estão
-    // no DTO: enviá-los no JSON não altera nada.
+    // Campos nulos preservam o valor atual. Categoria, status e executor não estão no DTO: enviá-
+    // los no JSON não altera nada. A RECOMPENSA é a exceção desde o ADR 0036 — em RASCUNHO ela
+    // acompanha os dados, e o recongelamento acontece logo abaixo, depois da edição.
     Point origem =
         req.origemLat() != null
             ? Coordenadas.ponto(req.origemLat(), req.origemLon())
@@ -579,6 +697,13 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
         req.raioCheckinM() != null ? req.raioCheckinM() : missao.getRaioCheckinM(),
         ouAtual(req.pesoKg(), missao.getPesoKg()),
         ouAtual(req.volumeL(), missao.getVolumeL()));
+
+    if (missao.getStatus() == StatusMissao.RASCUNHO) {
+      recongelarRecompensaDoRascunho(missao, req.recompensaEmToken(), req.complexidade());
+    } else if (req.complexidade() != null) {
+      throw new TransicaoInvalidaException(
+          "A complexidade só pode mudar enquanto a missão está em rascunho.");
+    }
 
     Missao salva = missaoRepository.save(missao);
 
@@ -616,15 +741,20 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
       return;
     }
     long recompensa = missao.getTokensRecompensa();
+    // recompensa == 0 é a missão comunitária de só XP (ADR 0035): não há pote a exigir e ela
+    // publica na hora. A guarda já era escrita assim antes dela existir — o caminho estava aberto e
+    // nunca era alcançado, porque a calculadora tem piso de 1 token.
     if (recompensa > 0 && missao.getPoteTokens() < recompensa) {
-      throw new RegraNegocioVioladaException(
+      throw new PoteInsuficienteException(
           "Missão "
               + missao.getCategoria()
               + " precisa do pote financiado antes de publicar: recompensa de "
               + recompensa
               + " tokens contra pote de "
               + missao.getPoteTokens()
-              + ".");
+              + ".",
+          recompensa,
+          missao.getPoteTokens());
     }
   }
 
@@ -941,6 +1071,15 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
       if (creditoRecompensa.consultar(chaveExistente).isPresent()) {
         return MissaoResponse.de(missao);
       }
+      // Missão SEM_TOKEN não grava lançamento nenhum (ver a explicação mais abaixo, no crédito),
+      // então a sondagem acima é cega para ela: um retry de POST /confirmar numa só-XP já CONCLUIDA
+      // cairia em 409, e quem só perdeu a resposta na rede leria "esta operação não é permitida no
+      // estado atual". Para ela a idempotência é por ESTADO da linha, sob o mesmo FOR UPDATE — o
+      // precedente é o reenfileiramento da outbox do ADR 0031, que também é idempotente por estado
+      // e sem chave. CONCLUIDA é terminal, então não há ambiguidade sobre QUAL conclusão foi esta.
+      if (nadaACreditar(missao) && missao.getStatus() == StatusMissao.CONCLUIDA) {
+        return MissaoResponse.de(missao);
+      }
     }
 
     // 409 ANTES de qualquer 422. A ordem do contrato é 403 → 409 → regra de negócio, e é a mesma
@@ -973,10 +1112,18 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
       missao.debitarPote(tokens);
     }
 
-    ResultadoCredito credito =
-        creditoRecompensa.creditarConclusao(
-            new ComandoCreditoConclusao(
-                missaoId, executorId, missao.getValorBrl(), tokens, chave, agora));
+    // Missão SEM_TOKEN não passa pelo ledger, e a razão é uma barreira do próprio ledger: o compact
+    // constructor de Movimento recusa lançamento que não move nem BRL nem token ("Movimento precisa
+    // mover BRL ou tokens."), espelhando ck_lancamento_valor_nao_nulo. Um crédito de 0/0 consumiria
+    // uma chave de idempotência sem mover nada e o cliente leria isso como sucesso. A conclusão
+    // dela concede XP e nada mais — que é exatamente o que ela prometeu. Ver ADR 0035.
+    ResultadoCredito credito = null;
+    if (!nadaACreditar(missao)) {
+      credito =
+          creditoRecompensa.creditarConclusao(
+              new ComandoCreditoConclusao(
+                  missaoId, executorId, missao.getValorBrl(), tokens, chave, agora));
+    }
 
     ResultadoProgressao progressao =
         progressaoUsuario.concederXp(executorId, missao.getXpRecompensa());
@@ -985,7 +1132,9 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
     if (payloadExtra != null) {
       payload.putAll(payloadExtra);
     }
-    payload.put("lancamentoId", credito.lancamentoId().toString());
+    if (credito != null) {
+      payload.put("lancamentoId", credito.lancamentoId().toString());
+    }
     payload.put("valorBrl", missao.getValorBrl());
     payload.put("tokens", tokens);
     payload.put("xp", missao.getXpRecompensa());
@@ -1044,6 +1193,19 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
    */
   private static boolean pagaTokensDoPote(Missao missao) {
     return missao.getFontePote() != FontePote.CUNHAGEM;
+  }
+
+  /**
+   * Se a conclusão desta missão não tem o que escrever no ledger — recompensa zerada nas duas
+   * moedas.
+   *
+   * <p>Testa os VALORES e não {@code fonte_pote == SEM_TOKEN} de propósito: quem decide se há
+   * lançamento é o {@code Movimento}, que olha BRL e token, e é dele a barreira que estamos
+   * respeitando. Ler a fonte aqui criaria uma segunda definição da mesma condição, que divergiria
+   * no dia em que alguma outra fonte também chegasse zerada.
+   */
+  private static boolean nadaACreditar(Missao missao) {
+    return missao.getTokensRecompensa() == 0 && missao.getValorBrl().signum() == 0;
   }
 
   // ─── Núcleo ────────────────────────────────────────────────────────────────────────────────

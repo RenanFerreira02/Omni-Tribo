@@ -158,6 +158,20 @@ public class FinanciamentoService {
           "Missão de retirada é financiada pelo patrocinador da transportadora.");
     }
 
+    // Missão comunitária de só XP não tem pote e não terá: a recompensa congelada é 0 (ADR 0035).
+    // Sem este ramo a recusa ainda aconteceria, mas lá em validarTeto, e sairia como aritmética sem
+    // sentido — "pote ficaria com 10 tokens, acima da recompensa de 0. Faltam apenas 0.". Pior
+    // seria deixar passar: a conclusão não paga do pote quando a recompensa é zero, então o token
+    // do financiador ficaria preso numa missão que nunca o devolve, e a reconciliação continuaria
+    // respondendo integro=true porque ledger e projeção seguem batendo.
+    //
+    // A saída para quem quer recompensar em token é editar o RASCUNHO (ADR 0036), não financiar.
+    if (missao.getFontePote() == FontePote.SEM_TOKEN) {
+      throw new RegraNegocioVioladaException(
+          "Esta missão recompensa só em XP e não aceita financiamento. Para recompensar em tokens,"
+              + " edite o rascunho antes de publicar.");
+    }
+
     // Financiar depois de concluída, cancelada ou expirada seria pôr token num pote que já não
     // paga ninguém — no melhor caso vira estorno, no pior fica preso.
     if (missao.getStatus().ehTerminal()) {

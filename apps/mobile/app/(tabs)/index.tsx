@@ -79,12 +79,25 @@ export default function TelaMissoes() {
       <View style={estilos.cabecalho}>
         <View style={estilos.linhaTitulo}>
           <TituloTela>Missões</TituloTela>
-          <Botao
-            titulo="Criar"
-            onPress={() => router.push('/missao/criar')}
-            estilo={estilos.botaoCriar}
-            testID="botao-criar-missao"
-          />
+          {/* Porta de entrada dos rascunhos. Sem ela a missão criada e não publicada ficava
+              inalcançável: `criar.tsx` navega para o detalhe e a pessoa que saísse de lá redigitava
+              tudo. Fica ao lado de "Criar" porque é o par dela — o que você começou e o que você
+              ainda não terminou. */}
+          <View style={estilos.acoesCabecalho}>
+            <Botao
+              titulo="Rascunhos"
+              variante="secundario"
+              onPress={() => router.push('/missao/rascunhos')}
+              estilo={estilos.botaoCriar}
+              testID="botao-rascunhos"
+            />
+            <Botao
+              titulo="Criar"
+              onPress={() => router.push('/missao/criar')}
+              estilo={estilos.botaoCriar}
+              testID="botao-criar-missao"
+            />
+          </View>
         </View>
         <View
           style={estilos.modos}
@@ -225,6 +238,7 @@ const estilos = StyleSheet.create({
   cabecalho: { paddingHorizontal: espaco.lg, paddingTop: espaco.md, gap: espaco.md },
   titulo: { ...tipografia.titulo, color: cores.tinta },
   linhaTitulo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  acoesCabecalho: { flexDirection: 'row', gap: espaco.sm, alignItems: 'center' },
   botaoCriar: { paddingHorizontal: espaco.lg },
   modos: { flexDirection: 'row', gap: espaco.sm },
   filtros: {

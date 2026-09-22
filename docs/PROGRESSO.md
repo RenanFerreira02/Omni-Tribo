@@ -81,6 +81,44 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-09-22 — O trade-off do ADR 0025 veio cobrar, e o teste que provava isso estava vermelho há
+  um mês** (branch `feat/missao-comunitaria-sem-token`, ADR 0035 e ADR 0036). Ao usar o app, criar
+  uma missão TRIBO ou AJUDA e não conseguir publicá-la por falta de pote foi descrito como "um
+  impeditivo gigante". Não era defeito: é a Negativa que o **próprio ADR 0025 escreveu sobre si
+  mesmo** — *"se financiar favor alheio se mostrar pouco atraente na prática, AJUDA fica represada em
+  RASCUNHO […] é hipótese de adoção, e o dado para testá-la não existe"*. O dado apareceu pelo uso.
+
+  - **`src/api/__tests__/ciclo.e2e.test.ts` estava VERMELHO desde 2026-08-21.** Ele cria uma AJUDA e
+    publica no passo 3; desde o ADR 0025 aquele passo é 422. Ninguém viu porque `test:e2e` fica fora
+    do CI de propósito (exige backend de pé) — ou seja, **o teste que exercita o ciclo inteiro do
+    produto quebrou no dia da mudança e a quebra ficou invisível por um mês**. É o custo real da
+    decisão de manter aquele teste fora do CI, e ele não tinha sido pago antes.
+  - **A saída não foi afrouxar a conservação**, que era a tentação óbvia e teria reaberto a cunhagem
+    implícita. Foi nomear uma ausência: `FontePote.SEM_TOKEN` (V30), a missão comunitária que vale só
+    XP. Ela **não é uma quarta ponta da invariante** — não emite nem queima, não participa. A tabela
+    das três pontas do `CLAUDE.md` continua igual, e a distinção é o que a assertion do teste mede:
+    Δ=0 **e** nenhum lançamento, porque só o Δ passaria igual se a missão cunhasse e queimasse.
+  - **O efeito de segunda ordem quase passou batido.** O ledger proíbe lançamento zerado
+    (`Movimento`, `ck_lancamento_valor_nao_nulo`), então a conclusão de uma missão só-XP não pode
+    chamar `creditarConclusao`. Mas a sondagem de replay daquela conclusão é feita PELO LANÇAMENTO:
+    sem ele, um retry de `POST /confirmar` numa missão já CONCLUIDA cairia em **409** para quem só
+    perdeu a resposta na rede. A idempotência ali passou a ser por ESTADO, sob o mesmo `FOR UPDATE`
+    (precedente do ADR 0031). Dois testes travam isso; sem eles a regressão é invisível.
+  - **Uma decisão puxou a outra, e por isso são dois ADRs.** Tornar a forma de recompensa editável
+    (é a edição que destrava quem JÁ está preso) obriga a dizer o que o `PATCH` faz com a recompensa
+    congelada. O javadoc de `Missao.editarRascunho` justificava o congelamento com um argumento que
+    só cobre ABERTA — *"sob os pés de quem está prestes a aceitar"* —, aplicado aos dois estados sem
+    a diferença ter sido examinada. Hoje RASCUNHO recalcula e ABERTA não. **O que o ADR 0036 NÃO
+    fez** está nomeado lá: ABERTA continua alterando peso e coordenada sem recalcular, o que já era
+    verdade na API e agora ganhou UI.
+  - **Um defeito novo, achado por teste e não por leitura:** ao extrair o formulário de `criar.tsx`
+    para `FormularioMissao`, a tela de edição passou a abrir com o CEP preenchido — e o
+    auto-preenchimento por CEP disparava na montagem, sobrescrevendo logradouro, bairro, cidade e UF
+    com a versão do provedor, apagando número e complemento sem o usuário tocar em nada. Só apareceu
+    porque o teste de edição afirmava o bairro carregado. Corrigido com `cepInicial`.
+  - Verificado: `./mvnw verify` verde (**781** testes, 0 falhas, SpotBugs limpo, os dois gates
+    JaCoCo), mobile **252/252** em três execuções seguidas, typecheck e lint sem erro.
+
 - **2026-09-15 — O preparo do vídeo-pitch, e três defeitos que só apareciam com a câmera ligada** —
   o roteiro de 5 min (`docs/ROTEIRO-PITCH-5MIN.md`) precisa do ciclo inteiro dentro do app, e os dois
   atos da transportadora não têm gatilho na UI por desenho (ADR 0026). `tools/demo/pitch-armar.sh`

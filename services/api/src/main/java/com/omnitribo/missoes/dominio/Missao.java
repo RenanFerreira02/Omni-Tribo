@@ -266,8 +266,65 @@ public class Missao {
     //
     // Sobra CUNHAGEM só para ENTREGA criada por humano, que é o caso onde o financiador correto
     // (o patrocinador) existe mas não está ligado àquela missão.
-    this.fontePote =
-        categoria == CategoriaMissao.ENTREGA ? FontePote.CUNHAGEM : FontePote.COMUNIDADE;
+    //
+    // SEM_TOKEN vem PRIMEIRO, e é derivada da RECOMPENSA e não de um parâmetro novo (ADR 0035).
+    // Recompensa com zero token só existe por Recompensa.semToken(), porque a calculadora tem piso
+    // de 1 token — então "tokens == 0" é exatamente "o criador escolheu recompensar só em XP", e a
+    // equivalência SEM_TOKEN <-> tokens_recompensa = 0 passa a valer nos DOIS sentidos, por
+    // construção. Um 25º parâmetro booleano neste construtor seria o risco que o comentário da
+    // recompensa acima descreve: posição intercambiável que o compilador não protege.
+    //
+    // Quem barra "só XP" em ENTREGA e COLETA é CriacaoMissaoVerificador, com 400 apontando o campo.
+    // Aqui a regra é total de propósito: não há ramo inalcançável a manter.
+    this.fontePote = derivarFontePote(categoria, recompensa);
+  }
+
+  /**
+   * De onde sairá o token desta missão, em função da categoria e da recompensa congelada.
+   *
+   * <p>Ponto único, chamado pelo construtor e por {@link #recongelarRecompensa}. Duas cópias desta
+   * regra divergiriam em silêncio na próxima mudança — foi o que quase aconteceu quando AJUDA
+   * trocou de lado e {@code FinanciamentoService.validarEstado} ainda listava categorias (ADR
+   * 0025).
+   */
+  private static FontePote derivarFontePote(
+      CategoriaMissao categoria, CalculadoraDeRecompensa.Recompensa recompensa) {
+    if (recompensa.tokens() == 0) {
+      return FontePote.SEM_TOKEN;
+    }
+    return categoria == CategoriaMissao.ENTREGA ? FontePote.CUNHAGEM : FontePote.COMUNIDADE;
+  }
+
+  /**
+   * Recongela a recompensa de um RASCUNHO, depois de o PATCH mudar os insumos (ADR 0036).
+   *
+   * <p>O javadoc de {@link #editarRascunho} exclui a recompensa da edição com um argumento que só
+   * cobre ABERTA — "mudaria o contrato sob os pés de quem está prestes a aceitar". Em RASCUNHO não
+   * há contrato: ninguém viu a missão e ninguém a aceitou. Deixá-la congelada ali é que seria o
+   * problema, porque permitiria criar a missão com um conjunto de insumos e executá-la com outro,
+   * mantendo o valor do primeiro.
+   *
+   * <p>Escreve {@code fonte_pote} junto porque trocar entre "só XP" e "com token" é precisamente o
+   * que muda a fonte — e é a edição que destrava quem criou uma missão comunitária e não conseguiu
+   * financiar o pote. Quem garante que o pote já financiado não fica órfão é {@code
+   * MissaoService.atualizar}, que recusa antes de chamar este método.
+   *
+   * @throws IllegalStateException fora de RASCUNHO — erro de programação, não entrada de usuário:
+   *     {@code MissaoStateMachine.validarEdicao} e o verificador de edição já recusaram antes.
+   */
+  public void recongelarRecompensa(CalculadoraDeRecompensa.Recompensa recompensa) {
+    if (this.status != StatusMissao.RASCUNHO) {
+      throw new IllegalStateException(
+          "Recompensa só pode ser recongelada em RASCUNHO; esta missão está em "
+              + this.status
+              + ".");
+    }
+    this.xpRecompensa = recompensa.xp();
+    this.tokensRecompensa = recompensa.tokens();
+    this.complexidade = recompensa.complexidade();
+    this.versaoFormula = recompensa.versaoFormula();
+    this.multiplicadorRisco = recompensa.multiplicadorRisco();
+    this.fontePote = derivarFontePote(this.categoria, recompensa);
   }
 
   /**

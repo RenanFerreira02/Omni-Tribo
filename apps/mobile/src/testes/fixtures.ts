@@ -72,6 +72,9 @@ export function missao(sobrescrever: Partial<MissaoResponse> = {}): MissaoRespon
     multiplicadorRisco: null,
     faixaRisco: null,
     avisoRisco: null,
+    // ENTREGA criada por humano cunha na conclusão (ADR 0025), e é o que a fixture representa por
+    // ser a categoria dela. Testes de missão comunitária sobrescrevem para COMUNIDADE ou SEM_TOKEN.
+    fontePote: 'CUNHAGEM',
     versao: 0,
     ...sobrescrever,
   };

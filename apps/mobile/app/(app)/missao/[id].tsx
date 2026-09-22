@@ -118,6 +118,10 @@ export default function DetalheMissao() {
     missao.nivelMinimo,
     perfil?.nivel,
   );
+  // Espelha `MissaoStateMachine.validarEdicao`: só o criador, e só em RASCUNHO ou ABERTA. É
+  // conveniência de tela — quem recusa de verdade é o servidor, com 403 ou 409.
+  const podeEditar =
+    papel === 'CRIADOR' && (missao.status === 'RASCUNHO' || missao.status === 'ABERTA');
   const paletaCategoria = coresCategoria[missao.categoria];
   const paletaStatus = coresStatus[missao.status];
 
@@ -354,6 +358,19 @@ export default function DetalheMissao() {
             </Text>
           ) : null}
 
+          {/* Editar NÃO entra na matriz de `acoes.ts`, e a separação é deliberada: aquela matriz
+              mapeia TRANSIÇÕES da máquina de estados, todas despachadas por `POST /{id}/{acao}`.
+              Editar é navegação para uma tela que fala PATCH. Metê-la lá faria `useAcaoMissao`
+              tentar publicar um evento "editar" que o backend não conhece. */}
+          {podeEditar ? (
+            <Botao
+              titulo="Editar missão"
+              variante="secundario"
+              onPress={() => router.push(`/missao/editar/${missao.id}`)}
+              testID="acao-editar"
+            />
+          ) : null}
+
           {estado.acoes.map((item) => (
             <View key={item.acao}>
               <Botao
@@ -429,12 +446,24 @@ function PontoDeCustodia({ id }: { id: string | null }) {
  * repetir tende a funcionar.
  */
 function tituloDoErro(erro: ErroApi): string {
+  if (erro.tipo === 'poteInsuficiente') return 'Falta financiamento para publicar';
   if (erro.tipo === 'transicaoInvalida') return 'Esta missão mudou enquanto você olhava';
   if (erro.tipo === 'conflitoConcorrencia') return 'Alguém alterou a missão agora';
   return 'Não foi possível concluir';
 }
 
 function mensagemDoErro(erro: ErroApi): string {
+  if (erro.tipo === 'poteInsuficiente') {
+    // Os números vêm das EXTENSÕES do ProblemDetail, nunca do `detail` — que é copy e muda. Quando
+    // a resposta não os trouxer (servidor antigo), a frase sobrevive sem eles em vez de mostrar
+    // "faltam NaN tokens".
+    const faltam =
+      erro.recompensaTokens !== undefined && erro.poteTokens !== undefined
+        ? erro.recompensaTokens - erro.poteTokens
+        : null;
+    const quanto = faltam !== null ? `Faltam ${faltam} tokens. ` : '';
+    return `${quanto}Peça a um vizinho da sua tribo que financie o pote, ou edite a missão para ela valer só XP e publicar na hora.`;
+  }
   if (erro.tipo === 'transicaoInvalida') {
     return 'Outra pessoa aceitou primeiro, ou o estado mudou. A tela já está atualizada — veja o que dá para fazer agora.';
   }

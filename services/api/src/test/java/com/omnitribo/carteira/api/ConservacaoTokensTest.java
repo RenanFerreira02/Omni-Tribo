@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -165,6 +167,87 @@ class ConservacaoTokensTest extends TesteIntegracaoMvcBase {
 
     // Roda nos dois ramos: a reconciliação passa mesmo no caso que cunha. É o ponto do teste.
     assertLedgerReconcilia(jdbcTemplate);
+  }
+
+  /**
+   * A terceira possibilidade, que não é nenhum dos dois ramos acima: a missão que não participa da
+   * invariante (ADR 0035).
+   *
+   * <p>Δ zero aqui NÃO quer dizer a mesma coisa que Δ zero em TRIBO. Lá a soma não muda porque o
+   * token trocou de lugar — saiu da carteira do financiador, passou pelo pote, chegou ao executor.
+   * Aqui ela não muda porque <b>token nenhum se moveu</b>, e é por isso que a assertion do
+   * lançamento é a que importa: ela distingue "conservou" de "não participou". Sem ela, este teste
+   * passaria igual se a missão cunhasse e queimasse o mesmo valor.
+   *
+   * <p>Fica FORA do teste parametrizado de propósito: aquele deriva o regime da CATEGORIA para
+   * discordar do construtor se ele mudar sem decisão, e "só XP" não é propriedade da categoria — é
+   * escolha de quem cria.
+   */
+  @Test
+  @DisplayName("missão só-XP não participa da invariante: Δ zero e nenhum lançamento")
+  void missaoSemTokenNaoMoveNemRegistraNada() throws Exception {
+    long circulacaoAntes = tokensEmCirculacao(jdbcTemplate);
+
+    UUID missaoId = criarMissaoSemTokenEmRascunho();
+
+    acao(missaoId, "publicar", criador);
+    acao(missaoId, "aceitar", executor);
+    acao(missaoId, "iniciar", executor);
+    jdbcTemplate.update(
+        "UPDATE missao SET status = 'AGUARDANDO_CONFIRMACAO' WHERE id = ?", missaoId);
+    acao(missaoId, "confirmar", criador);
+
+    assertThat(tokensEmCirculacao(jdbcTemplate) - circulacaoAntes)
+        .as("nada emitido, nada queimado, nada movido")
+        .isZero();
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM lancamento WHERE missao_id = ?", Integer.class, missaoId))
+        .as("a conclusão não escreve no ledger — é o que separa 'não participou' de 'conservou'")
+        .isZero();
+
+    assertLedgerReconcilia(jdbcTemplate);
+  }
+
+  private UUID criarMissaoSemTokenEmRascunho() throws Exception {
+    Instant inicio = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+    String corpo =
+        """
+        {
+          "categoria": "TRIBO",
+          "titulo": "Mutirão que vale só reputação",
+          "descricao": "Missão comunitária sem recompensa em token, publicável sem financiamento.",
+          "valorBrl": 0.00,
+          "complexidade": "MEDIA",
+          "origemLat": -23.5629,
+          "origemLon": -46.6996,
+          "cep": "05422030",
+          "logradouro": "Rua dos Pinheiros",
+          "bairro": "Pinheiros",
+          "cidade": "São Paulo",
+          "uf": "SP",
+          "raioCheckinM": 50,
+          "recompensaEmToken": false,
+          "janelaInicio": "%s",
+          "janelaFim": "%s"
+        }
+        """
+            .formatted(inicio, inicio.plus(2, ChronoUnit.DAYS));
+
+    MvcResult criacao =
+        mockMvc
+            .perform(
+                post(MISSOES)
+                    .header("Authorization", bearer(criador))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(corpo))
+            .andExpect(status().isCreated())
+            .andReturn();
+
+    var corpoCriada = JSON.readTree(criacao.getResponse().getContentAsString());
+    UUID id = UUID.fromString(corpoCriada.get("id").asText());
+    missoesCriadas.add(id);
+    return id;
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────────────────────

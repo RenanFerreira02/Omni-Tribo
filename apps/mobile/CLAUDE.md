@@ -84,6 +84,35 @@
   resolve sem estado novo; e como `variables` sobrevive ao fim da mutation, o ERRO também sabe de
   qual linha era. Vale para o spinner do detalhe da missão pela mesma razão: `carregando` segue a
   ação despachada, nunca a variante do botão.
+- **O formulário de missão é UM componente, usado por duas telas** (`src/features/missoes/
+  FormularioMissao.tsx`, consumido por `missao/criar.tsx` e `missao/editar/[id].tsx`). As duas têm as
+  MESMAS seis regras cruzadas do schema, e a primeira divergência entre cópias apareceria como um 400
+  que só acontece num dos dois caminhos. **Na edição a categoria não é editável**: as outras três
+  somem em vez de ficarem inertes, porque chip que parece clicável e não faz nada é pior que ausência.
+  - **Efeito que só existe na edição: o CEP nasce PREENCHIDO.** Sem guarda, o auto-preenchimento por
+    CEP dispara na montagem e sobrescreve logradouro, bairro, cidade e UF com a versão do provedor —
+    apagando número e complemento que o usuário completou à mão, sem ele tocar em nada. `cepInicial`
+    (um `useRef`) faz o efeito só agir quando o CEP MUDA. Mesma razão pela qual o reposicionamento
+    por GPS não roda em modo de edição.
+- **A escolha "Só XP × XP e tokens" só aparece em TRIBO e AJUDA** (ADR 0035), e o padrão é por
+  CATEGORIA: AJUDA nasce só-XP, TRIBO nasce com token. O padrão mora AQUI, não no servidor — é
+  decisão de produto, e servidor com padrão por categoria seria política escondida. Trocar de
+  categoria REASSUME o padrão da nova, junto com a limpeza de peso/volume/complexidade: sem isso uma
+  ida de AJUDA "só XP" para ENTREGA montaria um corpo que o servidor recusa com 400.
+  - **Prévia com zero token diz "sem tokens", nunca `0` ao lado do ícone** — um zero ali leria como
+    falha de cálculo, e o que houve foi uma escolha. O anúncio para leitor de tela tem frase própria
+    pela mesma razão.
+- **Os rascunhos têm tela** (`missao/rascunhos.tsx`, entrada na aba Missões). O dado sempre esteve no
+  servidor — `GET /missoes?status=RASCUNHO&minhas=CRIADAS`, com o filtro de rascunho alheio dentro da
+  própria consulta —, e `FiltroMissoes.minhas` existia em `tipos.ts` **sem nenhum uso**. Cada linha
+  diz POR QUE aquele rascunho não está no ar, e a razão vem de `fontePote`: `poteTokens: 0` significa
+  coisas opostas em `COMUNIDADE` (falta financiar) e em `SEM_TOKEN` (não há o que financiar).
+  - A query key é `chaves.rascunhos`, PRÓPRIA e sob o prefixo `todasAsListas`. Reusar `chaves.lista()`
+    colidiria — ela não distingue escopo nem status — e ficar fora do prefixo faria o rascunho
+    publicado continuar na tela.
+- **`Editar` NÃO entra na matriz de `acoes.ts`.** Aquela matriz mapeia TRANSIÇÕES da máquina de
+  estados, todas despachadas por `POST /{id}/{acao}`; editar é navegação para uma tela que fala
+  PATCH. Metê-la lá faria `useAcaoMissao` tentar publicar um evento que o backend não conhece.
 - **O radar tem DUAS apresentações da mesma rota** (ADR 0030): `Mapa | Lista`, com a escolha
   persistida em `src/features/mapa/apresentacao.ts`. A lista existe porque a WebView do Leaflet não
   expõe semântica — e o ponto de custódia só existia lá dentro. **Não é tela separada**: duas rotas

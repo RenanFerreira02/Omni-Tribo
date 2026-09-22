@@ -1,5 +1,6 @@
 import { login } from '../auth';
 import { buscarCarteira, listarLancamentos, transferirTokens } from '../carteira';
+import { buscarPerfil } from '../perfil';
 import { paraErroApi } from '../erros';
 import {
   aplicarAcao,
@@ -25,9 +26,22 @@ import { useSessao } from '@/stores/sessao';
  *   anterior, e essa era a regra que o protótipo Flutter descartado violava;
  * - que a distância do check-in é medida pelo servidor, e um ponto fora do raio é recusado com os
  *   NÚMEROS que a tela usa para orientar;
- * - que a recompensa é calculada e CONGELADA na criação: o valor creditado é o mesmo que a prévia
- *   anunciou, sem o app ter reimplementado a fórmula;
+ * - que a recompensa é calculada e CONGELADA na criação, e que a prévia anuncia exatamente o que o
+ *   servidor grava, sem o app ter reimplementado a fórmula;
  * - que a transferência exige mesma tribo, e que a idempotência protege contra o retry.
+ *
+ * <b>A missão do ciclo é uma AJUDA de SÓ XP (ADR 0035), e a escolha tem uma razão de teste.</b>
+ * Desde o ADR 0025 uma AJUDA com recompensa em token exige pote financiado antes de publicar, e o
+ * financiador tem de ser OUTRO membro da mesma tribo de alice — em Pinheiros, só o `admin`. Um
+ * terceiro login estouraria o orçamento de 5 tentativas por minuto que a nota abaixo descreve:
+ * este arquivo faz dois e `integracao.e2e.test.ts` faz outros dois. Este teste ficou VERMELHO da
+ * adoção do ADR 0025 até aqui, sem ninguém notar, porque `test:e2e` fica fora do CI de propósito.
+ *
+ * <b>Consequência a saber:</b> o crédito em TOKEN na conclusão NÃO é exercitado aqui. Quem o cobre
+ * ponta a ponta é `FinanciamentoControllerTest.cicloCompleto_financiarPublicarConcluir_conservaOsTokens`,
+ * no backend, que tem os usuários que precisa sem passar por login. O que este ciclo prova sobre a
+ * conclusão é o outro lado: que ela credita XP, que NÃO credita token, e que não escreve lançamento
+ * nenhum quando não há o que mover.
  *
  * Fora do `npm test` de propósito: exige `make up` + `spring-boot:run`. Roda com:
  *
@@ -126,6 +140,8 @@ descreve('ciclo completo da missão', () => {
       raioCheckinM: RAIO_CHECKIN_M,
       janelaInicio: new Date(agora - 3600_000).toISOString(),
       janelaFim: new Date(agora + 2 * 24 * 3600_000).toISOString(),
+      // Só XP: publica sem financiamento. Ver a nota no topo do arquivo.
+      recompensaEmToken: false,
     };
   }
 
@@ -136,7 +152,10 @@ descreve('ciclo completo da missão', () => {
 
     const previa = await previaRecompensa(corpoDaMissao());
     expect(previa.xpRecompensa).toBeGreaterThan(0);
-    expect(previa.tokensRecompensa).toBeGreaterThan(0);
+    // Zero token, e o XP CHEIO: a prévia zera só a parte em moeda, depois de calcular o esforço.
+    // Se o XP viesse zerado junto, a missão não valeria nada e o `semToken()` estaria zerando
+    // antes da conta em vez de depois.
+    expect(previa.tokensRecompensa).toBe(0);
     expect(previa.complexidade).toBe('MEDIA');
     // A versão da fórmula viaja junto: é o que permite explicar, depois, por que um crédito antigo
     // vale o que vale.
@@ -158,12 +177,17 @@ descreve('ciclo completo da missão', () => {
     expect(missao.tokensRecompensa).toBe(tokensDaMissao);
     expect(missao.xpRecompensa).toBe(xpDaMissao);
     expect(Number(missao.valorBrl)).toBe(0);
+    // A fonte é o que o app lê para saber POR QUE esta missão publica sem financiamento.
+    expect(missao.fontePote).toBe('SEM_TOKEN');
   }, 30_000);
 
-  it('3. publicar leva a ABERTA e a missão aparece no radar geoespacial', async () => {
+  it('3. publicar leva a ABERTA SEM pote, e a missão aparece no radar geoespacial', async () => {
     await comoUsuario(alice);
+    // Sem financiamento nenhum. Antes do ADR 0035 esta linha era 422 `pote-insuficiente`, e era o
+    // atrito que fez a categoria inteira ficar represada em RASCUNHO.
     const publicada = await aplicarAcao(missaoId, 'publicar');
     expect(publicada.status).toBe('ABERTA');
+    expect(publicada.poteTokens).toBe(0);
 
     const proximas = await missoesProximas({
       lat: ORIGEM.lat,
@@ -250,37 +274,50 @@ descreve('ciclo completo da missão', () => {
 
   // ─── 3. Conclusão e crédito ────────────────────────────────────────────────────────────────
 
-  it('8. alice confirma: CONCLUIDA é o ÚNICO estado que credita', async () => {
+  it('8. alice confirma: CONCLUIDA é o ÚNICO estado que credita — aqui, em XP', async () => {
+    await comoUsuario(bob);
+    const xpAntes = (await buscarPerfil()).xp;
+
     await comoUsuario(alice);
     const concluida = await aplicarAcao(missaoId, 'confirmar');
     expect(concluida.status).toBe('CONCLUIDA');
     expect(concluida.concluidaEm).toBeTruthy();
 
     await comoUsuario(bob);
+    // O executor foi pago na moeda que a missão prometeu: reputação, e o valor congelado na
+    // criação. Nenhum passo anterior tinha movido este número.
+    expect((await buscarPerfil()).xp).toBe(xpAntes + xpDaMissao);
+
     const carteira = await buscarCarteira();
-    expect(carteira.saldoTokens).toBe(saldoBobAntes + tokensDaMissao);
+    expect(carteira.saldoTokens).toBe(saldoBobAntes);
     // BRL permanece imóvel: a economia é de XP e TOKEN.
     expect(Number(carteira.saldoBrl)).toBe(0);
   }, 30_000);
 
-  it('9. o crédito aparece no extrato, com motivo legível e saldo após', async () => {
+  it('9. a conclusão de uma missão só-XP NÃO escreve no ledger', async () => {
     await comoUsuario(bob);
-    const extrato = await listarLancamentos(0, 10);
+    const extrato = await listarLancamentos(0, 20);
 
-    const credito = extrato.conteudo.find(
-      (l) => l.missaoId === missaoId && l.motivo === 'RECOMPENSA_MISSAO',
-    );
-    expect(credito).toBeDefined();
-    expect(credito!.sinal).toBe('CREDITO');
-    expect(credito!.valorTokens).toBe(tokensDaMissao);
-    expect(credito!.saldoAposTokens).toBe(saldoBobAntes + tokensDaMissao);
-    // O ledger é append-only e não movimenta BRL neste ciclo.
-    expect(Number(credito!.valorBrl)).toBe(0);
+    // A ausência é a assertion, e ela não é cosmética: um lançamento de 0 BRL e 0 token é recusado
+    // pelo próprio `Movimento` no backend ("precisa mover BRL ou tokens") e viraria 500 na
+    // conclusão. É também o que separa "não participou da invariante" de "conservou".
+    const daMissao = extrato.conteudo.filter((l) => l.missaoId === missaoId);
+    expect(daMissao).toHaveLength(0);
+  }, 30_000);
+
+  it('10. repetir o confirmar é REPLAY, e não 409 — a idempotência aqui é por ESTADO', async () => {
+    await comoUsuario(alice);
+
+    // Sem lançamento, a sondagem de replay do backend (que olha o ledger) é cega para esta missão.
+    // Quem responde é o ESTADO da linha, sob o mesmo FOR UPDATE. Sem esse caminho, um retry de rede
+    // devolveria "esta operação não é permitida no estado atual" a quem só perdeu a resposta.
+    const replay = await aplicarAcao(missaoId, 'confirmar');
+    expect(replay.status).toBe('CONCLUIDA');
   }, 30_000);
 
   // ─── 4. Transferência ──────────────────────────────────────────────────────────────────────
 
-  it('10. bob transfere tokens para carol, da mesma tribo', async () => {
+  it('11. bob transfere tokens para carol, da mesma tribo', async () => {
     await comoUsuario(bob);
     const antes = (await buscarCarteira()).saldoTokens;
     const quantia = 5;
@@ -292,7 +329,7 @@ descreve('ciclo completo da missão', () => {
     expect((await buscarCarteira()).saldoTokens).toBe(antes - quantia);
   }, 30_000);
 
-  it('11. repetir a transferência com a MESMA chave é replay, não um segundo débito', async () => {
+  it('12. repetir a transferência com a MESMA chave é replay, não um segundo débito', async () => {
     await comoUsuario(bob);
     const antes = (await buscarCarteira()).saldoTokens;
 
@@ -303,7 +340,7 @@ descreve('ciclo completo da missão', () => {
     expect((await buscarCarteira()).saldoTokens).toBe(antes);
   }, 30_000);
 
-  it('12. transferir para OUTRA tribo é recusado com 422', async () => {
+  it('13. transferir para OUTRA tribo é recusado com 422', async () => {
     await comoUsuario(bob);
     try {
       // alice é de Pinheiros; bob, de Vila Madalena. Token é moeda COMUNITÁRIA.

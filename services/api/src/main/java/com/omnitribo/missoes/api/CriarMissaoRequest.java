@@ -99,4 +99,30 @@ public record CriarMissaoRequest(
         BigDecimal volumeL,
     @NotNull(message = "Início da janela é obrigatório") Instant janelaInicio,
     @NotNull(message = "Fim da janela é obrigatório") Instant janelaFim,
-    UUID pontoCustodiaId) {}
+    UUID pontoCustodiaId,
+    /**
+     * Se a missão recompensa em TOKEN além de XP. Só TRIBO e AJUDA podem dizer que não (ADR 0035).
+     *
+     * <p><b>Nulo significa {@code true}</b>, e não "o servidor decide": o campo é opcional para que
+     * nenhum cliente já integrado mude de comportamento ao subir esta versão. O padrão por
+     * categoria — AJUDA nasce só-XP, TRIBO nasce com token — é escolha de PRODUTO e mora no app,
+     * não aqui. Servidor com padrão por categoria seria uma política escondida: quem lê o corpo da
+     * requisição não conseguiria dizer quanto a missão vale.
+     *
+     * <p>{@code false} em ENTREGA ou COLETA é <b>400</b>, recusado por {@code
+     * CriacaoMissaoVerificador} — as duas movem objeto e têm custo real de execução. Não é
+     * ignorado, pela mesma razão que {@code valorBrl} positivo não é: ignorar faria o app acreditar
+     * que declarou algo sem efeito.
+     */
+    @Schema(
+            description =
+                "Recompensa em token além do XP. Só TRIBO e AJUDA aceitam false — nelas a missão"
+                    + " publica sem financiamento, valendo só reputação. Ausente equivale a true.",
+            defaultValue = "true")
+        Boolean recompensaEmToken) {
+
+  /** O valor efetivo do campo opcional: ausente é {@code true}. Ver o javadoc dele. */
+  public boolean recompensaEmTokenEfetiva() {
+    return recompensaEmToken == null || recompensaEmToken;
+  }
+}
