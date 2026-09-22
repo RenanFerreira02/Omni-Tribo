@@ -38,6 +38,15 @@ export default function LayoutApp() {
       <Stack.Screen name="beneficios" />
       <Stack.Screen name="impacto" options={{ headerShown: true, title: 'Impacto' }} />
       <Stack.Screen name="missao/criar" />
+      {/* Segmento LITERAL antes do dinâmico: o expo-router prefere `missao/rascunhos` a
+          `missao/[id]` com id "rascunhos", mesma regra que o backend documenta para
+          `/missoes/proximas`. Nenhuma das duas rotas entra na allowlist de deep link — só se chega
+          a elas de dentro do app. */}
+      <Stack.Screen name="missao/rascunhos" options={{ headerShown: true, title: 'Rascunhos' }} />
+      <Stack.Screen
+        name="missao/editar/[id]"
+        options={{ headerShown: true, title: 'Editar missão' }}
+      />
       <Stack.Screen name="missao/[id]" options={{ headerShown: true, title: 'Missão' }} />
     </Stack>
   );

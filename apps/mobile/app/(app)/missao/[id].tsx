@@ -118,6 +118,10 @@ export default function DetalheMissao() {
     missao.nivelMinimo,
     perfil?.nivel,
   );
+  // Espelha `MissaoStateMachine.validarEdicao`: só o criador, e só em RASCUNHO ou ABERTA. É
+  // conveniência de tela — quem recusa de verdade é o servidor, com 403 ou 409.
+  const podeEditar =
+    papel === 'CRIADOR' && (missao.status === 'RASCUNHO' || missao.status === 'ABERTA');
   const paletaCategoria = coresCategoria[missao.categoria];
   const paletaStatus = coresStatus[missao.status];
 
@@ -201,6 +205,31 @@ export default function DetalheMissao() {
 
   const erroAcao = acao.error;
   const ocupado = acao.isPending || checkin.isPending;
+
+  /**
+   * Qual botão gira — o que foi TOCADO, e não o primário da lista.
+   *
+   * Era `carregando={ocupado && item.variante === 'primario'}`, que amarra o indicador à VARIANTE
+   * em vez de à ação despachada. As duas mutations já dizem o que está em voo — `acao.variables`
+   * traz a ação, e o check-in é uma mutation separada —, então não é preciso estado novo.
+   *
+   * <b>O que foi MEDIDO, e é menos dramático do que parece.</b> Hoje o botão errado só chega a
+   * acender no tique entre o `mutate()` e a escrita otimista de `onMutate`: toda ação desta tela
+   * exceto `checkin` está em `STATUS_OTIMISTA`, então o conjunto de botões é trocado quase
+   * imediatamente e o botão tocado some da árvore. Um teste que tentasse prender o estado
+   * intermediário não achava sequer o botão — foi assim que isto foi descoberto.
+   *
+   * Vale corrigir mesmo assim: a expressão antiga acerta por COINCIDÊNCIA — `checkin` é a única
+   * ação sem status otimista, e por acaso é a primária. A primeira ação sem previsão otimista que
+   * não for primária (`destravar` e `resolver`, que o backend já expõe e esta tela ainda não
+   * oferece) passaria a acender o botão errado de forma permanente, e não por um tique.
+   *
+   * `ocupado` continua governando o `disabled` de TODOS: travar as demais transições enquanto uma
+   * está no ar é correto, e nunca foi o defeito.
+   */
+  const acaoEmVoo = acao.isPending ? acao.variables?.acao : undefined;
+  const carregandoItem = (item: AcaoDisponivel) =>
+    item.acao === 'checkin' ? checkin.isPending : acaoEmVoo === item.acao;
 
   return (
     <SafeAreaView style={estilos.raiz}>
@@ -329,12 +358,25 @@ export default function DetalheMissao() {
             </Text>
           ) : null}
 
+          {/* Editar NÃO entra na matriz de `acoes.ts`, e a separação é deliberada: aquela matriz
+              mapeia TRANSIÇÕES da máquina de estados, todas despachadas por `POST /{id}/{acao}`.
+              Editar é navegação para uma tela que fala PATCH. Metê-la lá faria `useAcaoMissao`
+              tentar publicar um evento "editar" que o backend não conhece. */}
+          {podeEditar ? (
+            <Botao
+              titulo="Editar missão"
+              variante="secundario"
+              onPress={() => router.push(`/missao/editar/${missao.id}`)}
+              testID="acao-editar"
+            />
+          ) : null}
+
           {estado.acoes.map((item) => (
             <View key={item.acao}>
               <Botao
                 titulo={item.rotulo}
                 variante={item.variante}
-                carregando={ocupado && item.variante === 'primario'}
+                carregando={carregandoItem(item)}
                 disabled={ocupado || item.bloqueio !== undefined}
                 hint={HINT_ACAO[item.acao]}
                 onPress={() => aoTocar(item)}
@@ -404,12 +446,24 @@ function PontoDeCustodia({ id }: { id: string | null }) {
  * repetir tende a funcionar.
  */
 function tituloDoErro(erro: ErroApi): string {
+  if (erro.tipo === 'poteInsuficiente') return 'Falta financiamento para publicar';
   if (erro.tipo === 'transicaoInvalida') return 'Esta missão mudou enquanto você olhava';
   if (erro.tipo === 'conflitoConcorrencia') return 'Alguém alterou a missão agora';
   return 'Não foi possível concluir';
 }
 
 function mensagemDoErro(erro: ErroApi): string {
+  if (erro.tipo === 'poteInsuficiente') {
+    // Os números vêm das EXTENSÕES do ProblemDetail, nunca do `detail` — que é copy e muda. Quando
+    // a resposta não os trouxer (servidor antigo), a frase sobrevive sem eles em vez de mostrar
+    // "faltam NaN tokens".
+    const faltam =
+      erro.recompensaTokens !== undefined && erro.poteTokens !== undefined
+        ? erro.recompensaTokens - erro.poteTokens
+        : null;
+    const quanto = faltam !== null ? `Faltam ${faltam} tokens. ` : '';
+    return `${quanto}Peça a um vizinho da sua tribo que financie o pote, ou edite a missão para ela valer só XP e publicar na hora.`;
+  }
   if (erro.tipo === 'transicaoInvalida') {
     return 'Outra pessoa aceitou primeiro, ou o estado mudou. A tela já está atualizada — veja o que dá para fazer agora.';
   }

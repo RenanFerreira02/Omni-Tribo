@@ -183,6 +183,38 @@ export const coresCategoria = {
 } as const;
 
 /**
+ * PREENCHIMENTO DO MARCADOR DO MAPA — o terceiro papel da cor de categoria, e ele precisava existir.
+ *
+ * <b>O defeito que originou este mapa.</b> As duas telas de mapa usavam `coresCategoria[…].texto`
+ * como preenchimento do pino. Para TRIBO isso é `cores.branco`, e o pino já é branco em tudo o mais
+ * — borda de 2px branca e glifo branco. O resultado era uma mancha branca sobre os tiles claros do
+ * OSM, sem contorno: <b>uma das quatro categorias simplesmente não aparecia no mapa</b>, e quem
+ * escolhia TRIBO ao criar uma missão perdia o marcador da própria origem.
+ *
+ * <b>Por que nenhum dos dois mapas existentes servia.</b> São três papéis, não dois:
+ *
+ * <pre>
+ *   coresCategoria[c].fundo   preenchimento do chip, SOB texto escuro   → claro demais para o pino
+ *   coresCategoria[c].texto   texto SOBRE aquele fundo                  → branco no caso de TRIBO
+ *   coresMarcador[c]          preenchimento do pino, SOB glifo BRANCO   → precisa ser escuro
+ * </pre>
+ *
+ * <b>Por que TRIBO recebe `tinta` e não `verdeEscuro`.</b> ENTREGA já ocupa o verde escuro, e as
+ * duas ficariam idênticas — é a mesma colisão que o javadoc de `coresCategoria` registra para os
+ * chips, e que lá foi resolvida invertendo TRIBO. Do quadrado `tinta70` dos pontos de custódia o
+ * pino se distingue por FORMA e por glifo, que é o segundo canal que este arquivo já adotou.
+ *
+ * Todos os quatro sustentam o glifo branco com folga acima dos 3:1 que a WCAG 1.4.11 pede para
+ * elemento não-textual.
+ */
+export const coresMarcador = {
+  ENTREGA: cores.verdeEscuro,
+  COLETA: textoAcessivel.ambar,
+  TRIBO: cores.tinta,
+  AJUDA: textoAcessivel.coral,
+} as const;
+
+/**
  * GLIFO por categoria — o segundo canal, ao lado da cor.
  *
  * <b>Por que existe.</b> As quatro categorias se distinguiam por matiz, e o javadoc de

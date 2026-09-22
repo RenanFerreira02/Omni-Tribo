@@ -152,6 +152,48 @@ describe('economia do cuidado na UI', () => {
 });
 
 describe('tela de missões — modo "Todas"', () => {
+  /**
+   * TROCAR O FILTRO NÃO PODE APAGAR A LISTA.
+   *
+   * A categoria entra na query key, então todo toque num chip criava uma chave sem cache:
+   * `isLoading` virava true e a `FlatList` inteira era desmontada e trocada por três esqueletos,
+   * voltando logo em seguida. É um pisca de tela cheia no caminho mais usado do app — o mesmo
+   * defeito dos interruptores de consentimento, de outra família.
+   *
+   * O GET do filtro fica pendurado de propósito: sem isso a resposta chegaria dentro do
+   * `fireEvent` e o intervalo que se quer medir não existiria.
+   */
+  it('trocar a categoria mantém a lista anterior na tela, sem esqueleto', async () => {
+    let liberar: () => void = () => undefined;
+    const pendurado = new Promise<void>((resolve) => {
+      liberar = resolve;
+    });
+
+    await renderComLocalizacaoPermitida();
+    // A lista chegou pelo radar, sem filtro de categoria.
+    expect(await screen.findByTestId(`missao-${missao().id}`)).toBeTruthy();
+
+    servidor.use(
+      http.get(`${BASE}/missoes/proximas`, async () => {
+        await pendurado;
+        return HttpResponse.json([proxima(120, { categoria: 'COLETA' })]);
+      }),
+    );
+    await fireEvent.press(screen.getByTestId('filtro-COLETA'));
+
+    // `finally` pela mesma razão do teste de consentimento: uma asserção vermelha aqui deixaria a
+    // promessa presa dentro do resolver do msw e o processo do jest não terminaria.
+    try {
+      // A lista anterior CONTINUA montada enquanto a nova vem. Era isto que sumia.
+      expect(screen.queryByTestId('lista-carregando')).toBeNull();
+      expect(screen.getByTestId('lista-missoes')).toBeTruthy();
+    } finally {
+      liberar();
+    }
+
+    await waitFor(() => expect(screen.getByTestId('lista-missoes')).toBeTruthy());
+  });
+
   it('usa a lista paginada quando a localização é negada', async () => {
     const expoLocation = jest.requireMock('expo-location');
     expoLocation.requestForegroundPermissionsAsync.mockResolvedValueOnce({ granted: false });

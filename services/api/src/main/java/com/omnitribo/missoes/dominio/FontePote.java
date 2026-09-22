@@ -48,5 +48,29 @@ public enum FontePote {
    * <p><b>AJUDA saiu daqui.</b> O argumento acima é sobre varejista, e nunca foi sobre ela — ver a
    * retificação do §8 do ADR 0024.
    */
-  CUNHAGEM
+  CUNHAGEM,
+
+  /**
+   * Nenhum token: a recompensa é só XP. TRIBO e AJUDA criadas com {@code recompensaEmToken=false}.
+   *
+   * <p>É a categoria de missão que a tese do produto sempre teve e a economia nunca escreveu:
+   * mutirão e favor de vizinho que valem REPUTAÇÃO, não moeda. Existe porque o ADR 0025, ao trazer
+   * AJUDA para {@link #COMUNIDADE}, tornou obrigatório um financiador para publicar — e previu, em
+   * "Negativas", que financiar favor alheio poderia se mostrar pouco atraente e represar AJUDA em
+   * RASCUNHO. Foi o que aconteceu. Ver ADR 0035.
+   *
+   * <p><b>Não é uma quarta ponta da invariante de conservação.</b> As três pontas que movem a soma
+   * {@code SUM(carteiras) + SUM(potes)} são o aporte (sobe), a conclusão de ENTREGA em {@link
+   * #CUNHAGEM} (sobe) e o resgate (desce). Uma missão SEM_TOKEN não emite nem queima: ela tem
+   * {@code tokens_recompensa = 0} e {@code pote_tokens = 0}, e a conclusão dela não escreve
+   * lançamento nenhum. Ela não participa da invariante — o que é diferente de mudá-la em zero.
+   *
+   * <p><b>Não aceita financiamento</b>, e a recusa é explícita em {@code
+   * FinanciamentoService.validarEstado}. Sem esse ramo, quem tentasse financiar receberia de {@code
+   * validarTeto} a frase sem sentido "pote ficaria com N tokens, acima da recompensa de 0. Faltam
+   * apenas 0.". Deixar o pote crescer seria pior: a recompensa congelada é 0, a conclusão não paga
+   * do pote, e o token do financiador ficaria preso numa missão que nunca o devolve — perda que a
+   * reconciliação não vê, porque ledger e projeção continuam batendo.
+   */
+  SEM_TOKEN
 }

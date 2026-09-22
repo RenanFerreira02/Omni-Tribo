@@ -54,6 +54,16 @@ export default function TelaMissoes() {
   const carregando = modoEfetivo === 'perto' ? radar.isLoading : lista.isLoading;
   const erro = modoEfetivo === 'perto' ? radar.error : lista.error;
   const atualizando = modoEfetivo === 'perto' ? radar.isRefetching : lista.isRefetching;
+  /**
+   * A lista na tela é a ANTERIOR, e a desta chave ainda está vindo.
+   *
+   * Categoria e recorte entram na query key, então todo toque num chip criava uma chave sem cache:
+   * `isLoading` virava true e a `FlatList` inteira era desmontada e trocada por três esqueletos, e
+   * voltava. Com `keepPreviousData` nos hooks, `carregando` passou a ser só a PRIMEIRA carga —
+   * daqui em diante o que sinaliza "tem coisa nova vindo" é isto, e a lista continua legível
+   * enquanto isso. Esmaecer diz que o conteúdo está defasado sem tirá-lo do lugar.
+   */
+  const desatualizada = modoEfetivo === 'perto' ? radar.isPlaceholderData : lista.isPlaceholderData;
 
   function recarregar() {
     if (modoEfetivo === 'perto') {
@@ -69,12 +79,25 @@ export default function TelaMissoes() {
       <View style={estilos.cabecalho}>
         <View style={estilos.linhaTitulo}>
           <TituloTela>Missões</TituloTela>
-          <Botao
-            titulo="Criar"
-            onPress={() => router.push('/missao/criar')}
-            estilo={estilos.botaoCriar}
-            testID="botao-criar-missao"
-          />
+          {/* Porta de entrada dos rascunhos. Sem ela a missão criada e não publicada ficava
+              inalcançável: `criar.tsx` navega para o detalhe e a pessoa que saísse de lá redigitava
+              tudo. Fica ao lado de "Criar" porque é o par dela — o que você começou e o que você
+              ainda não terminou. */}
+          <View style={estilos.acoesCabecalho}>
+            <Botao
+              titulo="Rascunhos"
+              variante="secundario"
+              onPress={() => router.push('/missao/rascunhos')}
+              estilo={estilos.botaoCriar}
+              testID="botao-rascunhos"
+            />
+            <Botao
+              titulo="Criar"
+              onPress={() => router.push('/missao/criar')}
+              estilo={estilos.botaoCriar}
+              testID="botao-criar-missao"
+            />
+          </View>
         </View>
         <View
           style={estilos.modos}
@@ -142,6 +165,7 @@ export default function TelaMissoes() {
           data={itens}
           keyExtractor={(item) => item.missao.id}
           contentContainerStyle={estilos.corpo}
+          style={desatualizada ? estilos.listaDesatualizada : undefined}
           refreshControl={
             <RefreshControl
               refreshing={atualizando}
@@ -200,11 +224,21 @@ export default function TelaMissoes() {
   );
 }
 
+/**
+ * Opacidade da lista enquanto o recorte novo ainda está vindo. Ver `desatualizada`.
+ *
+ * Não pertence a `espaco` nem a `tipografia` — não é respiro nem texto —, e por isso é nomeada aqui
+ * em vez de aparecer como um `0.55` solto no meio do estilo.
+ */
+const OPACIDADE_LISTA_DESATUALIZADA = 0.55;
+
 const estilos = StyleSheet.create({
+  listaDesatualizada: { opacity: OPACIDADE_LISTA_DESATUALIZADA },
   tela: { flex: 1, backgroundColor: cores.papel },
   cabecalho: { paddingHorizontal: espaco.lg, paddingTop: espaco.md, gap: espaco.md },
   titulo: { ...tipografia.titulo, color: cores.tinta },
   linhaTitulo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  acoesCabecalho: { flexDirection: 'row', gap: espaco.sm, alignItems: 'center' },
   botaoCriar: { paddingHorizontal: espaco.lg },
   modos: { flexDirection: 'row', gap: espaco.sm },
   filtros: {

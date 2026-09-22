@@ -58,6 +58,49 @@ class MigracaoTest extends TesteIntegracaoBase {
     assertThat(tabelasExistentes).containsAll(tabelasEsperadas);
   }
 
+  /**
+   * A V30 abriu {@code ck_missao_fonte_pote} para SEM_TOKEN, e a barreira continua fechada para o
+   * resto.
+   *
+   * <p>Vale os dois lados: só o ADD sem o teste de rejeição passaria igual se a constraint tivesse
+   * sido removida em vez de ampliada — e aí o enum deixaria de ter barreira no banco atrás da regra
+   * no construtor de {@code Missao}, que é a doutrina que a V13 estabeleceu para a carteira.
+   */
+  @Test
+  void check_de_fonte_pote_aceita_sem_token_e_recusa_valor_fora_do_enum() {
+    UUID comSemToken = inserirMissaoComFonte("SEM_TOKEN");
+    assertThat(comSemToken).as("SEM_TOKEN passa pelo CHECK da V30").isNotNull();
+    jdbcTemplate.update("DELETE FROM missao WHERE id = ?", comSemToken);
+
+    assertThatThrownBy(() -> inserirMissaoComFonte("SEM_TOKENS"))
+        .as("a barreira continua fechada para qualquer outro valor")
+        .hasMessageContaining("ck_missao_fonte_pote");
+  }
+
+  private UUID inserirMissaoComFonte(String fonte) {
+    UUID id = UUID.randomUUID();
+    UUID criador =
+        jdbcTemplate.queryForObject(
+            "SELECT id FROM usuario WHERE papel = 'USUARIO' AND status = 'ATIVO' LIMIT 1",
+            UUID.class);
+    jdbcTemplate.update(
+        """
+        INSERT INTO missao (id, criador_id, categoria, titulo, descricao, status, xp_recompensa,
+                            valor_brl, tokens_recompensa, complexidade, origem, cep, logradouro,
+                            bairro, cidade, uf, raio_checkin_m, janela_inicio, janela_fim,
+                            criada_em, estado_desde, pote_tokens, fonte_pote, versao)
+        VALUES (?, ?, 'TRIBO', 'Missao de teste do CHECK de fonte_pote',
+                'Linha temporaria para exercitar ck_missao_fonte_pote.', 'RASCUNHO', 10,
+                0.00, 0, 'MEDIA', ST_SetSRID(ST_MakePoint(-46.6996, -23.5629), 4326)::geography,
+                '05422030', 'Rua dos Pinheiros', 'Pinheiros', 'Sao Paulo', 'SP', 50,
+                NOW(), NOW() + INTERVAL '2 days', NOW(), NOW(), 0, ?, 0)
+        """,
+        id,
+        criador,
+        fonte);
+    return id;
+  }
+
   @Test
   void seed_carregado_com_dados_do_dominio_leroy_merlin() {
     long tribos = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tribo", Long.class);

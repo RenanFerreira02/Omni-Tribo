@@ -104,7 +104,7 @@ critério que a V905 usou para as entregas falidas anteriores ao patrocinador.
 | Alternativa | Por que foi descartada |
 |-------------|------------------------|
 | Manter AJUDA cunhando, como o §8 do ADR 0024 decidiu | O argumento que sustentava aquela decisão é sobre varejista e não se aplica a AJUDA. Mantê-la cunhando exigiria um argumento novo, e não há um. |
-| Deixar o criador financiar a própria AJUDA | Violaria o ADR 0009 ("quem cria a missão NÃO paga"), que esta mudança existe para preservar — e reproduziria exatamente o cenário que o §8 do 0024 temia. |
+| Deixar o criador financiar a própria AJUDA | Violaria o ADR 0009 ("quem cria a missão NÃO paga"), que esta mudança existe para preservar — e reproduziria exatamente o cenário que o §8 do 0024 temia. **Esta linha descreveu por um mês um comportamento que o código PERMITIA**: `validarAutorizacao` conferia tribo e nunca comparou financiador com criador. Virou verdade em 2026-09-22, com o [ADR 0037](./0037-quem-cria-a-missao-nao-paga-vira-regra.md). |
 | `validarEstado` continuar listando categorias, só somando AJUDA | Duas listas descrevendo a mesma regra (o construtor e o validador) divergem em silêncio na próxima mudança. Testar `fonte_pote` faz a regra ter um dono só. |
 | Migration marcando as AJUDAs existentes como COMUNIDADE | Elas não têm pote. A conclusão passaria a falhar com 422 para sempre, e num caminho que nem sempre é uma requisição de usuário. |
 | Fazer o mesmo com ENTREGA criada por humano | Fora do escopo desta tarefa, e o argumento do varejista continua valendo para ela. Segue como a última lacuna de cunhagem, declarada em `FontePote.CUNHAGEM`. |

@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from './Card';
 import type { PontoCustodiaResponse } from '@/api/tipos';
-import { formatarDistancia } from '@/lib/formatar';
+import { formatarDistancia, rotuloTipoPonto } from '@/lib/formatar';
 import { cores, espaco, textoAcessivel, tipografia } from '@/theme';
 
 interface Props {
@@ -10,13 +10,6 @@ interface Props {
   onPress: () => void;
   testID?: string;
 }
-
-const ROTULO_TIPO: Record<PontoCustodiaResponse['tipo'], string> = {
-  LOJA: 'loja',
-  LOCKER: 'armário',
-  PORTARIA: 'portaria',
-  VIZINHO: 'vizinho',
-};
 
 /**
  * Um ponto de custódia na lista do radar.
@@ -57,7 +50,7 @@ export function ItemPontoCustodia({ ponto, onPress, testID }: Props) {
           {distancia ? <Text style={estilos.distancia}>{distancia}</Text> : null}
         </View>
         <Text style={estilos.legenda}>
-          {ROTULO_TIPO[ponto.tipo]} · código {ponto.codigo}
+          {rotuloTipoPonto(ponto.tipo)} · código {ponto.codigo}
         </Text>
         <Text style={vagas === 0 ? estilos.lotado : estilos.legenda}>
           {vagas === 0 ? 'Sem vaga no momento' : `${vagas} de ${ponto.capacidade} vagas livres`}
@@ -73,7 +66,7 @@ function rotuloAcessivel(
   vagas: number,
   distancia: string | null,
 ): string {
-  const partes = [`Ponto de custódia, ${ROTULO_TIPO[ponto.tipo]}`];
+  const partes = [`Ponto de custódia, ${rotuloTipoPonto(ponto.tipo)}`];
   if (distancia) partes.push(`a ${distancia}`);
   partes.push(vagas === 0 ? 'sem vaga no momento' : `${vagas} de ${ponto.capacidade} vagas livres`);
   partes.push(ponto.apelido);

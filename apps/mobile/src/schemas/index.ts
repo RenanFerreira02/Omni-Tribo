@@ -59,6 +59,8 @@ export const transferenciaSchema = z.object({
  * não é reimplementada — o número vem de `POST /missoes/previa-recompensa`. Duas fontes de verdade
  * divergiriam no primeiro ajuste de parâmetro do servidor. Ver ADR 0009.
  */
+export const fontePoteSchema = z.enum(['COMUNIDADE', 'PATROCINADOR', 'CUNHAGEM', 'SEM_TOKEN']);
+
 export const criarMissaoSchema = z
   .object({
     categoria: z.enum(['ENTREGA', 'COLETA', 'TRIBO', 'AJUDA']),
@@ -88,6 +90,14 @@ export const criarMissaoSchema = z
     janelaInicio: z.date(),
     janelaFim: z.date(),
     pontoCustodiaId: z.guid().optional(),
+    /**
+     * `false` = a missão vale só XP, publica na hora e não aceita financiamento (ADR 0035).
+     *
+     * Não é `.optional()`: o formulário sempre decide, porque o padrão depende da CATEGORIA e essa
+     * decisão é de produto. Deixar o servidor decidir esconderia quanto a missão vale de quem lê o
+     * corpo da requisição.
+     */
+    recompensaEmToken: z.boolean(),
   })
   .superRefine((dados, ctx) => {
     if (dados.janelaFim <= dados.janelaInicio) {
@@ -125,6 +135,17 @@ export const criarMissaoSchema = z
         code: 'custom',
         path: ['complexidade'],
         message: 'Sem peso e volume, informe a complexidade.',
+      });
+    }
+
+    // Espelha a regra (4) do CriacaoMissaoVerificador. Entrega e coleta movem objeto físico e têm
+    // custo real de execução — pagá-las só em reputação seria trabalho de carga sem contrapartida.
+    // Barrar aqui é conveniência; quem recusa de verdade é o servidor, com 400 neste mesmo campo.
+    if (!dados.recompensaEmToken && movimentaObjeto) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['recompensaEmToken'],
+        message: 'Só mutirões e pedidos de ajuda podem valer apenas XP.',
       });
     }
   });
@@ -203,6 +224,7 @@ export const missaoResponseSchema = z.object({
   multiplicadorRisco: z.number().nullable(),
   faixaRisco: faixaRiscoSchema.nullable(),
   avisoRisco: z.string().nullable(),
+  fontePote: fontePoteSchema,
   versao: z.number(),
 });
 

@@ -44,6 +44,16 @@ export function useConsentimentos() {
  * SEM atualização otimista, ao contrário das ações de missão. A diferença é o que está em jogo: um
  * interruptor de consentimento que parece ligado sem ter sido gravado é um registro legal errado na
  * tela do titular. Aqui vale esperar a confirmação do servidor.
+ *
+ * <b>O sucesso GRAVA a resposta do PUT, em vez de invalidar a lista.</b> Antes era
+ * `invalidateQueries`, e isso custava duas coisas. A barata: o PUT já devolve o consentimento
+ * atualizado e validado, então o GET seguinte pedia de novo o que estava na mão. A cara: o refetch
+ * substituía o ARRAY INTEIRO, e os três `Switch` da tela remontavam juntos a cada toque num deles —
+ * era metade do "piscar" que a tela de privacidade tinha.
+ *
+ * Trocando um item só, os outros dois mantêm identidade referencial e não re-renderizam. Não é
+ * atualização otimista: o estado novo vem do servidor, depois da confirmação dele. O que mudou foi
+ * de onde ele é lido, não quando.
  */
 export function useDefinirConsentimento() {
   const queryClient = useQueryClient();
@@ -55,8 +65,10 @@ export function useDefinirConsentimento() {
   >({
     mutationFn: ({ tipo, concedido }) =>
       definirConsentimento(tipo, concedido, VERSAO_TEXTO_CONSENTIMENTO),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: chavesPerfil.consentimentos });
+    onSuccess: (atualizado) => {
+      queryClient.setQueryData<ConsentimentoResponse[]>(chavesPerfil.consentimentos, (atual) =>
+        atual?.map((item) => (item.tipo === atualizado.tipo ? atualizado : item)),
+      );
     },
     throwOnError: false,
   });

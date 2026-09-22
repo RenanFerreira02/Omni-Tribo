@@ -81,6 +81,78 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-09-22 (segunda leva) — os três pendentes fechados, e um quarto que ninguém tinha enunciado**
+  (ADR 0036 revisado, ADR 0037). A entrega anterior deixou três decisões em aberto por escrito.
+  Fechá-las produziu um achado maior que as três.
+
+  - **"Quem cria a missão NÃO paga" era premissa sem regra.** `validarAutorizacao` fazia duas
+    checagens, ambas sobre TRIBO, e **nunca comparou financiador com criador** — o criador passava
+    nas duas trivialmente. A premissa é citada em quatro ADRs, abre a seção Economia do `CLAUDE.md`,
+    e o ADR 0025 chegou a listar "deixar o criador financiar a própria AJUDA" como alternativa
+    DESCARTADA. Pior: **`ConservacaoTokensTest` dependia da brecha** — era o criador que financiava
+    ali, então o teste da conservação atestava, a cada execução, o que o produto diz que não pode
+    acontecer. Hoje é 422 (ADR 0037). É o segundo caso do padrão "escrito em ADR, não escrito em
+    código"; o primeiro foi o `REVOKE` inerte da verificação de 2026-08-11.
+  - **O ADR 0036 foi revisado no mesmo dia, antes do merge, e o texto errado ficou no lugar.** Ele
+    traçou a linha na PUBLICAÇÃO — "a partir de ABERTA a recompensa é promessa". O que de fato
+    protege a recompensa de uma missão publicada é o **POTE**, e a prova é a missão que não tem pote
+    nenhum: uma ENTREGA de humano é `CUNHAGEM`, publica sem pote e emite na conclusão, então manter
+    o valor alto depois de aproximar o destino era emissão sem contrapartida. Hoje recalcula nos dois
+    estados editáveis, com guarda **bidirecional** do pote — abaixo dele a sobra fica presa, acima
+    dele a conclusão falharia para sempre, e são invariantes diferentes.
+  - **O recálculo só roda quando um INSUMO vem no corpo, e a condição não é otimização.** Sem ela,
+    corrigir a vírgula do título de uma missão publicada e financiada passaria a falhar com 422
+    sempre que a calibração do YAML tivesse mudado desde a criação — por um motivo alheio à edição.
+  - **Eu tinha escrito um fato errado no ADR 0035**, e ele ficou corrigido com o erro à vista: a
+    justificativa de não financiar no teste e2e dizia que "o teto de 5 tentativas por minuto não
+    comporta" um terceiro login. O teto é um balde por `SHA-256(ip:email)` — **por conta**. O
+    obstáculo real é outro e é simples: o seed dá **0 tokens ao `admin`**, e não há mais ninguém na
+    Tribo Pinheiros. Registrado em vez de apagado porque a afirmação errada era sobre um mecanismo
+    de segurança.
+  - **O roteiro de pitch NÃO precisou mudar**, e isso foi verificado em vez de suposto: ele nunca
+    cria missão pelo app — é inteiro sobre a entrega falida, e o pote que mostra é o do patrocinador.
+    Ganhou uma nota dizendo onde responder se a banca perguntar pelo pote comunitário.
+  - Verificado: `./mvnw verify` verde (**786** testes, 0 falhas, SpotBugs limpo, os dois gates
+    JaCoCo), mobile 252/252, typecheck e lint sem erro.
+
+- **2026-09-22 — O trade-off do ADR 0025 veio cobrar, e o teste que provava isso estava vermelho há
+  um mês** (branch `feat/missao-comunitaria-sem-token`, ADR 0035 e ADR 0036). Ao usar o app, criar
+  uma missão TRIBO ou AJUDA e não conseguir publicá-la por falta de pote foi descrito como "um
+  impeditivo gigante". Não era defeito: é a Negativa que o **próprio ADR 0025 escreveu sobre si
+  mesmo** — *"se financiar favor alheio se mostrar pouco atraente na prática, AJUDA fica represada em
+  RASCUNHO […] é hipótese de adoção, e o dado para testá-la não existe"*. O dado apareceu pelo uso.
+
+  - **`src/api/__tests__/ciclo.e2e.test.ts` estava VERMELHO desde 2026-08-21.** Ele cria uma AJUDA e
+    publica no passo 3; desde o ADR 0025 aquele passo é 422. Ninguém viu porque `test:e2e` fica fora
+    do CI de propósito (exige backend de pé) — ou seja, **o teste que exercita o ciclo inteiro do
+    produto quebrou no dia da mudança e a quebra ficou invisível por um mês**. É o custo real da
+    decisão de manter aquele teste fora do CI, e ele não tinha sido pago antes.
+  - **A saída não foi afrouxar a conservação**, que era a tentação óbvia e teria reaberto a cunhagem
+    implícita. Foi nomear uma ausência: `FontePote.SEM_TOKEN` (V30), a missão comunitária que vale só
+    XP. Ela **não é uma quarta ponta da invariante** — não emite nem queima, não participa. A tabela
+    das três pontas do `CLAUDE.md` continua igual, e a distinção é o que a assertion do teste mede:
+    Δ=0 **e** nenhum lançamento, porque só o Δ passaria igual se a missão cunhasse e queimasse.
+  - **O efeito de segunda ordem quase passou batido.** O ledger proíbe lançamento zerado
+    (`Movimento`, `ck_lancamento_valor_nao_nulo`), então a conclusão de uma missão só-XP não pode
+    chamar `creditarConclusao`. Mas a sondagem de replay daquela conclusão é feita PELO LANÇAMENTO:
+    sem ele, um retry de `POST /confirmar` numa missão já CONCLUIDA cairia em **409** para quem só
+    perdeu a resposta na rede. A idempotência ali passou a ser por ESTADO, sob o mesmo `FOR UPDATE`
+    (precedente do ADR 0031). Dois testes travam isso; sem eles a regressão é invisível.
+  - **Uma decisão puxou a outra, e por isso são dois ADRs.** Tornar a forma de recompensa editável
+    (é a edição que destrava quem JÁ está preso) obriga a dizer o que o `PATCH` faz com a recompensa
+    congelada. O javadoc de `Missao.editarRascunho` justificava o congelamento com um argumento que
+    só cobre ABERTA — *"sob os pés de quem está prestes a aceitar"* —, aplicado aos dois estados sem
+    a diferença ter sido examinada. Hoje RASCUNHO recalcula e ABERTA não. **O que o ADR 0036 NÃO
+    fez** está nomeado lá: ABERTA continua alterando peso e coordenada sem recalcular, o que já era
+    verdade na API e agora ganhou UI.
+  - **Um defeito novo, achado por teste e não por leitura:** ao extrair o formulário de `criar.tsx`
+    para `FormularioMissao`, a tela de edição passou a abrir com o CEP preenchido — e o
+    auto-preenchimento por CEP disparava na montagem, sobrescrevendo logradouro, bairro, cidade e UF
+    com a versão do provedor, apagando número e complemento sem o usuário tocar em nada. Só apareceu
+    porque o teste de edição afirmava o bairro carregado. Corrigido com `cepInicial`.
+  - Verificado na primeira leva: `./mvnw verify` verde (**781** testes, 0 falhas, SpotBugs limpo, os dois gates
+    JaCoCo), mobile **252/252** em três execuções seguidas, typecheck e lint sem erro.
+
 - **2026-09-15 — O preparo do vídeo-pitch, e três defeitos que só apareciam com a câmera ligada** —
   o roteiro de 5 min (`docs/ROTEIRO-PITCH-5MIN.md`) precisa do ciclo inteiro dentro do app, e os dois
   atos da transportadora não têm gatilho na UI por desenho (ADR 0026). `tools/demo/pitch-armar.sh`
