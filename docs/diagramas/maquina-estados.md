@@ -1,9 +1,10 @@
 # Máquina de estados da missão
 
 Fonte da verdade: `services/api/src/main/java/com/omnitribo/missoes/dominio/StatusMissao.java`
-(bloco `static`, linhas 45–81) e `EventoMissao.java` (ator esperado de cada evento).
-**9 estados, 17 transições.** Ver [ADR 0006](../adr/0006-maquina-estados-missao.md) e
-[ADR 0015](../adr/0015-destravamento-de-estados-sem-saida.md).
+(bloco `static`) e `EventoMissao.java` (ator esperado de cada evento).
+**9 estados, 20 transições.** Ver [ADR 0006](../adr/0006-maquina-estados-missao.md),
+[ADR 0015](../adr/0015-destravamento-de-estados-sem-saida.md) e
+[ADR 0034](../adr/0034-destravamento-dos-tres-estados-restantes.md).
 
 ```mermaid
 stateDiagram-v2
@@ -13,6 +14,7 @@ stateDiagram-v2
 
     RASCUNHO --> ABERTA: PUBLICAR · criador
     RASCUNHO --> CANCELADA: CANCELAR · criador
+    RASCUNHO --> CANCELADA: DESTRAVAR · admin
 
     ABERTA --> ACEITA: ACEITAR · candidato
     ABERTA --> CANCELADA: CANCELAR · criador
@@ -21,6 +23,7 @@ stateDiagram-v2
     ACEITA --> EM_ANDAMENTO: INICIAR · executor
     ACEITA --> ABERTA: DESISTIR · executor
     ACEITA --> CANCELADA: CANCELAR · criador
+    ACEITA --> CANCELADA: DESTRAVAR · admin
 
     EM_ANDAMENTO --> AGUARDANDO_CONFIRMACAO: CHECKIN · executor
     EM_ANDAMENTO --> EXPIRADA: EXPIRAR_EXECUCAO · sistema
@@ -33,6 +36,7 @@ stateDiagram-v2
 
     EM_DISPUTA --> CONCLUIDA: RESOLVER_CONCLUIR · admin
     EM_DISPUTA --> CANCELADA: RESOLVER_CANCELAR · admin
+    EM_DISPUTA --> CANCELADA: DESTRAVAR · admin
 
     CONCLUIDA --> [*]
     CANCELADA --> [*]
@@ -48,6 +52,10 @@ stateDiagram-v2
         existem para que o pote
         nunca dependa de um humano
         específico aparecer.
+        Desde o ADR 0034 os SEIS
+        satisfazem a regra: cinco
+        por porta de ADMIN, e
+        ABERTA pela janela_fim.
     end note
 ```
 
@@ -72,8 +80,17 @@ criador destruiria a tese do produto.
 *antes* de publicar — a publicação exige pote cobrindo a recompensa. Sem essa saída, um rascunho
 financiado e abandonado prenderia os tokens dos financiadores para sempre.
 
-**`EM_ANDAMENTO` e `AGUARDANDO_CONFIRMACAO` tinham uma saída cada, e as duas dependiam de um humano
-específico.** Executor que abandonava, ou criador que sumia, imobilizava o pote **para sempre** — e
-a reconciliação continuava respondendo `integro=true`, porque ledger e projeção seguiam batendo. É a
-**conservação** que quebrava, não a reconciliação: invariantes diferentes, e só uma tem endpoint. A
-história completa está em [`../EVOLUCAO-ARQUITETURAL.md`](../EVOLUCAO-ARQUITETURAL.md).
+**A regra "nenhum pote depende de um humano específico" levou DOIS ADRs para valer.** Executor que
+abandonava, ou criador que sumia, imobilizava o pote **para sempre** — e a reconciliação continuava
+respondendo `integro=true`, porque ledger e projeção seguiam batendo. É a **conservação** que
+quebrava, não a reconciliação: invariantes diferentes, e só uma tem endpoint. O ADR 0015 fechou
+`EM_ANDAMENTO` e `AGUARDANDO_CONFIRMACAO`, que eram os becos conhecidos; o **ADR 0034** fechou
+`RASCUNHO`, `ACEITA` e `EM_DISPUTA`, que ninguém tinha enunciado até o diagnóstico do ADR 0032
+mostrá-los com `varreduraCobre=false`. A história completa está em
+[`../EVOLUCAO-ARQUITETURAL.md`](../EVOLUCAO-ARQUITETURAL.md).
+
+**Duas setas de `EM_DISPUTA` para `CANCELADA`, e a diferença é a trilha, não o efeito.**
+`RESOLVER_CANCELAR` é julgamento de mérito; `DESTRAVAR` é desistência de julgar, para a disputa que
+ficou sem informação com as duas partes ausentes. Os dois estornam o pote pelo mesmo caminho, e o que
+distingue é o tipo gravado em `missao_evento` mais o texto da justificativa — o código não impede um
+ADMIN de escolher a errada, e o ADR 0034 declara isso como consequência negativa aceita.

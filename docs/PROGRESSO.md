@@ -10,7 +10,7 @@
 | F5   | Missões e ciclo de vida               | ✅ Concluído | [F5](auditoria/F5.md) | 2026-08-06 |
 | F6   | Geolocalização e check-in             | ✅ Concluído | [F6](auditoria/F6.md) | 2026-08-07 |
 | F7   | Carteira e integridade transacional   | ✅ Concluído | [F7](auditoria/F7.md) | 2026-08-07 |
-| F8   | Logística, notificações e patrocinador| 🟨 Parcial  | —         | 2026-08-14 |
+| F8   | Logística, notificações e patrocinador| ✅ Concluído | [entrega-final](auditoria/entrega-final.md) | 2026-08-20 |
 | F9   | App mobile — autenticação             | ✅ Concluído | [fundação](auditoria/mobile-fundacao.md) | 2026-08-08 |
 | F10  | App mobile — missões e check-in       | ✅ Concluído | [fundação](auditoria/mobile-fundacao.md) | 2026-08-08 |
 | F11  | App mobile — carteira e perfil        | ✅ Concluído | [fundação](auditoria/mobile-fundacao.md) | 2026-08-08 |
@@ -18,7 +18,12 @@
 | F12b | Testes de carga e endurecimento       | ✅ Concluído | [carga](evidencias/f21-carga.md) | 2026-08-25 |
 | F12c | Previsão de risco de falha de entrega | ✅ Concluído | [modelo](qualidade/modelo-previsao.md) | 2026-08-15 |
 | F13  | Entrega final                         | ✅ Concluído | [evidências](evidencias/) | 2026-08-16 |
+| F14  | As três pendências de contrato        | ✅ Concluído | ADR [0031](adr/0031-carta-morta-da-outbox.md) · [0032](adr/0032-diagnostico-de-pote-imobilizado.md) · [0033](adr/0033-deduplicacao-do-alerta-operacional.md) | 2026-09-11 |
+| F15  | Instrumentação de desempenho em três camadas | ✅ Concluído | [desempenho](evidencias/desempenho-antes-de-otimizar.md) | 2026-09-12 |
+| F16b | Preparo da demonstração (`make demo`) | ✅ Concluído | [roteiro](ROTEIRO-DEMO.md) · [plano B](PLANO-B.md) | 2026-09-12 |
+| F17b | Faixa de sensibilidade no painel de impacto | ✅ Concluído | [ADR 0029](adr/0029-painel-de-impacto-e-a-premissa-declarada.md) | 2026-09-12 |
 | F21  | Endurecimento da cadeia de dependências | 🟨 Parcial  | [dependency-check](evidencias/f21-dependency-check.md) | 2026-08-24 |
+| F22  | Auditoria de entrega final e destravamento completo | ✅ Concluído | [entrega-final](auditoria/entrega-final.md) · [ADR 0034](adr/0034-destravamento-dos-tres-estados-restantes.md) | 2026-09-13 |
 
 > **A numeração acima é a dos COMMITS e das auditorias, e foi corrigida em 2026-08-08.** A tabela
 > anterior estava deslocada a partir da F2 (chamava a fase de API de "Identidade e Autenticação") e
@@ -26,10 +31,33 @@
 > formas diferentes — o commit da carteira se chama "F7" e a tabela a chamava de "F5". Agora tabela,
 > commits e `docs/auditoria/FN.md` usam a mesma numeração.
 
-**Backend verde com 637 testes** (0 falhas, 0 erros, 2 pulados), SpotBugs limpo e os dois gates
-JaCoCo passando. **Mobile com 179 testes** Jest/RTL/MSW em 14 suítes, typecheck e lint sem erro.
-Medido em 2026-08-16 por `make test` — saída em
-[`evidencias/f13-make-test.md`](evidencias/f13-make-test.md).
+> **Cuidado com F16, F17, F18 e F19: o repositório usou esses rótulos DUAS vezes, e as duas estão
+> registradas.** Não é possível desfazer — nomes de branch e notas de manutenção já existem —, então o
+> que resta é dizer qual é qual:
+>
+> | Rótulo | Sentido ANTIGO (notas de manutenção de agosto, mobile) | Sentido das BRANCHES de setembro |
+> |---|---|---|
+> | F16 | o resgate de benefício, V24–V26, [ADR 0027](adr/0027-resgate-queima-token.md) — é o sentido em `apps/mobile/CLAUDE.md` | preparo da demo (`make demo`) — na tabela como **F16b** |
+> | F17 | citado na nota de 2026-08-24 como fase anterior à rampa tipográfica | faixa de sensibilidade do painel — na tabela como **F17b** |
+> | F18 | acessibilidade semântica (nota de 2026-08-24, abaixo) | — |
+> | F19 | rampa tipográfica (nota de 2026-08-24, abaixo) | — |
+>
+> As linhas novas de setembro entram como **F16b** e **F17b** justamente para não colidir, e o
+> trabalho de 2026-09-13 recebeu **F22** e não F18, pelo mesmo motivo. **Esta tabela é a fonte da
+> fase; o nome da branch não é.** A ambiguidade foi achada pela auditoria de entrega final, item 6.
+
+**Backend verde com 768 testes** (0 falhas, 0 erros, 2 pulados) em 77 classes, SpotBugs limpo
+(`BugInstance size is 0`) e os dois gates JaCoCo passando — 92,78% global e 92,61% em `dominio`, sobre
+`INSTRUCTION`. **Mobile com 226 testes** Jest/RTL/MSW em 18 suítes, typecheck e lint sem erro.
+Medido em 2026-09-13 — saída em
+[`evidencias/entrega-final-verificacao-2026-09-12.md`](evidencias/entrega-final-verificacao-2026-09-12.md).
+
+> `BRANCH` está em **77,15%** e **não tem gate**, de propósito: ligá-la fecharia o build vermelho na
+> hora. Ela segue no relatório como evidência para ler — e subiu de 76,37% com os testes da F22.
+>
+> **A medição de 2026-08-16 que estava aqui (637 / 179) permanece válida para a data dela** e continua
+> em [`evidencias/f13-make-test.md`](evidencias/f13-make-test.md). O que estava errado era o README,
+> que publicava 706 / 221 citando aquele arquivo — números que nenhuma execução sustentava.
 
 Os testes de integração contra a API em execução ficam **fora** do `npm test`, de propósito
 (`jest.e2e.config.js`); o ciclo ponta a ponta com dois usuários reais está em
@@ -52,6 +80,38 @@ contra o sistema em execução. Quatro defeitos; dois corrigidos no mesmo dia, d
 Pendências do CLAUDE.md.
 
 ## Notas de manutenção
+
+- **2026-09-15 — O preparo do vídeo-pitch, e três defeitos que só apareciam com a câmera ligada** —
+  o roteiro de 5 min (`docs/ROTEIRO-PITCH-5MIN.md`) precisa do ciclo inteiro dentro do app, e os dois
+  atos da transportadora não têm gatilho na UI por desenho (ADR 0026). `tools/demo/pitch-armar.sh`
+  os dispara fora de quadro. Ele reprovou o check-in duas vezes seguidas, por causas diferentes, e o
+  conserto da segunda introduziu a terceira. Nenhuma das três aparecia antes da hora de gravar.
+
+  - **Variáveis mortas de coordenada.** `CHECKIN_LAT`/`CHECKIN_LON` foram copiadas do
+    `carrier-mock/enviar.sh`, onde o próprio script faz o check-in por HTTP. No pitch quem faz é o
+    APP, com o GPS do aparelho — as duas não tinham efeito nenhum, e a mensagem de erro do script
+    mandava ajustá-las. Removidas.
+  - **Um padrão silencioso apontando para a zona leste.** Sem `PONTO_CUSTODIA`, o script usava o
+    LOCKER Cidade Líder. A origem da missão é a coordenada do ponto, e o servidor exige o aparelho a
+    200 m dela — então **três** caminhos independentes davam o mesmo sintoma: esquecer o
+    `ponto-aqui.sh`, rodar `make demo` depois dele (o ponto não é seed, o reset o apaga), ou esquecer
+    de colar a variável. Em todos, a missão nascia, o alerta chegava, o radar mostrava, e só o
+    check-in falhava. **O padrão foi removido**: hoje o script recusa e diz o que fazer, e imprime a
+    origem lida do banco antes de você pegar o telefone. Medido: recusa com `exit=1` e zero missões
+    criadas.
+  - **`make demo` não pode criar o ponto, e a tentativa foi um defeito meu.** O alvo recria o volume
+    e **não sobe backend, de propósito** — mas quem cria o schema é o **Flyway, no boot**. Naquele
+    instante o banco tem só `geography_columns`, `geometry_columns` e `spatial_ref_sys`, e o INSERT
+    morria com `relation "ponto_custodia" does not exist`, mensagem que não aponta para o backend em
+    lugar nenhum. O passo virou um AVISO; quem recria é o `pitch-armar.sh`, depois do backend de pé.
+    Os dois scripts passaram a detectar o banco sem schema e a dizer isso com todas as letras.
+  - **O que o ponto novo NÃO quebra**, conferido antes de afirmar: o alerta continua chegando, porque
+    `SQL_TRIBOS_NO_RAIO` mede distância MÍNIMA a qualquer ponto da tribo (ADR 0020) e o ponto novo é
+    um ponto da tribo — 0 m; aceitar não olha tribo; e o catálogo de benefícios filtra pela tribo do
+    usuário, não por proximidade.
+  - **Como as coordenadas ficam fora do git.** `tools/demo/.env.ponto`, já coberto pelo `.env.*` do
+    `.gitignore`. Endereço de quem grava não é fixture pública — foi o que impediu isso de virar um
+    seed da faixa 900, e o custo é o ponto morrer a cada `make demo`.
 
 - **2026-09-11 — A deduplicação do alerta operacional** — **a última das três pendências abertas por
   decisão de contrato saiu, e a resposta não foi nenhuma das duas opções que a pendência oferecia.**
@@ -477,7 +537,7 @@ Pendências do CLAUDE.md.
 
   1. **O "Anexo A do ROADMAP" não existe.** Não há arquivo ROADMAP versionado; as duas ocorrências
      de "anexo" no repo são um índice de auditorias sem relação, e o PDF da entrega tem zero. Já
-     tinha aparecido na F17 e foi contornado em silêncio; como agora era a espinha do artefato, a
+     tinha aparecido numa fase anterior do mobile e foi contornado em silêncio; como agora era a espinha do artefato, a
      lista passou a ser **WCAG 2.2 AA explicitamente**, com o número oficial de cada critério — e o
      documento diz, na primeira seção, que isso substitui um anexo não encontrado. De quebra vira
      auditável por terceiro.

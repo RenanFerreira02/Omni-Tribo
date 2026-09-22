@@ -4,7 +4,7 @@
 
 ![O ciclo da tese: a transportadora reporta a falha, nasce uma missão de bairro, o vizinho faz check-in e é creditado](docs/imagens/demo.gif)
 
-**▶ [Vídeo-pitch (3 min)](COLE-A-URL-DO-VIDEO-AQUI)** ·
+**▶ Vídeo-pitch (3 min) — ainda não publicado** ·
 [Roteiro de demonstração](docs/ROTEIRO-DEMO.md) ·
 [Do clone à execução em 5 comandos](#do-clone-à-execução-em-5-comandos)
 
@@ -71,19 +71,22 @@ renda comunitária. É o mesmo evento resolvendo os dois problemas.
 
 ## Estado
 
-**Backend e app mobile implementados**, com verificação executada em 2026-08-25:
+**Backend e app mobile implementados**, com verificação executada em 2026-09-13:
 
 | | Testes | Falhas | Evidência |
 |---|---|---|---|
-| Backend — JUnit 5, Testcontainers, ArchUnit (68 classes) | **706** | 0 (2 pulados) | [`f13-make-test.md`](docs/evidencias/f13-make-test.md) |
-| Mobile — Jest, RTL, MSW (17 suítes) | **221** | 0 | idem |
+| Backend — JUnit 5, Testcontainers, ArchUnit (77 classes) | **768** | 0 (2 pulados) | [`entrega-final-verificacao-2026-09-12.md`](docs/evidencias/entrega-final-verificacao-2026-09-12.md) |
+| Mobile — Jest, RTL, MSW (18 suítes) | **226** | 0 | idem |
 
 Carga medida em 2026-08-25: **14.967 requisições, 0 respostas 5xx**, radar a 74,6 req/s com p95 de
 4,3 ms ([`f21-carga.md`](docs/evidencias/f21-carga.md)). Mutação (PIT, sem gate) em `missoes.dominio`
 e `carteira.dominio`: **349/494** ([`mutacao.md`](docs/qualidade/mutacao.md)).
 
 `./mvnw verify` não é só teste: inclui Spotless, SpotBugs em `failOnError` e **dois gates de
-cobertura** JaCoCo que barram o build (80% global, 85% nos pacotes `dominio`).
+cobertura** JaCoCo que barram o build (80% global, 85% nos pacotes `dominio`). Medido na execução
+acima: **92,78%** global e **92,61%** em `dominio`, sobre `INSTRUCTION`. `BRANCH` está em **77,15%** e
+**não tem gate** — de propósito: ligá-la fecharia o build vermelho na hora, e subi-la é trabalho
+anterior a ligar o gate.
 
 | | |
 |---|---|
@@ -119,25 +122,36 @@ o que estava errado era *quem* e *quando*. Três mudanças, todas com ADR e migr
 | 2026-08-21 | AJUDA passa a pagar do pote como TRIBO | [ADR 0025](docs/adr/0025-ajuda-paga-do-pote.md) |
 | 2026-08-22 | Resgate de benefício vira o **sumidouro**: o lançamento debita e não credita ninguém | [ADR 0027](docs/adr/0027-resgate-queima-token.md), `V24`–`V26` |
 
-A emissão saiu do fim do ciclo — implícita, por missão, invisível para a reconciliação — e virou
-**um único ponto**: `APORTE_PATROCINADOR`, endpoint ADMIN, auditado e idempotente. O ganho não é
-"não cunhar mais"; é a emissão ter virado um número que alguém consegue somar.
+A emissão saiu do fim do ciclo na maioria dos casos — implícita, por missão, invisível para a
+reconciliação — e ganhou **um ponto explícito**: `APORTE_PATROCINADOR`, endpoint ADMIN, auditado e
+idempotente. O ganho não é "não cunhar mais"; é a emissão ter virado um número que alguém consegue
+somar.
 
-A invariante hoje é enunciável, e tem duas partes que não podem ser encurtadas numa:
-`SUM(carteira.saldo_tokens) + SUM(missao.pote_tokens)` é **constante dentro do ciclo de missões**,
-nas quatro categorias, e **muda nas duas pontas** — sobe no aporte, desce no resgate. Medido em
-2026-08-22 com o banco recriado do zero: **Δ=0 nas quatro categorias**, baseline e final em 10845,
-com `integro=true` em todos os pontos
-([evidência](docs/evidencias/f14-conservacao-quatro-categorias.md)).
+A invariante hoje é enunciável, e tem **TRÊS** pontas — não duas:
+`SUM(carteira.saldo_tokens) + SUM(missao.pote_tokens)` é **constante dentro do ciclo de missões** para
+as categorias com financiador, **sobe** no aporte, **sobe também** na conclusão de ENTREGA criada por
+humano, e **desce** no resgate. Medido em 2026-08-22 com o banco recriado do zero: **Δ=0 nas quatro
+categorias**, baseline e final em 10845, com `integro=true` em todos os pontos
+([evidência](docs/evidencias/f14-conservacao-quatro-categorias.md)) — e note **qual** ENTREGA aqueles
+ciclos exercitam: a do webhook, que tem patrocinador.
 
-**3. O que sobrou, e continua dito em voz alta.** A última cunhagem do sistema é a **ENTREGA criada
-por um humano** — não tem transportadora, logo não tem patrocinador a debitar. Ela é `FontePote
-.CUNHAGEM`, declarada na linha da missão em vez de escondida num `if` ([ADR 0024 §8](docs/adr/0024-carteira-de-patrocinador.md)).
+**3. O que sobrou, e o que foi preciso medir para descobrir que era maior do que se dizia.** A última
+cunhagem do sistema é a **ENTREGA criada por um humano** — não tem transportadora, logo não tem
+patrocinador a debitar. Ela é `FontePote.CUNHAGEM`, declarada na linha da missão em vez de escondida
+num `if` ([ADR 0024 §8](docs/adr/0024-carteira-de-patrocinador.md)).
 
-E **uma** armadilha diagnosticada segue aberta, pelo motivo escrito na seção final do
-[`CLAUDE.md`](CLAUDE.md): **três dos seis estados não-terminais não têm porta de ADMIN** para soltar
-o pote — `RASCUNHO` e `ACEITA` não têm nem varredura por prazo. Está registrada como decisão
-pendente, não como esquecimento — fechá-la muda contrato.
+Isto estava escrito aqui desde sempre — **e o parágrafo acima dizia "duas pontas", contradizendo-o
+duas linhas antes.** A auditoria de entrega final mediu o caso pela primeira vez, em 2026-09-13: ciclo
+completo por HTTP, `SUM(carteiras) + SUM(potes)` de **11330 para 11352**, um `CREDITO` de
+`RECOMPENSA_MISSAO` de **22 tokens sem contraparte**, e a reconciliação respondendo `integro=true` o
+tempo todo — o mecanismo exato do defeito de agosto, num caso que a correção não alcançou. Está no
+[adendo da auditoria](docs/auditoria/entrega-final.md), e fechá-la exige decidir quem financia uma
+ENTREGA que ninguém reportou: é candidata a ADR próprio.
+
+**A armadilha que estava aberta aqui fechou em 2026-09-13.** Os três estados não-terminais sem porta
+de ADMIN — `RASCUNHO`, `ACEITA` e `EM_DISPUTA` — ganharam `DESTRAVAR`, e a máquina foi de 17 para
+**20 transições** ([ADR 0034](docs/adr/0034-destravamento-dos-tres-estados-restantes.md)). Não era
+hipotética: a auditoria achou no banco de demonstração uma missão `ACEITA` com **42 tokens presos**.
 
 As outras três já fecharam, e o que elas NÃO resolveram importa tanto quanto o que resolveram.
 
@@ -239,6 +253,14 @@ e a saída real está em [`docs/evidencias/f13-execucao-do-zero.md`](docs/eviden
 
 Para rodar os testes: **`make test`** (backend + mobile). Detalhe na seção [Verificar](#6-verificar).
 
+**Para uma apresentação, use `make demo` em vez dos passos 1 e 2.** Ele faz as chaves, recria o banco
+do zero e espera o Postgres aceitar conexão por TCP — e **recusa rodar se algo estiver escutando na
+8080**, porque recriar o volume por baixo de um backend de pé o deixa ligado a um banco sem schema, e
+o sintoma (login que não responde) não aponta para a causa. Ao fim ele imprime os dois comandos que
+precisam de terminal próprio. Antes de entrar na sala, `bash tools/demo/checar-ambiente.sh` responde
+✓/✗ por item, com a ação corretiva ao lado de cada ✗. Ver [`docs/ROTEIRO-DEMO.md`](docs/ROTEIRO-DEMO.md)
+e o [`docs/PLANO-B.md`](docs/PLANO-B.md).
+
 O passo a passo comentado, com o que fazer quando algo falha, continua abaixo.
 
 ---
@@ -309,7 +331,7 @@ cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
 **O passo 3 é o que costuma ser esquecido.** `make reset` apenas recria o container com as extensões
-do `docker/init/`; quem aplica o schema (`V1`–`V22`) e depois o seed (`V900`–`V904`) é o Flyway, no
+do `docker/init/`; quem aplica o schema (`V1`–`V8` e `V11`–`V29`) e depois o seed (`V900`–`V906`) é o Flyway, no
 boot da aplicação. Sem subir o backend, o banco fica vazio. O seed só entra porque
 `application-dev.yml` inclui `classpath:db/seed` nas locations — o perfil de produção não inclui,
 então dado de demonstração não tem como vazar para lá.
@@ -408,10 +430,20 @@ Usuários do seed, todos com a senha `Senha@123`:
 | `alice@omnitribo.dev` | Usuário | Pinheiros |
 | `bob@omnitribo.dev` | Usuário | Vila Madalena |
 | `carol@omnitribo.dev` | Usuário | Vila Madalena |
+| `diana@omnitribo.dev` · `erik@omnitribo.dev` | Usuário | Jardim América |
+| `fernanda@omnitribo.dev` · `gustavo@omnitribo.dev` | Usuário | Pinheiros |
+| **`renan@omnitribo.dev`** · `jonas@` · `marlene@` | Usuário | **Cidade Líder** |
 | `admin@omnitribo.dev` | Admin | Pinheiros |
 
-`bob` e `carol` estão na **mesma tribo** — é o par para testar transferência de tokens, que só
-acontece entre membros da mesma tribo. Lista completa em [`docs/INFRA.md`](docs/INFRA.md).
+São **11 contas** no total. `bob` e `carol` estão na **mesma tribo** — é o par para testar
+transferência de tokens, que só acontece entre membros da mesma tribo.
+
+**`renan@omnitribo.dev` é a conta que o roteiro de demonstração usa do começo ao fim**, e a tribo
+importa: a Cidade Líder (seed `V903`) é onde estão o ponto de custódia, os parceiros e os benefícios
+da zona leste. Entrar como `alice` e seguir o [roteiro](docs/ROTEIRO-DEMO.md) não funciona — a missão
+de retirada nasce em outra tribo, e o catálogo de benefícios é recortado por tribo.
+
+Lista completa em [`docs/INFRA.md`](docs/INFRA.md).
 
 > **Login tem limite de 5 tentativas por minuto.** Se aparecer "Muitas tentativas", espere um
 > minuto: é o bloqueio antifraude funcionando, não um defeito.
@@ -505,8 +537,8 @@ Referência completa:
 | `CLAUDE.md` | memória do projeto: arquitetura, convenções, regras não negociáveis, pendências |
 | `services/api/CLAUDE.md` · `apps/mobile/CLAUDE.md` | convenções e armadilhas de cada camada |
 | [`docs/PROGRESSO.md`](docs/PROGRESSO.md) | tabela de fases e **notas de manutenção** — o log de por que cada correção estrutural foi feita |
-| [`docs/adr/`](docs/adr/) | 30 decisões com alternativas descartadas e o motivo real de cada recusa |
-| [`docs/auditoria/`](docs/auditoria/) | 12 documentos de auditoria, com evidência executada (SQL, `curl`, `EXPLAIN`) |
+| [`docs/adr/`](docs/adr/) | 34 decisões com alternativas descartadas e o motivo real de cada recusa |
+| [`docs/auditoria/`](docs/auditoria/) | 14 documentos de auditoria, com evidência executada (SQL, `curl`, `EXPLAIN`) |
 | [`docs/evidencias/`](docs/evidencias/) | saídas reais de medição — [índice](docs/evidencias/README.md) |
 | [`docs/qualidade/`](docs/qualidade/) | evidência de build, concorrência, modelo de risco e a [matriz de rastreabilidade](docs/qualidade/matriz-rastreabilidade.md) requisito→teste→evidência |
 | [`docs/seguranca/`](docs/seguranca/) | modelo de ameaça de autenticação e limites do antifraude |

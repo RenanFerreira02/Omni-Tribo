@@ -1,5 +1,9 @@
 # Roteiro de demonstração — 10 minutos
 
+> **Este é o roteiro da ARGUIÇÃO, e continua valendo inteiro.** O vídeo-pitch de 5 minutos da
+> Atividade 4 tem roteiro próprio, todo dentro do app e sem terminal em quadro:
+> [`ROTEIRO-PITCH-5MIN.md`](ROTEIRO-PITCH-5MIN.md). Os dois compartilham o fio condutor e o seed.
+
 **Regra número um: nada é instalado, clonado ou compilado durante a demonstração.** Tudo abaixo
 pressupõe o preparo da seção final já feito. Se o tempo apertar, corte o bloco 7 — ele é o único
 opcional.
@@ -143,9 +147,14 @@ O bloco que fecha o argumento é o ciclo completo, e ele imprime o número sozin
 > **Leia o `+N` que o script imprimir; não decore este número.** A recompensa da missão de retirada
 > entra na base multiplicada por `multiplicador_risco`, que o `PrevisorDeRisco` deriva e a missão
 > **congela** — e um dos insumos do modelo é o clima, consultado ao vivo no Open-Meteo. A saída
-> acima foi medida em 2026-09-12, com multiplicador **1,06×**; antes dela este bloco registrava 66,
-> com as mesmas coordenadas. O script confere o crédito contra a recompensa **da própria missão**,
-> então ele acusa erro de verdade — uma diferença no valor absoluto, não.
+> acima foi medida em 2026-09-13, com multiplicador **1,06×**; ela já registrou 66 e 64 com as mesmas
+> coordenadas. O script confere o crédito contra a recompensa **da própria missão**, então ele acusa
+> erro de verdade — uma diferença no valor absoluto, não.
+>
+> **E o número se propaga:** o saldo que este bloco imprime é a entrada do bloco `4:00–5:00`, onde o
+> resgate subtrai 15. Se o `+N` daqui mudar, o `saldoTokensRestante` de lá muda junto — foi assim que
+> o documento passou a afirmar um saldo aritmeticamente impossível, corrigido em 2026-09-13.
+> **Reexecute os dois blocos na MESMA sessão** ao regravar qualquer um dos dois.
 
 > "**Quem confirma é a transportadora, não o executor.** O check-in prova presença, não recebimento —
 > confirmar ali faria o executor confirmar a si mesmo. E `CONCLUIDA` é o **único** estado que credita:
@@ -188,9 +197,14 @@ curl -s -X POST http://localhost:8080/api/v1/resgates \
 ```
 
 ```json
-{ "custoTokens": 15, "codigoRetirada": "NURE8YPY", "status": "PENDENTE",
-  "saldoTokensRestante": 175, "replay": false }
+{ "custoTokens": 15, "codigoRetirada": "WFV7CBSX", "status": "PENDENTE",
+  "saldoTokensRestante": 174, "replay": false }
 ```
+
+> **A conta fecha com o bloco anterior, e é só isso que se confere aqui:** 189 − 15 = **174**. O
+> `codigoRetirada` é ALEATÓRIO por construção — o seu vai ser outro, e isso não é divergência. Este
+> bloco e o de `2:00–4:00` foram medidos na MESMA sessão, em 2026-09-13, num banco recém-resetado;
+> antes disso o documento colava `175`, que não fechava com nenhum saldo possível.
 
 > "**É aqui que o token é queimado.** O lançamento debita com motivo `RESGATE` e **não credita
 > ninguém** — sem contraparte, sem missão. É o que o separa de uma transferência, onde as duas pernas
