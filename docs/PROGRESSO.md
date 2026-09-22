@@ -81,6 +81,38 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-09-15 — O preparo do vídeo-pitch, e três defeitos que só apareciam com a câmera ligada** —
+  o roteiro de 5 min (`docs/ROTEIRO-PITCH-5MIN.md`) precisa do ciclo inteiro dentro do app, e os dois
+  atos da transportadora não têm gatilho na UI por desenho (ADR 0026). `tools/demo/pitch-armar.sh`
+  os dispara fora de quadro. Ele reprovou o check-in duas vezes seguidas, por causas diferentes, e o
+  conserto da segunda introduziu a terceira. Nenhuma das três aparecia antes da hora de gravar.
+
+  - **Variáveis mortas de coordenada.** `CHECKIN_LAT`/`CHECKIN_LON` foram copiadas do
+    `carrier-mock/enviar.sh`, onde o próprio script faz o check-in por HTTP. No pitch quem faz é o
+    APP, com o GPS do aparelho — as duas não tinham efeito nenhum, e a mensagem de erro do script
+    mandava ajustá-las. Removidas.
+  - **Um padrão silencioso apontando para a zona leste.** Sem `PONTO_CUSTODIA`, o script usava o
+    LOCKER Cidade Líder. A origem da missão é a coordenada do ponto, e o servidor exige o aparelho a
+    200 m dela — então **três** caminhos independentes davam o mesmo sintoma: esquecer o
+    `ponto-aqui.sh`, rodar `make demo` depois dele (o ponto não é seed, o reset o apaga), ou esquecer
+    de colar a variável. Em todos, a missão nascia, o alerta chegava, o radar mostrava, e só o
+    check-in falhava. **O padrão foi removido**: hoje o script recusa e diz o que fazer, e imprime a
+    origem lida do banco antes de você pegar o telefone. Medido: recusa com `exit=1` e zero missões
+    criadas.
+  - **`make demo` não pode criar o ponto, e a tentativa foi um defeito meu.** O alvo recria o volume
+    e **não sobe backend, de propósito** — mas quem cria o schema é o **Flyway, no boot**. Naquele
+    instante o banco tem só `geography_columns`, `geometry_columns` e `spatial_ref_sys`, e o INSERT
+    morria com `relation "ponto_custodia" does not exist`, mensagem que não aponta para o backend em
+    lugar nenhum. O passo virou um AVISO; quem recria é o `pitch-armar.sh`, depois do backend de pé.
+    Os dois scripts passaram a detectar o banco sem schema e a dizer isso com todas as letras.
+  - **O que o ponto novo NÃO quebra**, conferido antes de afirmar: o alerta continua chegando, porque
+    `SQL_TRIBOS_NO_RAIO` mede distância MÍNIMA a qualquer ponto da tribo (ADR 0020) e o ponto novo é
+    um ponto da tribo — 0 m; aceitar não olha tribo; e o catálogo de benefícios filtra pela tribo do
+    usuário, não por proximidade.
+  - **Como as coordenadas ficam fora do git.** `tools/demo/.env.ponto`, já coberto pelo `.env.*` do
+    `.gitignore`. Endereço de quem grava não é fixture pública — foi o que impediu isso de virar um
+    seed da faixa 900, e o custo é o ponto morrer a cada `make demo`.
+
 - **2026-09-11 — A deduplicação do alerta operacional** — **a última das três pendências abertas por
   decisão de contrato saiu, e a resposta não foi nenhuma das duas opções que a pendência oferecia.**
 
