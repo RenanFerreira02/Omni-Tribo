@@ -108,6 +108,7 @@ Título: Três moedas, e uma invariante que é medida
 - Quem cria a missão não paga: a recompensa é calculada pelo servidor e congelada na criação
 - O token entra por aporte do patrocinador e sai de circulação no resgate de um benefício
 - Publicar exige pote cobrindo a recompensa; cancelar ou expirar estorna a quem financiou
+- Missão comunitária pode valer **só XP**: aí não há pote, publica na hora e token nenhum se move
 
 SLIDE 7 — Arquitetura
 Título: Monólito modular, com a fronteira verificada por teste

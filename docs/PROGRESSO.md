@@ -81,6 +81,40 @@ Pendências do CLAUDE.md.
 
 ## Notas de manutenção
 
+- **2026-09-22 (segunda leva) — os três pendentes fechados, e um quarto que ninguém tinha enunciado**
+  (ADR 0036 revisado, ADR 0037). A entrega anterior deixou três decisões em aberto por escrito.
+  Fechá-las produziu um achado maior que as três.
+
+  - **"Quem cria a missão NÃO paga" era premissa sem regra.** `validarAutorizacao` fazia duas
+    checagens, ambas sobre TRIBO, e **nunca comparou financiador com criador** — o criador passava
+    nas duas trivialmente. A premissa é citada em quatro ADRs, abre a seção Economia do `CLAUDE.md`,
+    e o ADR 0025 chegou a listar "deixar o criador financiar a própria AJUDA" como alternativa
+    DESCARTADA. Pior: **`ConservacaoTokensTest` dependia da brecha** — era o criador que financiava
+    ali, então o teste da conservação atestava, a cada execução, o que o produto diz que não pode
+    acontecer. Hoje é 422 (ADR 0037). É o segundo caso do padrão "escrito em ADR, não escrito em
+    código"; o primeiro foi o `REVOKE` inerte da verificação de 2026-08-11.
+  - **O ADR 0036 foi revisado no mesmo dia, antes do merge, e o texto errado ficou no lugar.** Ele
+    traçou a linha na PUBLICAÇÃO — "a partir de ABERTA a recompensa é promessa". O que de fato
+    protege a recompensa de uma missão publicada é o **POTE**, e a prova é a missão que não tem pote
+    nenhum: uma ENTREGA de humano é `CUNHAGEM`, publica sem pote e emite na conclusão, então manter
+    o valor alto depois de aproximar o destino era emissão sem contrapartida. Hoje recalcula nos dois
+    estados editáveis, com guarda **bidirecional** do pote — abaixo dele a sobra fica presa, acima
+    dele a conclusão falharia para sempre, e são invariantes diferentes.
+  - **O recálculo só roda quando um INSUMO vem no corpo, e a condição não é otimização.** Sem ela,
+    corrigir a vírgula do título de uma missão publicada e financiada passaria a falhar com 422
+    sempre que a calibração do YAML tivesse mudado desde a criação — por um motivo alheio à edição.
+  - **Eu tinha escrito um fato errado no ADR 0035**, e ele ficou corrigido com o erro à vista: a
+    justificativa de não financiar no teste e2e dizia que "o teto de 5 tentativas por minuto não
+    comporta" um terceiro login. O teto é um balde por `SHA-256(ip:email)` — **por conta**. O
+    obstáculo real é outro e é simples: o seed dá **0 tokens ao `admin`**, e não há mais ninguém na
+    Tribo Pinheiros. Registrado em vez de apagado porque a afirmação errada era sobre um mecanismo
+    de segurança.
+  - **O roteiro de pitch NÃO precisou mudar**, e isso foi verificado em vez de suposto: ele nunca
+    cria missão pelo app — é inteiro sobre a entrega falida, e o pote que mostra é o do patrocinador.
+    Ganhou uma nota dizendo onde responder se a banca perguntar pelo pote comunitário.
+  - Verificado: `./mvnw verify` verde (**786** testes, 0 falhas, SpotBugs limpo, os dois gates
+    JaCoCo), mobile 252/252, typecheck e lint sem erro.
+
 - **2026-09-22 — O trade-off do ADR 0025 veio cobrar, e o teste que provava isso estava vermelho há
   um mês** (branch `feat/missao-comunitaria-sem-token`, ADR 0035 e ADR 0036). Ao usar o app, criar
   uma missão TRIBO ou AJUDA e não conseguir publicá-la por falta de pote foi descrito como "um
@@ -116,7 +150,7 @@ Pendências do CLAUDE.md.
     auto-preenchimento por CEP disparava na montagem, sobrescrevendo logradouro, bairro, cidade e UF
     com a versão do provedor, apagando número e complemento sem o usuário tocar em nada. Só apareceu
     porque o teste de edição afirmava o bairro carregado. Corrigido com `cepInicial`.
-  - Verificado: `./mvnw verify` verde (**781** testes, 0 falhas, SpotBugs limpo, os dois gates
+  - Verificado na primeira leva: `./mvnw verify` verde (**781** testes, 0 falhas, SpotBugs limpo, os dois gates
     JaCoCo), mobile **252/252** em três execuções seguidas, typecheck e lint sem erro.
 
 - **2026-09-15 — O preparo do vídeo-pitch, e três defeitos que só apareciam com a câmera ligada** —

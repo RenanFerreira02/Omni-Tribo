@@ -61,6 +61,16 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
   private UUID outraTribo;
   private UUID criador;
   private UUID financiador;
+
+  /**
+   * Segundo membro com saldo, para o cenário de dois financiadores.
+   *
+   * <p>Entrou em 2026-09-22 com o ADR 0037: aquele teste usava o CRIADOR como segunda ponta, o que
+   * o código permitia e a premissa do ADR 0009 dizia que não. Dois financiadores DISTINTOS também é
+   * o cenário mais honesto — o que ele exercita é a agregação por carteira e a ordem de lock.
+   */
+  private UUID segundoFinanciador;
+
   private UUID executor;
   private UUID forasteiro;
   private UUID missaoId;
@@ -81,6 +91,7 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     outraTribo = criarTribo("Alheia");
     criador = criarUsuarioComCarteira("criador", tribo, SALDO);
     financiador = criarUsuarioComCarteira("financiador", tribo, SALDO);
+    segundoFinanciador = criarUsuarioComCarteira("financiador2", tribo, SALDO);
     executor = criarUsuarioComCarteira("executor", tribo, 0);
     forasteiro = criarUsuarioComCarteira("forasteiro", outraTribo, SALDO);
     missaoId = criarMissaoTriboEmRascunho();
@@ -100,7 +111,7 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     jdbcTemplate.update("DELETE FROM alerta WHERE missao_id = ?", missaoId);
     jdbcTemplate.update("DELETE FROM missao_evento WHERE missao_id = ?", missaoId);
     jdbcTemplate.update("DELETE FROM missao WHERE id = ?", missaoId);
-    UUID[] usuarios = {criador, financiador, executor, forasteiro};
+    UUID[] usuarios = {criador, financiador, segundoFinanciador, executor, forasteiro};
     for (UUID u : usuarios) {
       jdbcTemplate.update(
           "DELETE FROM lancamento WHERE carteira_id IN"
@@ -283,10 +294,15 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     // Frações DERIVADAS da recompensa, e não 60+40 absolutos: elas precisam somar exatamente o
     // pote, e o valor total agora vem da calculadora. A divisão desigual é proposital — o estorno
     // tem de devolver a parte de cada um, não a média.
+    //
+    // A segunda ponta era o CRIADOR até o ADR 0037. Hoje é um segundo membro, e o saldo do criador
+    // continua sendo conferido logo abaixo — agora como prova de que ele NÃO pagou nada.
     long parteA = recompensa / 2;
     long parteB = recompensa - parteA;
     mockMvc.perform(financiar(financiador, parteA, "dois-a")).andExpect(status().isCreated());
-    mockMvc.perform(financiar(criador, parteB, "dois-b")).andExpect(status().isCreated());
+    mockMvc
+        .perform(financiar(segundoFinanciador, parteB, "dois-b"))
+        .andExpect(status().isCreated());
     assertThat(poteDaMissao()).isEqualTo(recompensa);
 
     mockMvc
@@ -300,7 +316,10 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     assertThat(saldoTokens(financiador))
         .as("cada um recebe exatamente a sua parte")
         .isEqualTo(SALDO);
-    assertThat(saldoTokens(criador)).isEqualTo(saldoCriadorAntes);
+    assertThat(saldoTokens(segundoFinanciador)).isEqualTo(SALDO);
+    assertThat(saldoTokens(criador))
+        .as("quem criou a missão não pagou por ela em momento nenhum (ADR 0009, imposto pelo 0037)")
+        .isEqualTo(saldoCriadorAntes);
     assertThat(poteDaMissao()).isZero();
     assertThat(tokensEmCirculacao(jdbcTemplate)).isEqualTo(circulacaoInicial);
 
@@ -864,6 +883,53 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
   }
 
   /** AJUDA declara a complexidade (não move objeto), ao contrário de ENTREGA e COLETA. */
+  // ─── ADR 0037: quem cria a missão não paga por ela ───────────────────────────────────────────
+
+  /**
+   * A premissa central da economia vira regra imposta.
+   *
+   * <p>"Quem cria a missão NÃO paga" (ADR 0009) era afirmada em quatro ADRs e não existia no
+   * código: {@code validarAutorizacao} conferia TRIBO e nunca comparava financiador com criador. O
+   * ADR 0025 listava "deixar o criador financiar a própria AJUDA" como alternativa DESCARTADA por
+   * violar o 0009 — descrevendo como recusado algo que sempre passou.
+   */
+  @Test
+  @DisplayName("o criador não financia a própria missão, e a recusa não move saldo nenhum")
+  void criadorNaoFinanciaAPropriaMissao() throws Exception {
+    long circulacaoInicial = tokensEmCirculacao(jdbcTemplate);
+    long saldoAntes = saldoTokens(criador);
+
+    mockMvc
+        .perform(financiar(criador, recompensa, "autofinanciamento"))
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("não paga")));
+
+    assertThat(saldoTokens(criador)).as("recusa sem efeito colateral").isEqualTo(saldoAntes);
+    assertThat(poteDaMissao()).isZero();
+    assertThat(tokensEmCirculacao(jdbcTemplate)).isEqualTo(circulacaoInicial);
+    assertLedgerReconcilia(jdbcTemplate);
+  }
+
+  /**
+   * A recusa vem ANTES da sondagem de idempotência, e isso é visível: repetir com a MESMA chave não
+   * devolve replay de sucesso.
+   *
+   * <p>É seguro estar antes justamente porque não há replay legítimo a proteger — a operação nunca
+   * deveria ter sido possível, então não existe chave gravada de um autofinanciamento anterior.
+   */
+  @Test
+  @DisplayName("repetir o autofinanciamento com a mesma chave continua 422, não vira replay")
+  void autofinanciamentoRepetidoContinuaRecusado() throws Exception {
+    mockMvc
+        .perform(financiar(criador, recompensa, "auto-repetido"))
+        .andExpect(status().isUnprocessableEntity());
+    mockMvc
+        .perform(financiar(criador, recompensa, "auto-repetido"))
+        .andExpect(status().isUnprocessableEntity());
+
+    assertThat(poteDaMissao()).isZero();
+  }
+
   // ─── ADR 0035: missão comunitária que recompensa só em XP ────────────────────────────────────
 
   /**
@@ -1186,6 +1252,146 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
         .andExpect(jsonPath("$.tokensRecompensa").value(greaterThan((int) antes)));
 
     assertThat(tokensDe(missaoAjudaId)).isGreaterThan(antes);
+  }
+
+  /**
+   * O furo que o ADR 0036 revisado fecha, medido de ponta a ponta.
+   *
+   * <p>Publicar uma ENTREGA com destino distante congelava a recompensa alta; aproximar o destino
+   * depois deixava o valor intacto. Em {@code CUNHAGEM} o token é EMITIDO na conclusão, então a
+   * diferença era emissão sem contrapartida — o mesmo defeito que o ADR 0024 fechou pelo outro
+   * lado.
+   */
+  @Test
+  @DisplayName("aproximar o destino de uma ENTREGA publicada BAIXA a recompensa congelada")
+  void patchDeDistanciaEmMissaoPublicadaRecalcula() throws Exception {
+    missaoAjudaId = criarMissaoEntregaComDestino(-23.5505, -46.6333);
+    long antes = tokensDe(missaoAjudaId);
+
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/publicar", missaoAjudaId)
+                .header("Authorization", bearer(criador)))
+        .andExpect(status().isOk());
+
+    // Destino colado na origem: a parcela de distância da fórmula desaparece.
+    mockMvc
+        .perform(
+            patch(MISSOES + "/{id}", missaoAjudaId)
+                .header("Authorization", bearer(criador))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"destinoLat\": -23.5630, \"destinoLon\": -46.6990}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("ABERTA"));
+
+    assertThat(tokensDe(missaoAjudaId))
+        .as("o trabalho encolheu e o preço acompanhou — antes ele não acompanhava")
+        .isLessThan(antes);
+  }
+
+  /**
+   * E o contrapeso: onde há pote comprometido, o valor não pode se mexer em nenhuma direção.
+   *
+   * <p>Para baixo a sobra ficaria presa; para cima a conclusão falharia com 422 para sempre. As
+   * duas quebram invariantes diferentes, e as duas são recusadas com o mesmo {@code type}.
+   */
+  @Test
+  @DisplayName("em missão COMUNIDADE publicada, subir a recompensa é 422 e o pote fica intacto")
+  void patchQueSobeARecompensaDeMissaoFinanciadaEhRecusado() throws Exception {
+    mockMvc
+        .perform(financiarMissao(financiador, missaoId, recompensa, "tribo-financiada"))
+        .andExpect(status().isCreated());
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/publicar", missaoId).header("Authorization", bearer(criador)))
+        .andExpect(status().isOk());
+
+    // PESADA vale mais que MEDIA: a recompensa subiria acima do pote fechado.
+    mockMvc
+        .perform(
+            patch(MISSOES + "/{id}", missaoId)
+                .header("Authorization", bearer(criador))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"complexidade\": \"PESADA\"}"))
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(jsonPath("$.type").value("https://omnitribo.dev/problemas/pote-insuficiente"))
+        .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("concluída")))
+        .andExpect(jsonPath("$.poteTokens").value(recompensa));
+
+    assertThat(poteDe(missaoId)).isEqualTo(recompensa);
+    assertThat(tokensDe(missaoId)).as("a recompensa congelada não se moveu").isEqualTo(recompensa);
+    assertLedgerReconcilia(jdbcTemplate);
+  }
+
+  /**
+   * Editar só o TEXTO de uma missão publicada e financiada continua funcionando.
+   *
+   * <p>É a razão de o recálculo ser condicionado a um insumo ter vindo no corpo. Sem essa condição,
+   * corrigir a vírgula de um título passaria a falhar com 422 sempre que a calibração do YAML
+   * tivesse mudado desde a criação da missão — o valor novo divergiria de um pote já fechado.
+   */
+  @Test
+  @DisplayName("editar só o título de uma missão publicada e financiada continua permitido")
+  void patchDeTextoEmMissaoFinanciadaNaoRecalcula() throws Exception {
+    mockMvc
+        .perform(financiarMissao(financiador, missaoId, recompensa, "tribo-financiada-2"))
+        .andExpect(status().isCreated());
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/publicar", missaoId).header("Authorization", bearer(criador)))
+        .andExpect(status().isOk());
+
+    mockMvc
+        .perform(
+            patch(MISSOES + "/{id}", missaoId)
+                .header("Authorization", bearer(criador))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"titulo\": \"Mutirão de limpeza da praça central\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tokensRecompensa").value(recompensa));
+
+    assertThat(poteDe(missaoId)).isEqualTo(recompensa);
+  }
+
+  private UUID criarMissaoEntregaComDestino(double destinoLat, double destinoLon) throws Exception {
+    Instant inicio = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+    String corpo =
+        """
+        {
+          "categoria": "ENTREGA",
+          "titulo": "Levar encomenda para o outro lado da cidade",
+          "descricao": "Missão usada para medir o recálculo por distância depois de publicada.",
+          "valorBrl": 0.00,
+          "pesoKg": 2.00,
+          "volumeL": 10.00,
+          "origemLat": -23.5629,
+          "origemLon": -46.6996,
+          "destinoLat": %s,
+          "destinoLon": %s,
+          "cep": "05422030",
+          "logradouro": "Rua dos Pinheiros",
+          "bairro": "Pinheiros",
+          "cidade": "São Paulo",
+          "uf": "SP",
+          "raioCheckinM": 50,
+          "janelaInicio": "%s",
+          "janelaFim": "%s"
+        }
+        """
+            .formatted(destinoLat, destinoLon, inicio, inicio.plus(2, ChronoUnit.DAYS));
+
+    MvcResult criacao =
+        mockMvc
+            .perform(
+                post(MISSOES)
+                    .header("Authorization", bearer(criador))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(corpo))
+            .andExpect(status().isCreated())
+            .andReturn();
+
+    return UUID.fromString(
+        JSON.readTree(criacao.getResponse().getContentAsString()).get("id").asText());
   }
 
   private UUID criarMissaoSemToken(String categoria) throws Exception {

@@ -116,11 +116,27 @@ public class FinanciamentoService {
    * <p>O {@code triboId} do path não é decorativo: ele é o escopo declarado pelo cliente, e
    * conferir que ele bate com a tribo real do financiador impede que alguém financie por uma tribo
    * à qual não pertence só trocando a URL.
+   *
+   * <p><b>E o criador não financia a própria missão (ADR 0037).</b> "Quem cria a missão NÃO paga" é
+   * a premissa do ADR 0009 — a que nasceu de um defeito MEDIDO, R$ 1.500 criados do nada porque o
+   * criador nunca era debitado — e até 2026-09-22 ela era afirmada em quatro ADRs sem nenhuma linha
+   * a impor. As duas checagens acima conferem TRIBO e nunca compararam financiador com criador, e o
+   * ADR 0025 chegou a listar "deixar o criador financiar a própria AJUDA" como alternativa
+   * descartada por violar o 0009: descrevia como recusado um comportamento que sempre passou.
    */
   private void validarAutorizacao(UUID triboId, Missao missao, UUID financiadorId) {
     Optional<UUID> triboFinanciador = consultaAfiliacao.triboDe(financiadorId);
     if (triboFinanciador.isEmpty() || !triboFinanciador.get().equals(triboId)) {
       throw new RegraNegocioVioladaException("Você não pertence a esta tribo.");
+    }
+
+    // Antes da sondagem de idempotência, junto das demais regras de autorização — e é seguro estar
+    // aqui justamente porque não há replay legítimo a proteger: esta operação nunca deveria ter
+    // sido possível, então não existe chave gravada de um autofinanciamento anterior que mereça
+    // resposta de sucesso.
+    if (financiadorId.equals(missao.getCriadorId())) {
+      throw new RegraNegocioVioladaException(
+          "Quem cria a missão não paga por ela. O pote é formado por outros membros da tribo.");
     }
 
     if (!consultaAfiliacao.mesmaTribo(financiadorId, missao.getCriadorId())) {

@@ -1,7 +1,7 @@
-# 0036 — Recompensa de RASCUNHO acompanha os dados; a partir de ABERTA é promessa
+# 0036 — A recompensa acompanha os dados; o que a publicação fecha é o POTE, não o valor
 
 **Data:** 2026-09-22
-**Status:** Aceito
+**Status:** Aceito — **revisado no mesmo dia, antes do merge.** Ver "Revisão" no fim.
 **Depende de:** [0035](./0035-missao-comunitaria-sem-recompensa-em-token.md)
 
 ---
@@ -116,3 +116,77 @@ trabalho seguinte, não como esquecimento** — é a mesma disciplina do §8 do 
 | Estornar o pote automaticamente ao baixar a recompensa | Um `PATCH` que movimenta o ledger é uma operação de valor disfarçada de edição, e passaria a exigir `Idempotency-Key`, ordem de lock e trilha própria. Recusar com uma mensagem que aponta o cancelamento custa uma linha e não esconde dinheiro dentro de um verbo que não o anuncia. |
 | Deixar `complexidade` fora do PATCH | Faria a tela de edição renderizar chips de complexidade inertes para TRIBO e AJUDA — as duas categorias em que ela é o ÚNICO insumo. Um controle que parece funcionar e não faz nada é pior que a assimetria que ele esconderia. |
 | Recusar edição de rascunho financiado por completo | Mais simples, e mais rígido do que precisa: mudar o título ou o bairro de um rascunho financiado não ameaça pote nenhum. A guarda certa é sobre o VALOR resultante, não sobre a existência de pote. |
+
+---
+
+## Revisão (2026-09-22, antes do merge)
+
+A regra acima — "RASCUNHO recalcula, ABERTA não" — **foi substituída no mesmo dia, antes de a branch
+ser merjada.** O texto original fica onde está: ele registra um raciocínio que parecia certo e
+errou por uma razão específica, e é essa razão que vale guardar.
+
+### O que estava errado
+
+O ADR acima traçou a linha na PUBLICAÇÃO, com o argumento do javadoc de `editarRascunho`: depois de
+ABERTA a recompensa é promessa feita a quem está prestes a aceitar. O argumento é bom — e não é o
+que efetivamente protege a recompensa de uma missão publicada. **Quem a protege é o POTE.**
+
+A prova é a missão que não tem pote nenhum. Uma ENTREGA criada por humano é `FontePote.CUNHAGEM`:
+publica sem pote, e o token é EMITIDO na conclusão. Nela, o congelamento não protegia ninguém e
+escondia o oposto — publicar com destino a 8 km, aproximá-lo para 500 m e manter a recompensa alta
+é emissão de token sem contrapartida. É o defeito estrutural que o ADR 0024 fechou por um caminho,
+sobrevivendo por outro. A seção "Fica FORA" acima nomeava isso como trabalho seguinte; ele virou
+trabalho desta entrega.
+
+### A regra que vale
+
+**A recompensa acompanha os dados em TODO estado editável.** O que a publicação muda não é SE ela
+recalcula — é o que acontece quando o pote não pode acompanhar.
+
+| Fonte, com a missão em ABERTA | Pote comprometido? | Recalcular |
+|---|---|---|
+| `CUNHAGEM` (ENTREGA de humano) | não — cunha na conclusão | livre |
+| `SEM_TOKEN` | não — o token é 0 | livre (só o XP muda) |
+| `COMUNIDADE` publicada | sim, e `pote == recompensa` exatamente | recalcula, e **422 se o valor mudar** |
+| `PATROCINADOR` | sim | inalcançável: o criador é o usuário-sistema, e `validarEdicao` exige `ator == criador` |
+
+A guarda é **bidirecional**, e as duas metades protegem invariantes **diferentes**:
+
+- **para baixo** — a conclusão debita exatamente `tokensRecompensa` e CONCLUIDA é terminal; a sobra
+  do pote nunca volta a ninguém, e a reconciliação segue respondendo `integro=true`. É a perda que o
+  ADR 0032 existe para caçar. Vale em qualquer estado;
+- **para cima** — o pote deixa de cobrir a recompensa e a conclusão passa a falhar com 422 **para
+  sempre**: exatamente a classe de missão impossível de concluir que
+  `validarPoteSuficienteParaPublicar` impede. Só vale depois de publicada, porque em RASCUNHO subir
+  acima do pote é normal — quem financia ainda pode completar.
+
+O efeito prático em `COMUNIDADE` publicada é que só sobrevive a edição de valor NEUTRO. Quem precisa
+mudar o valor cancela a missão, que estorna aos financiadores, e cria outra.
+
+### A condição que não é otimização
+
+**O recálculo só roda quando um INSUMO vem no corpo** (`mexeuEmInsumoDaRecompensa`: peso, volume,
+complexidade, coordenadas, `recompensaEmToken`). Sem essa condição, corrigir a vírgula do título de
+uma missão publicada e financiada passaria a falhar com 422 sempre que a calibração do YAML tivesse
+mudado desde a criação — o valor novo divergiria de um pote já fechado, por um motivo que não tem
+nada a ver com a edição. A recompensa acompanha os DADOS; título, descrição, endereço textual,
+janela e raio de check-in não são dados dela.
+
+**Cuidado ao acrescentar campo ao DTO de edição:** um insumo novo que não entre naquela lista
+reabre o defeito original em silêncio.
+
+### O que continua fora
+
+`recompensaEmToken` permanece RASCUNHO-only, com 409 fora dele. Ele não é insumo — é a FONTE, e ela
+congela na publicação. A linha ficou sendo *"insumo segue os dados em todo estado editável; a fonte
+congela ao publicar"*, que é mais estreita e mais defensável que a anterior.
+
+Continua fora, também, notificar quem viu a missão no radar com o valor antigo: o cache de
+proximidade já é invalidado após o commit, e avisar pessoa por pessoa é fan-out, que é outra decisão.
+
+### Por que revisão no lugar, e não um ADR novo
+
+A branch não foi merjada e a regra original nunca chegou a valer para ninguém. Um ADR 0037 para
+retificar um ADR 0036 do mesmo dia produziria dois documentos sobre uma decisão só, e o índice de
+ADRs — que é `ls docs/adr/` — passaria a mentir sobre quantas decisões existem. O precedente do §8
+do ADR 0024 (texto errado preservado, marcado no lugar) é o que está sendo seguido aqui.

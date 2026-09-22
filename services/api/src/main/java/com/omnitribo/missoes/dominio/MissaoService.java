@@ -218,20 +218,59 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   }
 
   /**
-   * Recalcula e recongela a recompensa de um rascunho editado (ADR 0036).
+   * Recalcula e recongela a recompensa depois de uma edição (ADR 0036, revisado).
    *
-   * <p>Em RASCUNHO não há promessa: ninguém viu a missão e ninguém a aceitou. Deixar a recompensa
-   * congelada aqui seria pior que recalcular — permitiria criar a missão com um conjunto de insumos
-   * e executá-la com outro, mantendo o valor do primeiro.
+   * <p><b>A recompensa acompanha os dados em TODO estado editável</b> — RASCUNHO e ABERTA. Deixá-la
+   * congelada permitiria criar a missão com um conjunto de insumos e executá-la com outro, mantendo
+   * o valor do primeiro: publicar uma ENTREGA com destino a 8 km e depois aproximá-lo para 500 m,
+   * com a recompensa alta intacta. Em {@link FontePote#CUNHAGEM} isso é emissão de token sem
+   * contrapartida, que é o defeito estrutural que o ADR 0024 existe para ter fechado.
    *
-   * <p><b>A guarda do pote é o ponto delicado.</b> Reduzir a recompensa abaixo do que já foi
-   * financiado deixaria a diferença presa: a conclusão debita exatamente {@code tokensRecompensa} e
-   * CONCLUIDA é terminal, então o resto nunca volta a ninguém — e a reconciliação seguiria
-   * respondendo {@code integro=true}, porque ledger e projeção continuam batendo. É a perda que o
-   * ADR 0032 existe para caçar, e aqui ela é barata de evitar: quem quiser mesmo reduzir cancela a
-   * missão, que estorna aos financiadores.
+   * <p><b>O que a publicação muda não é SE recalcula — é o que acontece quando o POTE não pode
+   * acompanhar.</b> Numa missão COMUNIDADE publicada o pote é exatamente igual à recompensa ({@code
+   * validarTeto} o limita a isso, e {@code validarPoteSuficienteParaPublicar} o exige), e mexer no
+   * valor quebra uma invariante DIFERENTE em cada direção:
+   *
+   * <ul>
+   *   <li><b>para baixo</b> — a conclusão debita exatamente {@code tokensRecompensa} e CONCLUIDA é
+   *       terminal, então a sobra do pote nunca volta a ninguém. A reconciliação segue respondendo
+   *       {@code integro=true}, porque ledger e projeção continuam batendo: é a perda que o ADR
+   *       0032 existe para caçar. Vale em qualquer estado, por isso a guarda não pergunta o status;
+   *   <li><b>para cima</b> — o pote deixa de cobrir a recompensa e a conclusão passa a falhar com
+   *       422 <b>para sempre</b>. É exatamente a classe de missão impossível de concluir que a
+   *       guarda de publicação existe para impedir. Só vale depois de publicada: em RASCUNHO subir
+   *       acima do pote é normal, porque quem financia ainda pode completar.
+   * </ul>
+   *
+   * <p>O efeito prático em COMUNIDADE publicada é que só sobrevive a edição de valor NEUTRO. Quem
+   * precisa mesmo mudar o valor cancela a missão, que estorna aos financiadores, e cria outra.
+   *
+   * <p>Missão {@link FontePote#PATROCINADOR} também tem pote comprometido e não chega aqui por
+   * outra razão: o criador dela é o usuário-sistema, e {@code MissaoStateMachine.validarEdicao}
+   * exige {@code ator == criador}. Nenhum humano autentica como ele.
    */
-  private void recongelarRecompensaDoRascunho(
+  /**
+   * Se este PATCH toca algo de que a recompensa depende.
+   *
+   * <p>A lista é a dos parâmetros de {@code CalculadoraDeRecompensa.Insumos} que o PATCH alcança,
+   * mais {@code recompensaEmToken}, que decide a FONTE. Categoria não entra: é imutável. Janela,
+   * raio de check-in, título, descrição e endereço textual também não — nenhum deles chega à
+   * fórmula. <b>Cuidado ao acrescentar campo ao DTO de edição</b>: um insumo novo que não entre
+   * aqui volta a produzir o defeito original, uma missão com dados que não explicam o próprio
+   * valor.
+   */
+  private static boolean mexeuEmInsumoDaRecompensa(AtualizarMissaoRequest req) {
+    return req.pesoKg() != null
+        || req.volumeL() != null
+        || req.complexidade() != null
+        || req.recompensaEmToken() != null
+        // Origem e destino entram pela DISTÂNCIA, que é um termo aditivo da fórmula. Basta a
+        // latitude: o verificador de edição já exige que lat e lon venham aos pares.
+        || req.origemLat() != null
+        || req.destinoLat() != null;
+  }
+
+  private void recongelarRecompensaEditada(
       Missao missao, Boolean recompensaEmToken, ComplexidadeMissao complexidade) {
     boolean comToken =
         recompensaEmToken != null
@@ -249,15 +288,31 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
 
     CalculadoraDeRecompensa.Recompensa nova = calcularRecompensaDe(missao, comToken, complexidade);
 
-    if (nova.tokens() < missao.getPoteTokens()) {
+    long pote = missao.getPoteTokens();
+    boolean publicada = missao.getStatus() != StatusMissao.RASCUNHO;
+
+    if (nova.tokens() < pote) {
       throw new PoteInsuficienteException(
           "Esta edição baixaria a recompensa para "
               + nova.tokens()
               + " tokens, abaixo dos "
-              + missao.getPoteTokens()
-              + " já financiados. Cancele a missão para estornar quem financiou.",
+              + pote
+              + " já financiados — a diferença ficaria presa nesta missão. Cancele-a para estornar"
+              + " quem financiou.",
           nova.tokens(),
-          missao.getPoteTokens());
+          pote);
+    }
+
+    if (publicada && pote > 0 && nova.tokens() > pote) {
+      throw new PoteInsuficienteException(
+          "Esta edição subiria a recompensa para "
+              + nova.tokens()
+              + " tokens, acima dos "
+              + pote
+              + " já financiados, e a missão não poderia mais ser concluída. O pote de uma missão"
+              + " publicada está fechado: cancele-a para estornar quem financiou.",
+          nova.tokens(),
+          pote);
     }
 
     missao.recongelarRecompensa(nova);
@@ -266,10 +321,11 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   /**
    * Recompensa que a missão teria com os dados que ela tem AGORA.
    *
-   * <p>Só é chamada para rascunho. Por isso o valor ofertado entra como nulo: ele só existe em
-   * missão de retirada, que nasce ABERTA e nunca passa por aqui. O multiplicador de risco congelado
-   * é preservado pela razão inversa — se algum dia um rascunho tiver um, recalcular com 1,00 o
-   * apagaria em silêncio.
+   * <p>O valor ofertado entra como nulo, e continua correto mesmo agora que ABERTA também
+   * recalcula: ele só existe em missão de retirada, cujo criador é o usuário-sistema — e {@code
+   * validarEdicao} exige {@code ator == criador}, então o PATCH nunca a alcança. O multiplicador de
+   * risco congelado é preservado pela razão inversa: se alguma missão editável tiver um, recalcular
+   * com 1,00 o apagaria em silêncio.
    */
   private CalculadoraDeRecompensa.Recompensa calcularRecompensaDe(
       Missao missao, boolean comToken, ComplexidadeMissao complexidadeNova) {
@@ -698,11 +754,15 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
         ouAtual(req.pesoKg(), missao.getPesoKg()),
         ouAtual(req.volumeL(), missao.getVolumeL()));
 
-    if (missao.getStatus() == StatusMissao.RASCUNHO) {
-      recongelarRecompensaDoRascunho(missao, req.recompensaEmToken(), req.complexidade());
-    } else if (req.complexidade() != null) {
-      throw new TransicaoInvalidaException(
-          "A complexidade só pode mudar enquanto a missão está em rascunho.");
+    // Os DOIS estados editáveis recalculam. Quem decide o que é permitido não é o status, é se há
+    // pote comprometido — ver o javadoc de recongelarRecompensaEditada.
+    //
+    // Só quando um INSUMO de fato veio no corpo, e a condição não é otimização. Recalcular em toda
+    // edição faria corrigir a vírgula do título de uma missão publicada FALHAR com 422 sempre que a
+    // calibração do YAML tivesse mudado desde a criação: o valor novo divergiria do pote, que está
+    // fechado. A recompensa acompanha os DADOS; texto e endereço não são dados dela.
+    if (mexeuEmInsumoDaRecompensa(req)) {
+      recongelarRecompensaEditada(missao, req.recompensaEmToken(), req.complexidade());
     }
 
     Missao salva = missaoRepository.save(missao);

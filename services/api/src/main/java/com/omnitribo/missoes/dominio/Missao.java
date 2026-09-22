@@ -296,26 +296,29 @@ public class Missao {
   }
 
   /**
-   * Recongela a recompensa de um RASCUNHO, depois de o PATCH mudar os insumos (ADR 0036).
+   * Recongela a recompensa depois de o PATCH mudar os insumos (ADR 0036, revisado).
    *
    * <p>O javadoc de {@link #editarRascunho} exclui a recompensa da edição com um argumento que só
-   * cobre ABERTA — "mudaria o contrato sob os pés de quem está prestes a aceitar". Em RASCUNHO não
-   * há contrato: ninguém viu a missão e ninguém a aceitou. Deixá-la congelada ali é que seria o
-   * problema, porque permitiria criar a missão com um conjunto de insumos e executá-la com outro,
-   * mantendo o valor do primeiro.
+   * cobre ABERTA — "mudaria o contrato sob os pés de quem está prestes a aceitar". <b>Ele está
+   * certo sobre o que protege e errado sobre o meio:</b> o que impede a recompensa de uma missão
+   * publicada de mudar não é o congelamento, é o POTE, que já está comprometido e fechado. Onde não
+   * há pote — {@link FontePote#CUNHAGEM}, a ENTREGA criada por humano — o congelamento não protegia
+   * nada e escondia o oposto: publicar com destino a 8 km e depois aproximá-lo para 500 m mantinha
+   * a recompensa alta, que naquela fonte é emitida na conclusão. Token do nada, pelo caminho que o
+   * ADR 0024 fechou por outro lado.
    *
    * <p>Escreve {@code fonte_pote} junto porque trocar entre "só XP" e "com token" é precisamente o
    * que muda a fonte — e é a edição que destrava quem criou uma missão comunitária e não conseguiu
-   * financiar o pote. Quem garante que o pote já financiado não fica órfão é {@code
-   * MissaoService.atualizar}, que recusa antes de chamar este método.
+   * financiar o pote. Quem garante que o pote já financiado não fica órfão, nas DUAS direções, é
+   * {@code MissaoService.recongelarRecompensaEditada}, que recusa antes de chamar este método.
    *
-   * @throws IllegalStateException fora de RASCUNHO — erro de programação, não entrada de usuário:
-   *     {@code MissaoStateMachine.validarEdicao} e o verificador de edição já recusaram antes.
+   * @throws IllegalStateException fora dos estados editáveis — erro de programação, não entrada de
+   *     usuário: {@code MissaoStateMachine.validarEdicao} já recusou antes, com 403 ou 409.
    */
   public void recongelarRecompensa(CalculadoraDeRecompensa.Recompensa recompensa) {
-    if (this.status != StatusMissao.RASCUNHO) {
+    if (this.status != StatusMissao.RASCUNHO && this.status != StatusMissao.ABERTA) {
       throw new IllegalStateException(
-          "Recompensa só pode ser recongelada em RASCUNHO; esta missão está em "
+          "Recompensa só pode ser recongelada em RASCUNHO ou ABERTA; esta missão está em "
               + this.status
               + ".");
     }

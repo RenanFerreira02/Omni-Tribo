@@ -91,7 +91,7 @@ describe('editar missão', () => {
     expect(screen.queryByTestId('campo-titulo')).toBeNull();
   });
 
-  it('em missão ABERTA o PATCH não manda recompensaEmToken nem complexidade', async () => {
+  it('em missão ABERTA o PATCH manda complexidade mas NÃO recompensaEmToken', async () => {
     let corpo: Record<string, unknown> | null = null;
     servidor.use(
       http.get(`${BASE}/missoes/:id`, () =>
@@ -108,10 +108,11 @@ describe('editar missão', () => {
     await fireEvent.press(screen.getByTestId('botao-salvar'));
 
     await waitFor(() => expect(corpo).not.toBeNull());
-    // A partir de ABERTA a recompensa é promessa, e os dois campos são 409 no servidor. Mandá-los
-    // faria TODA edição de missão publicada falhar — inclusive a que só corrige uma vírgula.
+    // `recompensaEmToken` é a FONTE, e ela congela ao publicar: mandá-lo aqui é 409 no servidor.
     expect(corpo!.recompensaEmToken).toBeUndefined();
-    expect(corpo!.complexidade).toBeUndefined();
+    // `complexidade` é INSUMO e vai nos dois estados. Numa missão publicada com pote comprometido
+    // quem recusa é o pote, e só quando o valor muda — mandar o valor ATUAL é inócuo e correto.
+    expect(corpo!.complexidade).toBe('MEDIA');
     expect(corpo!.titulo).toBe('Mutirão da praça nova');
   });
 

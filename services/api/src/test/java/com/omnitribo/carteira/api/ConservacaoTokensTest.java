@@ -77,15 +77,19 @@ class ConservacaoTokensTest extends TesteIntegracaoMvcBase {
 
   private UUID tribo;
   private UUID criador;
+  private UUID financiador;
   private UUID executor;
   private final List<UUID> missoesCriadas = new ArrayList<>();
 
   @BeforeEach
   void montarCenario() {
     tribo = criarTribo();
-    // Criador com saldo porque em TRIBO/COLETA é ele quem financia o pote; executor começa zerado
-    // para que o delta dele seja exatamente a recompensa, sem ruído.
+    // TRÊS usuários, e o terceiro entrou em 2026-09-22 com o ADR 0037. Antes eram dois, e o próprio
+    // CRIADOR financiava o pote — o que o código permitia e a premissa do ADR 0009 ("quem cria a
+    // missão NÃO paga") dizia que não. Este teste era o principal dependente da brecha. O criador
+    // continua com saldo só para que um débito indevido nele seja VISÍVEL caso a regra caia.
     criador = criarUsuarioComCarteira("criador", tribo, SALDO_INICIAL);
+    financiador = criarUsuarioComCarteira("financiador", tribo, SALDO_INICIAL);
     executor = criarUsuarioComCarteira("executor", tribo, 0L);
   }
 
@@ -93,7 +97,7 @@ class ConservacaoTokensTest extends TesteIntegracaoMvcBase {
   void limpar() {
     missoesCriadas.forEach(id -> limparMissao(jdbcTemplate, id));
     missoesCriadas.clear();
-    for (UUID usuario : List.of(criador, executor)) {
+    for (UUID usuario : List.of(criador, financiador, executor)) {
       jdbcTemplate.update(
           "DELETE FROM lancamento WHERE carteira_id IN (SELECT id FROM carteira WHERE usuario_id = ?)",
           usuario);
@@ -122,7 +126,7 @@ class ConservacaoTokensTest extends TesteIntegracaoMvcBase {
       mockMvc
           .perform(
               post("/api/v1/tribos/{triboId}/financiamentos", tribo)
-                  .header("Authorization", bearer(criador))
+                  .header("Authorization", bearer(financiador))
                   .header("Idempotency-Key", "conservacao-" + missaoId)
                   .contentType(MediaType.APPLICATION_JSON)
                   .content(

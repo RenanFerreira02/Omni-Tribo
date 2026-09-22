@@ -156,10 +156,9 @@ function paraFormulario(m: MissaoResponse): Partial<CriarMissaoForm> {
  * `complexidade` só vai quando não há peso e volume: com os dois, o servidor deriva e recusa o
  * valor declarado com 422, exatamente como a criação recusa com 400.
  *
- * **`complexidade` e `recompensaEmToken` só vão em RASCUNHO.** Fora dele os dois são 409: a partir
- * de ABERTA a recompensa é promessa feita a quem está prestes a aceitar, e o servidor não deixa
- * mudá-la. Mandá-los mesmo assim faria toda edição de missão publicada falhar — inclusive as que
- * só corrigem uma vírgula do título.
+ * **`recompensaEmToken` só vai em RASCUNHO**, e é 409 fora dele: ele não é insumo, é a FONTE, e ela
+ * congela na publicação. `complexidade` vai nos dois estados, como peso e volume — numa missão
+ * publicada com pote comprometido quem recusa é o POTE, não o status, e só quando o valor MUDA.
  */
 function paraPatch(dados: CriarMissaoForm, rascunho: boolean): AtualizarMissaoRequest {
   const derivaDoObjeto = dados.pesoKg !== undefined && dados.volumeL !== undefined;
@@ -178,7 +177,7 @@ function paraPatch(dados: CriarMissaoForm, rascunho: boolean): AtualizarMissaoRe
     raioCheckinM: dados.raioCheckinM,
     pesoKg: dados.pesoKg,
     volumeL: dados.volumeL,
-    complexidade: rascunho && !derivaDoObjeto ? dados.complexidade : undefined,
+    complexidade: derivaDoObjeto ? undefined : dados.complexidade,
     recompensaEmToken: rascunho ? dados.recompensaEmToken : undefined,
   };
 }

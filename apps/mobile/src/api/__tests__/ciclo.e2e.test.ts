@@ -32,10 +32,11 @@ import { useSessao } from '@/stores/sessao';
  *
  * <b>A missão do ciclo é uma AJUDA de SÓ XP (ADR 0035), e a escolha tem uma razão de teste.</b>
  * Desde o ADR 0025 uma AJUDA com recompensa em token exige pote financiado antes de publicar, e o
- * financiador tem de ser OUTRO membro da mesma tribo de alice — em Pinheiros, só o `admin`. Um
- * terceiro login estouraria o orçamento de 5 tentativas por minuto que a nota abaixo descreve:
- * este arquivo faz dois e `integracao.e2e.test.ts` faz outros dois. Este teste ficou VERMELHO da
- * adoção do ADR 0025 até aqui, sem ninguém notar, porque `test:e2e` fica fora do CI de propósito.
+ * financiador tem de ser OUTRO membro da mesma tribo de alice — em Pinheiros, só o `admin`, a quem
+ * o seed dá **zero tokens** de propósito (`V900`, "admin: saldo zerado, sem lançamentos"). Não há
+ * financiador possível aqui, e desde o ADR 0037 alice também não pode financiar a própria missão.
+ * Este teste ficou VERMELHO da adoção do ADR 0025 até aqui, sem ninguém notar, porque `test:e2e`
+ * fica fora do CI de propósito.
  *
  * <b>Consequência a saber:</b> o crédito em TOKEN na conclusão NÃO é exercitado aqui. Quem o cobre
  * ponta a ponta é `FinanciamentoControllerTest.cicloCompleto_financiarPublicarConcluir_conservaOsTokens`,
@@ -47,10 +48,12 @@ import { useSessao } from '@/stores/sessao';
  *
  *     E2E_API_URL=http://localhost:8080 npm run test:e2e
  *
- * <b>ATENÇÃO ao bloqueio de login: 5 tentativas por minuto, por conta.</b> Este arquivo faz DOIS
- * logins e `integracao.e2e.test.ts` faz outros dois — quatro, um a menos que o teto. Rodar a suíte
- * duas vezes dentro do mesmo minuto estoura o balde e o `beforeAll` falha com 429
- * `limiteRequisicoes`, o que se parece com um defeito e não é. Espere um minuto entre execuções.
+ * <b>ATENÇÃO ao bloqueio de login: 5 tentativas por minuto, e o balde é POR CONTA</b> — a chave é
+ * `SHA-256(ip:email)` em `BloqueioLoginService`, não um contador global. A conta apertada é a
+ * `alice`: três logins por execução somando este arquivo e `integracao.e2e.test.ts` (um deles com
+ * senha errada, de propósito). `bob` faz um só. Rodar a suíte duas vezes dentro do mesmo minuto
+ * estoura o balde DE ALICE e o `beforeAll` falha com 429 `limiteRequisicoes`, o que se parece com
+ * um defeito e não é. Espere um minuto entre execuções.
  *
  * É por isso que os ids de carol e alice vêm do SEED, em vez de um `me()` após login: cada login
  * economizado é uma execução a mais antes do bloqueio.

@@ -144,11 +144,20 @@ e2e.
 - **Missão só-XP não aceita financiamento, e a recusa é um 422 a mais para o app conhecer.** A
   alternativa — deixar o pote crescer numa missão de recompensa zero — deixaria o token do
   financiador preso numa missão que nunca o devolve, com a reconciliação respondendo `integro=true`.
-- **O ciclo e2e do mobile deixou de exercitar o crédito em TOKEN na conclusão.** Financiar exigiria
-  um terceiro login (só o `admin` está na tribo de alice) e o teto de 5 tentativas por minuto não
-  comporta: este arquivo faz dois logins e `integracao.e2e.test.ts` faz outros dois. Quem cobre esse
-  caminho ponta a ponta é `FinanciamentoControllerTest.cicloCompleto_financiarPublicarConcluir_conservaOsTokens`,
-  no backend, e o javadoc do teste e2e diz isso em voz alta.
+- **O ciclo e2e do mobile deixou de exercitar o crédito em TOKEN na conclusão.** Financiar exige um
+  financiador que não seja o criador, e na Tribo Pinheiros — a de alice — só existe o `admin`, a
+  quem o seed dá **0 tokens** de propósito (`V900:493`, "admin: saldo zerado, sem lançamentos").
+  Quem cobre esse caminho ponta a ponta é
+  `FinanciamentoControllerTest.cicloCompleto_financiarPublicarConcluir_conservaOsTokens`, no
+  backend, e o javadoc do teste e2e diz isso em voz alta.
+
+  > **CORREÇÃO (2026-09-22).** A primeira versão deste parágrafo dizia que o obstáculo era o teto de
+  > login — "exigiria um terceiro login e o teto de 5 tentativas por minuto não comporta". **É
+  > falso.** O teto é um balde por `SHA-256(ip:email)` (`BloqueioLoginService`, `buckets.get(chave,
+  > …)`): cada conta tem o seu, e o `admin` tem zero logins nas duas suítes e2e. A conta apertada é
+  > a `alice`, com três logins por execução entre os dois arquivos — e é ela que a nota de "espere
+  > um minuto entre execuções" protege. Fica registrado em vez de apagado: a afirmação errada era
+  > sobre um mecanismo de segurança, e é o tipo de coisa que alguém repetiria numa banca.
 
 ---
 

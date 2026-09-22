@@ -181,7 +181,12 @@ reidrata. Mesma razão pela qual `EmissorDeToken` recebe `papel` como String.
 ## Economia (três moedas)
 
 **Quem cria a missão NÃO paga.** Essa é a premissa do produto, e o ADR 0009 a registrou depois de
-ela ter sido violada em silêncio pelo ADR 0004. A recompensa é XP + TOKEN, **calculada pelo servidor
+ela ter sido violada em silêncio pelo ADR 0004. **Desde o ADR 0037 ela é REGRA IMPOSTA, e não só
+declarada**: `FinanciamentoService.validarAutorizacao` recusa `financiador == criador` com 422. Até
+2026-09-22 nenhuma linha a impunha — as duas checagens de lá eram sobre TRIBO, e o criador passava
+nas duas trivialmente. O ADR 0025 chegou a listar "deixar o criador financiar a própria AJUDA" como
+alternativa DESCARTADA, descrevendo como recusado algo que sempre passou, e `ConservacaoTokensTest`
+dependia da brecha. A recompensa é XP + TOKEN, **calculada pelo servidor
 e congelada na criação** — o DTO de criação NÃO tem `xpRecompensa` nem `tokensRecompensa`.
 
 `CalculadoraDeRecompensa` (`missoes/dominio`) é função pura: recebe categoria, complexidade,
@@ -202,11 +207,15 @@ que não as produziu, e some a resposta para "este crédito estava certo quando 
 **Complexidade: derivada onde há dado.** ENTREGA e COLETA exigem peso e volume, e o servidor deriva —
 declarar junto é 400. TRIBO e AJUDA declaram, porque não movem objeto. A conclusão LÊ o congelado,
 nunca recalcula. `POST /missoes/previa-recompensa` mostra o valor sem criar nada; o app nunca duplica
-a fórmula. **`PATCH /missoes/{id}` RECALCULA a recompensa em RASCUNHO** (ADR 0036): ali não há
-promessa a ninguém, e deixá-la congelada permitiria criar com um conjunto de insumos e executar com
-outro. A partir de ABERTA ela não muda, e `recompensaEmToken`/`complexidade` viram 409. Reduzir a
-recompensa abaixo do pote já financiado é 422 — a diferença ficaria presa numa missão que nunca a
-paga, e a reconciliação continuaria respondendo `integro=true`.
+a fórmula. **`PATCH /missoes/{id}` RECALCULA a recompensa em TODO estado editável** — RASCUNHO e
+ABERTA (ADR 0036): deixá-la congelada permitiria criar com um conjunto de insumos e executar com
+outro, e em `CUNHAGEM`, onde não há pote a segurar nada, isso é emissão de token sem contrapartida.
+**O que a publicação fecha é o POTE, não o valor**, e a guarda é bidirecional: abaixo do pote a
+sobra fica presa (422 em qualquer estado); acima dele, numa missão já publicada, a conclusão falharia
+para sempre (422). O efeito em `COMUNIDADE` publicada é que só passa edição de valor NEUTRO.
+**O recálculo só roda quando um INSUMO vem no corpo** (`mexeuEmInsumoDaRecompensa`) — sem isso,
+corrigir um título depois de uma recalibração do YAML falharia com 422 por um motivo alheio à
+edição. `recompensaEmToken` segue RASCUNHO-only (409): ele é a FONTE, não insumo.
 
 XP: reputação, não transferível, monotônico, sem ledger. Nível é DERIVADO do XP por `RegraNivel`,
 nunca incrementado — a coluna `usuario.nivel` é cache recalculado a cada concessão.
@@ -359,14 +368,15 @@ sem ela o plugin aborta com "Invalid API Key, length of 0". Não configure a cha
 
 `/api/v1/missoes` — `GET` (lista paginada com filtro) · `GET /proximas` (radar geoespacial) ·
 `POST /previa-recompensa` (calcula sem criar) · `POST`
-· `GET /{id}` · `PATCH /{id}` (recalcula a recompensa em RASCUNHO — ADR 0036), mais as ações `POST /{id}/{acao}`: `publicar`, `aceitar`, `iniciar`,
+· `GET /{id}` · `PATCH /{id}` (recalcula a recompensa quando um insumo muda — ADR 0036), mais as ações `POST /{id}/{acao}`: `publicar`, `aceitar`, `iniciar`,
 `desistir`, `cancelar`, `contestar`, `checkin`, `confirmar`, `resolver` e `destravar` (os dois
 últimos só ADMIN).
 
 `/api/v1/carteira` — `GET` (saldo) · `GET /lancamentos` (extrato paginado) · `POST /transferencias`
 · `POST /saques`. Os dois POST exigem header `Idempotency-Key`.
 
-`/api/v1/tribos/{triboId}/financiamentos` — `POST`, com `Idempotency-Key`.
+`/api/v1/tribos/{triboId}/financiamentos` — `POST`, com `Idempotency-Key`. **O criador da missão não
+pode financiá-la** (422, ADR 0037): o pote é formado por OUTROS membros da tribo.
 
 `/api/v1/beneficios` — `GET` (catálogo paginado; por proximidade `?lat&lon&raioMetros` OU por
 `?triboId`, nunca os dois). Só benefício ativo de parceiro ativo. A distância vem do PostGIS a cada
@@ -553,14 +563,24 @@ CI (`.github/workflows/`), três workflows:
     depende de um humano consultar. Ele também é o precedente de "ação administrativa idempotente
     por ESTADO, sem `Idempotency-Key`" — leia antes de acrescentar chave a um endpoint que só faz
     um UPDATE para estado fixo.
+  - **0037 é o achado que veio de lado, e o mais grave da leva.** "Quem cria a missão NÃO paga" era
+    premissa citada em quatro ADRs e **nenhuma linha a impunha**; o 0025 chegou a listá-la como
+    alternativa descartada, descrevendo como recusado um comportamento que sempre passou, e
+    `ConservacaoTokensTest` DEPENDIA da brecha — o teste da conservação atestava, a cada execução, o
+    que o produto diz que não pode acontecer. Leia antes de afirmar que alguma premissa deste
+    repositório está garantida: o padrão "escrito em ADR, não escrito em código" já apareceu duas
+    vezes (aqui e no `REVOKE` inerte da verificação de 2026-08-11).
   - **0035 e 0036 são do uso real do app, em 2026-09-22**, e o par é o exemplo mais limpo do
     repositório de um trade-off registrado que veio cobrar. O 0035 fecha a Negativa que o ADR 0025
     escreveu sobre si mesmo ("se financiar favor alheio se mostrar pouco atraente, AJUDA fica
     represada em RASCUNHO") — e a evidência de que ela cobrou é que `ciclo.e2e.test.ts` ficou
     VERMELHO por um mês sem ninguém ver, porque `test:e2e` fica fora do CI. O 0036 é a decisão
     separada que o 0035 obrigou: tornar a forma de recompensa editável obriga a dizer o que o PATCH
-    faz com a recompensa congelada. **Leia o 0036 antes de mexer no `PATCH`**: ele nomeia, sem
-    resolver, o fato de que ABERTA ainda altera peso e coordenada sem recalcular.
+    faz com a recompensa congelada. **Leia o 0036 inteiro antes de mexer no `PATCH`, inclusive a
+    seção "Revisão" no fim** — a regra dele foi substituída no mesmo dia, antes do merge, e o texto
+    original ficou no lugar de propósito: ele errou traçando a linha na PUBLICAÇÃO, quando quem
+    protege a recompensa de uma missão publicada é o POTE. A prova é a missão que não tem pote
+    nenhum.
   - **0032 deu à CONSERVAÇÃO o primeiro instrumento dela, e é DETECTIVO.** Leia antes de mexer em
     `ReconciliacaoResponse`: `potesImobilizados` é campo separado de `integro` porque as duas
     invariantes são diferentes, e fundi-las é a tentação recorrente deste repositório — já custou

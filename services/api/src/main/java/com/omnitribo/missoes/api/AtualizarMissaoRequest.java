@@ -80,6 +80,10 @@ public record AtualizarMissaoRequest(
      * têm. Peso e volume já eram editáveis, e a assimetria não tinha razão — ela só não aparecia
      * porque nada no app chegava a editar.
      *
+     * <p>Vale nos DOIS estados editáveis, como peso e volume: é insumo, e insumo segue os dados.
+     * Numa missão publicada com pote comprometido a recusa vem do POTE, não do status — ver {@code
+     * MissaoService.recongelarRecompensaEditada}.
+     *
      * <p>Com peso E volume presentes o servidor deriva, e um valor aqui é 422 — mesma regra da
      * criação, que é 400 por ser verificável só com o corpo. Aqui depende da missão.
      */
