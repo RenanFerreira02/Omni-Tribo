@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import type { ErroApi } from '@/api/erros';
 import {
@@ -64,6 +64,11 @@ export function usePontosCustodiaProximos(
       : ['pontos-custodia', 'sem-coordenada'],
     enabled: coordenada !== null,
     queryFn: () => pontosCustodiaProximos(coordenada!.lat, coordenada!.lon, raioMetros),
+    // A coordenada entra na CHAVE, então cada arraste do mapa criava uma entrada sem cache e `data`
+    // voltava a `undefined` durante o voo. Quem consome faz `?? []`, o array de marcadores zerava, e
+    // a camada do Leaflet era limpa: TODOS os pinos sumiam e voltavam a cada gesto. Segurar o
+    // resultado anterior é o que mantém o mapa desenhado enquanto a região nova carrega.
+    placeholderData: keepPreviousData,
     staleTime: 5 * 60_000,
   });
 }
@@ -89,6 +94,11 @@ export function useClima(coordenada: { lat: number; lon: number } | null) {
     enabled: coordenada !== null,
     queryFn: () => buscarClima(coordenada!.lat, coordenada!.lon),
     retry: false,
+    // Mesmo motivo dos marcadores, e aqui o sintoma era pior: o card de clima é renderizado só
+    // quando há `data`, então ele SAÍA DO LAYOUT a cada arraste e empurrava mapa e lista para cima
+    // e para baixo. A troca assumida é mostrar por um instante o clima da região anterior — dado
+    // momentaneamente defasado em vez de um card que pisca e reflui a tela.
+    placeholderData: keepPreviousData,
     staleTime: 10 * 60_000,
   });
 }

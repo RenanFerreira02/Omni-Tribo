@@ -53,6 +53,86 @@ describe('criar missão', () => {
     await fireEvent.press(screen.getByTestId('complexidade-MEDIA'));
   }
 
+  // ─── Forma de recompensa (ADR 0035) ───────────────────────────────────────────────────────
+
+  it('AJUDA abre em "Só XP" e TRIBO em "XP e tokens" — o padrão é por categoria', async () => {
+    await render(<CriarMissao />);
+
+    // AJUDA é a categoria padrão do formulário. Ela nasce publicável porque o beneficiário é uma
+    // pessoa só, e o ADR 0025 previu que financiar favor alheio represaria a categoria em rascunho.
+    expect(screen.getByTestId('recompensa-so-xp').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByTestId('explicacao-recompensa')).toHaveTextContent(/publica na hora/i);
+
+    // Num mutirão quem financia também se beneficia: o padrão inverte.
+    await fireEvent.press(screen.getByTestId('categoria-TRIBO'));
+    expect(screen.getByTestId('recompensa-com-token').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByTestId('explicacao-recompensa')).toHaveTextContent(/financiar o pote/i);
+  });
+
+  it('ENTREGA e COLETA não oferecem a escolha — elas movem objeto e têm custo real', async () => {
+    await render(<CriarMissao />);
+
+    await fireEvent.press(screen.getByTestId('categoria-ENTREGA'));
+    expect(screen.queryByTestId('recompensa-so-xp')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('categoria-COLETA'));
+    expect(screen.queryByTestId('recompensa-so-xp')).toBeNull();
+  });
+
+  it('trocar de categoria REASSUME o padrão da nova, em vez de manter a escolha anterior', async () => {
+    await render(<CriarMissao />);
+
+    // Escolha explícita contrária ao padrão de AJUDA...
+    await fireEvent.press(screen.getByTestId('recompensa-com-token'));
+    expect(screen.getByTestId('recompensa-com-token').props.accessibilityState.selected).toBe(true);
+
+    // ...e uma ida a ENTREGA, que só aceita token, e a volta. Sem o reset, uma ida de AJUDA "só XP"
+    // para ENTREGA montaria um corpo que o servidor recusa com 400 no campo.
+    await fireEvent.press(screen.getByTestId('categoria-ENTREGA'));
+    await fireEvent.press(screen.getByTestId('categoria-AJUDA'));
+    expect(screen.getByTestId('recompensa-so-xp').props.accessibilityState.selected).toBe(true);
+  });
+
+  it('o corpo enviado carrega recompensaEmToken explícito, nunca ausente', async () => {
+    let corpo: unknown = null;
+    servidor.use(
+      http.post(`${BASE}/missoes`, async ({ request }) => {
+        corpo = await request.json();
+        return HttpResponse.json(missao({ status: 'RASCUNHO' }));
+      }),
+    );
+
+    await render(<CriarMissao />);
+    await preencherAjudaValida();
+    await fireEvent.press(screen.getByTestId('botao-criar'));
+
+    await waitFor(() => expect(corpo).not.toBeNull());
+    // Ausente equivaleria a `true` no servidor, e a AJUDA voltaria a nascer impublicável. O padrão
+    // por categoria é decisão do APP, e mandá-lo explícito é o que a mantém aqui.
+    expect((corpo as Record<string, unknown>).recompensaEmToken).toBe(false);
+  });
+
+  it('prévia com zero token diz "sem tokens", e não um zero ao lado do ícone', async () => {
+    servidor.use(
+      http.post(`${BASE}/missoes/previa-recompensa`, () =>
+        HttpResponse.json({
+          xpRecompensa: 75,
+          tokensRecompensa: 0,
+          complexidade: 'MEDIA',
+          versaoFormula: 3,
+          multiplicadorRisco: 1.0,
+        }),
+      ),
+    );
+
+    await render(<CriarMissao />);
+    await preencherAjudaValida();
+
+    // "0" ao lado do ícone de token leria como falha de cálculo; o que houve foi uma escolha.
+    expect(await screen.findByTestId('previa-sem-token')).toBeTruthy();
+    expect(screen.getByText('75 XP')).toBeTruthy();
+  });
+
   // ─── A ausência que define o produto ──────────────────────────────────────────────────────
 
   it('NÃO tem campo de valor em reais nem de recompensa', async () => {
@@ -274,7 +354,9 @@ describe('criar missão', () => {
     await preencherAjudaValida();
     await fireEvent.press(screen.getByTestId('botao-criar'));
 
-    expect(await screen.findByTestId('erro-criar')).toHaveTextContent(/janela inválida/i);
+    // `erro-formulario`, e não mais `erro-criar`: o formulário passou a ser compartilhado com a
+    // tela de edição (`FormularioMissao`), e um testID que diz "criar" mentiria em metade dos usos.
+    expect(await screen.findByTestId('erro-formulario')).toHaveTextContent(/janela inválida/i);
     expect(screen.getByTestId('campo-titulo').props.value).toBe('Ajudar com a feira');
     expect(mockSubstituir).not.toHaveBeenCalled();
   });

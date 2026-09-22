@@ -4,6 +4,7 @@ import com.omnitribo.compartilhado.api.RecursoAuditavel;
 import com.omnitribo.compartilhado.dominio.Coordenadas;
 import com.omnitribo.missoes.dominio.CategoriaMissao;
 import com.omnitribo.missoes.dominio.ComplexidadeMissao;
+import com.omnitribo.missoes.dominio.FontePote;
 import com.omnitribo.missoes.dominio.Missao;
 import com.omnitribo.missoes.dominio.StatusMissao;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -93,6 +94,20 @@ public record MissaoResponse(
      * citando a rua devolveria pela porta de trás exatamente o que aquele recorte protege.
      */
     String avisoRisco,
+
+    /**
+     * De onde sai o token da recompensa, congelada na criação.
+     *
+     * <p>Existe na entidade desde a V23 e não saía por via nenhuma — e uma das três razões que o
+     * javadoc de {@code FontePote} dá para a coluna existir é "o app consegue explicar de onde vem
+     * a recompensa". Sem ela, {@code tokensRecompensa} e {@code poteTokens} não bastam: um pote
+     * vazio pode significar "falta financiar", "o patrocinador paga" ou "esta missão não paga token
+     * nenhum", e as três pedem telas diferentes.
+     *
+     * <p>{@code SEM_TOKEN} é o caso que tornou isso obrigatório (ADR 0035): é o que permite ao app
+     * dizer "publica agora, vale só XP" em vez de mostrar um financiamento que nunca virá.
+     */
+    FontePote fontePote,
     int versao)
     implements RecursoAuditavel {
 
@@ -198,6 +213,7 @@ public record MissaoResponse(
         m.getMultiplicadorRisco(),
         m.getFaixaRisco(),
         avisoDe(m.getFaixaRisco()),
+        m.getFontePote(),
         m.getVersao());
   }
 

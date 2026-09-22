@@ -108,7 +108,25 @@ public final class CalculadoraDeRecompensa {
       long tokens,
       ComplexidadeMissao complexidade,
       int versaoFormula,
-      BigDecimal multiplicadorRisco) {}
+      BigDecimal multiplicadorRisco) {
+
+    /**
+     * A mesma recompensa, sem a parte em token — para a missão comunitária que paga só reputação
+     * (ADR 0035).
+     *
+     * <p><b>Zera DEPOIS de calcular, nunca antes.</b> O XP é derivado dos tokens ({@code xp =
+     * tokens * xpPorToken}), então zerar os tokens na entrada zeraria os dois e a missão não
+     * valeria nada. Aqui o XP já está calculado sobre o valor cheio: o esforço continua sendo
+     * reconhecido na mesma escala das demais missões, e o que o criador abre mão é só da moeda.
+     *
+     * <p>{@code versaoFormula} e {@code complexidade} são preservados de propósito. A pergunta
+     * "este XP estava certo quando foi concedido?" continua tendo resposta, e ela é a mesma
+     * calibração que teria produzido os tokens.
+     */
+    public Recompensa semToken() {
+      return new Recompensa(xp, 0L, complexidade, versaoFormula, multiplicadorRisco);
+    }
+  }
 
   /** Calcula a recompensa. Determinística: mesmas entradas, mesma saída. */
   public static Recompensa calcular(Insumos insumos, ParametrosRecompensa p) {

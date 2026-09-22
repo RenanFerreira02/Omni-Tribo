@@ -63,6 +63,17 @@ export type ErroApi =
    * copy do servidor. Opcionais por robustez a uma resposta antiga sem as extensões.
    */
   | (Base & { tipo: 'nivelInsuficiente'; nivelExigido?: number; nivelAtual?: number })
+  /**
+   * 422: o pote não cobre a recompensa em token — publicar ou editar foi recusado.
+   *
+   * Variante própria pelo mesmo critério de `nivelInsuficiente`: não há o que corrigir no pedido.
+   * As saídas são duas AÇÕES diferentes, e a tela precisa oferecer as duas — pedir a um vizinho da
+   * tribo que financie, ou editar o rascunho para valer só XP.
+   *
+   * `recompensaTokens` e `poteTokens` chegam como extensão do RFC 9457 para a tela montar "faltam
+   * N tokens" com aritmética própria, em vez de parsear o `detail`.
+   */
+  | (Base & { tipo: 'poteInsuficiente'; recompensaTokens?: number; poteTokens?: number })
   /** 503: provedor externo (clima, CEP) fora do ar. A tela ESCONDE o recurso, não mostra erro. */
   | (Base & { tipo: 'servicoExternoIndisponivel' })
   | (Base & { tipo: 'limiteRequisicoes'; retryAfter: number | null })
@@ -93,6 +104,7 @@ const POR_SEGMENTO = {
   'checkin-acuracia-insuficiente': 'checkinAcuraciaInsuficiente',
   'checkin-localizacao-simulada': 'checkinLocalizacaoSimulada',
   'nivel-insuficiente': 'nivelInsuficiente',
+  'pote-insuficiente': 'poteInsuficiente',
   'servico-externo-indisponivel': 'servicoExternoIndisponivel',
 } as const satisfies Record<string, TipoErroApi>;
 
@@ -124,6 +136,9 @@ interface CorpoProblema {
   /** Extensões de `NivelInsuficienteException`. Ver o backend. */
   nivelExigido?: unknown;
   nivelAtual?: unknown;
+  /** Extensões de `PoteInsuficienteException`. Ver o backend. */
+  recompensaTokens?: unknown;
+  poteTokens?: unknown;
 }
 
 function texto(valor: unknown, padrao: string): string {
@@ -220,6 +235,13 @@ export function paraErroApi(erro: unknown): ErroApi {
         tipo,
         nivelExigido: numero(corpo.nivelExigido),
         nivelAtual: numero(corpo.nivelAtual),
+      };
+    case 'poteInsuficiente':
+      return {
+        ...base,
+        tipo,
+        recompensaTokens: numero(corpo.recompensaTokens),
+        poteTokens: numero(corpo.poteTokens),
       };
     case null:
       return { ...base, tipo: 'desconhecido', type: texto(corpo.type, '') };

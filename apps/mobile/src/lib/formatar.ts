@@ -41,6 +41,29 @@ export function rotuloStatus(status: keyof typeof ROTULOS_STATUS): string {
   return ROTULOS_STATUS[status];
 }
 
+/**
+ * Tipo de ponto de custódia, em português.
+ *
+ * <b>Por que isto deixou de viver dentro do componente.</b> A tradução existia só em
+ * `ItemPontoCustodia`, e dois outros pontos de uso faziam `ponto.tipo.toLowerCase()` direto no
+ * enum. O MESMO ponto era lido como "armário" na lista do radar e como "locker" na folha que
+ * aquela lista abre — e como "locker" também no seletor de origem de uma missão nova. Enum do
+ * backend é identificador, não texto de interface.
+ *
+ * O `Record` sobre o tipo do enum é o que faz um tipo novo no backend quebrar o typecheck aqui, em
+ * vez de chegar à tela em inglês e em maiúsculas.
+ */
+const ROTULOS_TIPO_PONTO = {
+  LOJA: 'loja',
+  LOCKER: 'armário',
+  PORTARIA: 'portaria',
+  VIZINHO: 'vizinho',
+} as const;
+
+export function rotuloTipoPonto(tipo: keyof typeof ROTULOS_TIPO_PONTO): string {
+  return ROTULOS_TIPO_PONTO[tipo];
+}
+
 /** Data curta para janela de missão e extrato. */
 export function formatarDataHora(iso: string): string {
   const data = new Date(iso);

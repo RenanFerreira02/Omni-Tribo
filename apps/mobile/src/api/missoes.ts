@@ -1,6 +1,7 @@
 import { seg } from './caminho';
 import { cliente } from './cliente';
 import type {
+  AtualizarMissaoRequest,
   CriarMissaoRequest,
   FiltroMissoes,
   FiltroProximas,
@@ -71,6 +72,25 @@ export async function previaRecompensa(
     corpo,
   );
   return validarEmDev(previaRecompensaResponseSchema, data, 'POST /missoes/previa-recompensa');
+}
+
+/**
+ * Edita uma missão em RASCUNHO ou ABERTA. Só o criador.
+ *
+ * Campos ausentes significam "não alterar" — envie só o que mudou. Em RASCUNHO o servidor
+ * RECALCULA a recompensa a partir dos dados resultantes (ADR 0036), então a resposta pode trazer
+ * `xpRecompensa` e `tokensRecompensa` diferentes dos que entraram: é o valor novo, não um erro.
+ *
+ * Erros que a tela precisa distinguir: `poteInsuficiente` quando a edição baixaria a recompensa
+ * abaixo do que já foi financiado, e `transicaoInvalida` ao tentar trocar a forma de recompensa
+ * depois de publicada.
+ */
+export async function atualizarMissao(
+  id: string,
+  corpo: AtualizarMissaoRequest,
+): Promise<MissaoResponse> {
+  const { data } = await cliente.patch<MissaoResponse>(`/missoes/${seg(id)}`, corpo);
+  return validarEmDev(missaoResponseSchema, data, `PATCH /missoes/${id}`);
 }
 
 export type AcaoMissao =

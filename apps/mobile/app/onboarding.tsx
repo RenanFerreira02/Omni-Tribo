@@ -1,11 +1,11 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
-  Dimensions,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
@@ -57,7 +57,16 @@ const SLIDES: Slide[] = [
 export default function Onboarding() {
   const router = useRouter();
   const [atual, setAtual] = useState(0);
-  const largura = Dimensions.get('window').width;
+  /**
+   * `useWindowDimensions`, e não `Dimensions.get('window')`.
+   *
+   * O valor antigo era lido UMA vez, na primeira montagem, e não reagia a rotação nem a
+   * split-screen: depois de girar o aparelho os slides continuavam com a largura antiga e `aoRolar`
+   * passava a calcular o índice errado — as bolinhas paravam de corresponder ao slide visível.
+   */
+  const { width: largura } = useWindowDimensions();
+  /** O carrossel precisa ser COMANDADO pelo botão; ver `avancar`. */
+  const slides = useRef<ScrollView>(null);
 
   async function concluir() {
     await marcarOnboardingVisto();
@@ -67,6 +76,21 @@ export default function Onboarding() {
   function aoRolar(evento: NativeSyntheticEvent<NativeScrollEvent>) {
     const indice = Math.round(evento.nativeEvent.contentOffset.x / largura);
     if (indice !== atual) setAtual(indice);
+  }
+
+  /**
+   * "Entendi" ROLA o carrossel, e antes não rolava.
+   *
+   * O handler só chamava `setAtual`, então as bolinhas avançavam e o conteúdo ficava parado: o
+   * indicador passava a anunciar "Página 2 de 3" para quem estava vendo o slide 1, e dois toques
+   * concluíam o onboarding com a pessoa ainda no primeiro slide. `setAtual` continua aqui porque o
+   * `onMomentumScrollEnd` não dispara para rolagem programática em toda plataforma — as duas
+   * escritas convergem para o mesmo índice.
+   */
+  function avancar() {
+    const proximo = Math.min(atual + 1, SLIDES.length - 1);
+    slides.current?.scrollTo({ x: proximo * largura, animated: true });
+    setAtual(proximo);
   }
 
   const ultimo = atual === SLIDES.length - 1;
@@ -84,6 +108,7 @@ export default function Onboarding() {
       </View>
 
       <ScrollView
+        ref={slides}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
@@ -107,7 +132,7 @@ export default function Onboarding() {
         <IndicadorPaginas total={SLIDES.length} atual={atual} testID="indicador-paginas" />
         <Botao
           titulo={ultimo ? 'Começar' : 'Entendi'}
-          onPress={ultimo ? concluir : () => setAtual((i) => Math.min(i + 1, SLIDES.length - 1))}
+          onPress={ultimo ? concluir : avancar}
           testID="botao-avancar"
         />
       </View>

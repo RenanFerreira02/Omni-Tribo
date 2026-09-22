@@ -46,6 +46,7 @@ export const manipuladores = [
   http.post(`${BASE}/missoes/previa-recompensa`, () => HttpResponse.json(PREVIA)),
   http.post(`${BASE}/missoes`, () => HttpResponse.json(missao({ status: 'RASCUNHO' }))),
   http.get(`${BASE}/missoes/:id`, () => HttpResponse.json(missao())),
+  http.patch(`${BASE}/missoes/:id`, () => HttpResponse.json(missao({ status: 'RASCUNHO' }))),
   http.post(`${BASE}/missoes/:id/checkin`, () =>
     HttpResponse.json(missao({ status: 'AGUARDANDO_CONFIRMACAO' })),
   ),

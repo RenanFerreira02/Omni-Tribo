@@ -196,12 +196,23 @@ variações `menos50Brl` / `mais50Brl` exatamente para que o número não seja l
 
 ## O que NÃO entra nos 5 minutos, e onde responder se perguntarem
 
+> **Nota sobre o financiamento comunitário (2026-09-22).** Este pitch mostra o pote do
+> **PATROCINADOR** — é o caminho da entrega falida, e ele é o ato principal. O pote financiado por
+> vizinhos, que é a mesma mecânica com outro pagador, **não aparece em quadro**, e desde o ADR 0035
+> ele também deixou de aparecer sozinho no uso normal do app: AJUDA nasce valendo só XP e publica na
+> hora. Se a banca perguntar "e a economia entre vizinhos?", a resposta rápida é o script
+> `tools/evidencias/conservacao-por-categoria.sh`, que exercita TRIBO, COLETA e AJUDA financiadas e
+> imprime Δ=0 em cada uma. **Nenhum ato do roteiro precisou mudar** — o pitch nunca criou missão
+> pelo app.
+
 Todo assunto cortado tem endereço. A coluna do meio é o bloco de
 [`ROTEIRO-DEMO.md`](ROTEIRO-DEMO.md) que o cobre ao vivo.
 
 | Cortado do pitch | Bloco do roteiro de 10 min | Documento |
 |---|---|---|
 | De onde o token vem — o aporte do patrocinador, único ponto de emissão explícito | **1:00–2:00** | [ADR 0024](adr/0024-carteira-de-patrocinador.md) |
+| O pote COMUNITÁRIO — quem financia missão de vizinho, e por que nunca o criador | **6:00–8:00** | [ADR 0025](adr/0025-ajuda-paga-do-pote.md) · [ADR 0037](adr/0037-quem-cria-a-missao-nao-paga-vira-regra.md) |
+| Missão comunitária que vale **só XP**, e por que ela não é uma quarta ponta da invariante | 6:00–8:00 | [ADR 0035](adr/0035-missao-comunitaria-sem-recompensa-em-token.md) |
 | HMAC sobre o corpo bruto, os doze cenários do webhook, ponto lotado como 200 | **2:00–4:00** | [ADR 0021](adr/0021-verificacao-de-webhook-de-transportadora.md) |
 | Por que o resgate não tem volta, e o código de retirada não ser credencial | 4:00–5:00 | [ADR 0027](adr/0027-resgate-queima-token.md) |
 | Provedor externo fora do ar: 503, cache → disjuntor → bulkhead → retry | **5:00–6:00** | [ADR 0023](adr/0023-resiliencia-de-integracoes-externas.md) |

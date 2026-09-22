@@ -1,12 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, Share, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, Share, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { logout } from '@/api/auth';
 import { mensagemDe } from '@/api/erros';
-import type { ConquistaResponse, TipoConsentimento } from '@/api/tipos';
+import type { ConquistaResponse, ConsentimentoResponse, TipoConsentimento } from '@/api/tipos';
 import { Aviso } from '@/components/Aviso';
 import { BarraProgresso } from '@/components/BarraProgresso';
 import { Botao } from '@/components/Botao';
@@ -43,6 +43,18 @@ const ROTULO_CONSENTIMENTO: Record<TipoConsentimento, { titulo: string; descrica
   },
 };
 
+/**
+ * Espaço do indicador de "salvando", SEMPRE reservado ao lado do interruptor.
+ *
+ * Reservado, e não criado quando aparece: um indicador que nasce empurrando o `Switch` para o lado
+ * faz a linha inteira saltar no exato momento em que a pessoa está olhando para ela. O custo é uma
+ * faixa vazia de 20 dp em cada linha; a alternativa é um salto por toque.
+ *
+ * Dimensão de elemento não pertence à escala de `espaco` — e o lint que cobra as duas escalas deixa
+ * `width` de fora justamente por isso, pedindo em troca que o número seja NOMEADO.
+ */
+const LARGURA_INDICADOR_SALVANDO = 20;
+
 export default function TelaPerfil() {
   const router = useRouter();
   /**
@@ -69,6 +81,14 @@ export default function TelaPerfil() {
   const [senha, setSenha] = useState('');
 
   useAnuncio(anuncio);
+
+  /**
+   * Qual consentimento está NO AR agora — `undefined` quando nenhum está.
+   *
+   * `variables` sobrevive ao fim da mutation (é o que permite ao erro abaixo saber de quem era a
+   * tentativa), então o `isPending` na frente é o que a torna uma resposta sobre o presente.
+   */
+  const emVoo = definirConsentimento.isPending ? definirConsentimento.variables?.tipo : undefined;
 
   async function sair() {
     if (refreshToken) await logout(refreshToken).catch(() => undefined);
@@ -245,50 +265,40 @@ export default function TelaPerfil() {
       >
         <ScrollView contentContainerStyle={estilos.folha}>
           <Text style={estilos.rotulo}>Consentimentos</Text>
-          {/*
-            O erro do consentimento NÃO ERA RENDERIZADO EM LUGAR NENHUM. Revogar podia falhar, o
-            switch voltava sozinho e a pessoa ficava acreditando que havia revogado — num controle de
-            LGPD, que é onde a consequência de acreditar errado é maior.
-          */}
-          {definirConsentimento.error ? (
-            <Aviso
-              tom="erro"
-              mensagem={mensagemDe(definirConsentimento.error)}
-              testID="erro-consentimento"
-            />
-          ) : null}
           {(consentimentos.data ?? []).map((item) => (
-            <View key={item.tipo} style={estilos.consentimento}>
-              <View style={estilos.consentimentoTexto}>
-                <Text style={estilos.valor}>{ROTULO_CONSENTIMENTO[item.tipo].titulo}</Text>
-                <Text style={estilos.legenda}>{ROTULO_CONSENTIMENTO[item.tipo].descricao}</Text>
-              </View>
-              <Switch
-                value={item.concedido}
-                onValueChange={(concedido) =>
-                  definirConsentimento.mutate(
-                    { tipo: item.tipo, concedido },
-                    {
-                      onSuccess: () =>
-                        setAnuncio(
-                          `${ROTULO_CONSENTIMENTO[item.tipo].titulo}: ${concedido ? 'autorizado' : 'revogado'}.`,
-                        ),
-                      onError: () =>
-                        setAnuncio(
-                          `Não foi possível alterar ${ROTULO_CONSENTIMENTO[item.tipo].titulo}. O ajuste não foi salvo.`,
-                        ),
-                    },
-                  )
-                }
-                // O Switch nativo tem ~31 pt de altura no iOS, abaixo dos 44 da WCAG 2.5.5, e não
-                // aceita padding. `hitSlop` amplia só a área sensível, sem mexer no layout.
-                hitSlop={8}
-                disabled={definirConsentimento.isPending}
-                accessibilityLabel={ROTULO_CONSENTIMENTO[item.tipo].titulo}
-                trackColor={{ true: cores.verdePrimario, false: cores.linha }}
-                testID={`consentimento-${item.tipo}`}
-              />
-            </View>
+            <LinhaConsentimento
+              key={item.tipo}
+              item={item}
+              // Só a linha TOCADA trava. Antes era `definirConsentimento.isPending` cru nos três, e
+              // como o `Switch` nativo esmaece quando desabilitado, mexer num apagava e acendia
+              // todos — o "piscar" que originou esta correção. `variables` é o que a mutation em
+              // voo carrega, então não é preciso estado novo para saber qual delas é.
+              salvando={emVoo === item.tipo}
+              // O erro pertence à linha que falhou, não à folha. Antes era um `Aviso` no topo, que
+              // dizia que ALGO falhou sem dizer o quê — num controle de LGPD, saber qual não é
+              // detalhe. Aqui `variables` é lido sem checar `isPending`: no erro a mutation já
+              // parou, e é justamente aí que se quer saber de quem era a tentativa.
+              erro={
+                definirConsentimento.error && definirConsentimento.variables?.tipo === item.tipo
+                  ? mensagemDe(definirConsentimento.error)
+                  : null
+              }
+              aoAlternar={(concedido) =>
+                definirConsentimento.mutate(
+                  { tipo: item.tipo, concedido },
+                  {
+                    onSuccess: () =>
+                      setAnuncio(
+                        `${ROTULO_CONSENTIMENTO[item.tipo].titulo}: ${concedido ? 'autorizado' : 'revogado'}.`,
+                      ),
+                    onError: () =>
+                      setAnuncio(
+                        `Não foi possível alterar ${ROTULO_CONSENTIMENTO[item.tipo].titulo}. O ajuste não foi salvo.`,
+                      ),
+                  },
+                )
+              }
+            />
           ))}
 
           <Text style={estilos.rotulo}>Seus dados</Text>
@@ -319,10 +329,10 @@ export default function TelaPerfil() {
             Seu nome, e-mail e @ são apagados e a conta é encerrada. O histórico contábil das
             missões permanece sem qualquer ligação com você — é o que a lei exige guardar.
           </Text>
-
-          {excluir.error ? (
-            <Aviso tom="erro" mensagem={mensagemDe(excluir.error)} testID="erro-exclusao" />
-          ) : null}
+          {/* O erro da exclusão NÃO é renderizado aqui, e havia um `Aviso` duplicado neste ponto.
+              Quem dispara a ação é a folha da senha, e é lá que a falha aparece — com as duas
+              montadas, a mesma mensagem era lida duas vezes pelo leitor de tela, de duas regiões
+              vivas distintas. */}
         </ScrollView>
       </FolhaInferior>
 
@@ -336,6 +346,10 @@ export default function TelaPerfil() {
         destrutivo
         aoConfirmar={() => {
           setConfirmandoExclusao(false);
+          // FECHA a folha de privacidade antes de abrir a da senha. Sem isto as duas ficavam
+          // montadas: os dois véus de 35% se somavam para ~58% de escurecimento, e fechar a folha
+          // da senha devolvia a pessoa à de privacidade em vez de à tela de perfil.
+          setPrivacidadeAberta(false);
           setSenhaAberta(true);
         }}
         aoCancelar={() => setConfirmandoExclusao(false)}
@@ -371,6 +385,71 @@ export default function TelaPerfil() {
         />
       </FolhaInferior>
     </SafeAreaView>
+  );
+}
+
+/**
+ * Uma linha de consentimento: rótulo, descrição, interruptor — e o estado DAQUELA linha.
+ *
+ * Componente de módulo, e não função declarada dentro de `TelaPerfil`: ali ele seria um tipo novo a
+ * cada render do perfil, e o React remontaria os três `Switch` sempre que qualquer estado da tela
+ * mudasse. Seria reintroduzir por outro caminho exatamente o defeito que esta mudança fecha.
+ */
+function LinhaConsentimento({
+  item,
+  salvando,
+  erro,
+  aoAlternar,
+}: {
+  item: ConsentimentoResponse;
+  salvando: boolean;
+  erro: string | null;
+  aoAlternar: (concedido: boolean) => void;
+}) {
+  const rotulo = ROTULO_CONSENTIMENTO[item.tipo];
+
+  return (
+    <View style={estilos.consentimentoBloco}>
+      <View style={estilos.consentimento}>
+        <View style={estilos.consentimentoTexto}>
+          <Text style={estilos.valor}>{rotulo.titulo}</Text>
+          <Text style={estilos.legenda}>{rotulo.descricao}</Text>
+        </View>
+        {/* Faixa SEMPRE presente: ver `LARGURA_INDICADOR_SALVANDO`. O indicador entra e sai dela
+            sem mover o interruptor de lugar. */}
+        <View style={estilos.indicadorSalvando}>
+          {salvando ? (
+            <ActivityIndicator
+              size="small"
+              color={cores.verdePrimario}
+              testID={`salvando-${item.tipo}`}
+            />
+          ) : null}
+        </View>
+        <Switch
+          value={item.concedido}
+          onValueChange={aoAlternar}
+          // O Switch nativo tem ~31 pt de altura no iOS, abaixo dos 44 da WCAG 2.5.5, e não
+          // aceita padding. `hitSlop` amplia só a área sensível, sem mexer no layout.
+          hitSlop={8}
+          disabled={salvando}
+          accessibilityLabel={rotulo.titulo}
+          // `busy` é o que diz ao leitor de tela que o desabilitado é TEMPORÁRIO. Sem ele, o
+          // TalkBack anuncia só "desativado", indistinguível de um controle que a pessoa não pode
+          // usar — e o indicador visual ao lado não existe para quem não enxerga.
+          accessibilityState={{ disabled: salvando, busy: salvando }}
+          trackColor={{ true: cores.verdePrimario, false: cores.linha }}
+          testID={`consentimento-${item.tipo}`}
+        />
+      </View>
+      {/*
+        O erro do consentimento NÃO ERA RENDERIZADO EM LUGAR NENHUM. Revogar podia falhar, o switch
+        voltava sozinho e a pessoa ficava acreditando que havia revogado — num controle de LGPD, que
+        é onde a consequência de acreditar errado é maior. Hoje ele é renderizado, e DENTRO da linha
+        a que pertence.
+      */}
+      {erro ? <Aviso tom="erro" mensagem={erro} testID="erro-consentimento" /> : null}
+    </View>
   );
 }
 
@@ -416,6 +495,8 @@ const estilos = StyleSheet.create({
   nivel: { ...tipografia.subtitulo, color: cores.verdeEscuro },
   xp: { ...tipografia.rotulo, color: textoAcessivel.ambar },
   conquistada: { borderWidth: 1, borderColor: cores.verdePrimario },
+  consentimentoBloco: { gap: espaco.sm },
   consentimento: { flexDirection: 'row', alignItems: 'center', gap: espaco.md },
   consentimentoTexto: { flex: 1, gap: espaco.xxs },
+  indicadorSalvando: { width: LARGURA_INDICADOR_SALVANDO, alignItems: 'center' },
 });

@@ -103,11 +103,23 @@ build **não entram**: envelhecem a cada PR, e um número errado na tela é pior
 - **Quem cria a missão não paga.** A recompensa é calculada pelo servidor e congelada na criação
 - O token **entra** por aporte do patrocinador e **sai de circulação** no resgate de um benefício
 - Publicar exige pote cobrindo a recompensa; cancelar ou expirar **estorna** a quem financiou
+- Missão comunitária pode valer **só XP**: aí não há pote, publica na hora e token nenhum se move
 
 > **Nota.** Se houver uma pergunta sobre inflação de moeda, é aqui: a emissão explícita tem um ponto
 > só, auditado e idempotente, e o resgate é sumidouro real — debita sem creditar ninguém. A terceira
 > ponta, a entrega criada por um vizinho, está no slide 9 como escopo declarado. Fontes: ADR 0009,
 > 0024, 0027.
+>
+> **Se perguntarem pela missão de só XP** (ADR 0035): ela **não é uma quarta ponta** — não emite nem
+> queima, não participa da invariante. É diferente de "muda a soma em zero", e o teste mede a
+> diferença: Δ=0 **e** nenhum lançamento, porque só o Δ passaria igual se a missão cunhasse e
+> queimasse o mesmo valor.
+>
+> **E se perguntarem quem financia o pote comunitário:** outros membros da tribo, nunca o criador —
+> e desde o ADR 0037 isso é recusado pelo servidor com 422, não só afirmado. O pitch de 5 min mostra
+> o pote do PATROCINADOR, que é o caminho da entrega falida; o financiamento entre vizinhos é o
+> mesmo mecanismo com outro pagador, e `tools/evidencias/conservacao-por-categoria.sh` o exercita nas
+> três categorias comunitárias.
 
 ---
 

@@ -92,6 +92,16 @@ public class CriacaoMissaoVerificador
       valido = false;
     }
 
+    // (4) "Só XP" é exclusivo de TRIBO e AJUDA (ADR 0035). ENTREGA e COLETA movem objeto físico e
+    // têm custo real de execução — uma delas sem token seria trabalho de carga pago em reputação.
+    // Recusado, e não ignorado, pela razão da regra (3) logo acima: ignorar faria o app acreditar
+    // que declarou algo sem efeito, e a tela mostraria uma recompensa que não bate com a escolha.
+    if (!req.recompensaEmTokenEfetiva() && carregaCoisa) {
+      violacao(
+          contexto, "recompensaEmToken", "Só missões TRIBO e AJUDA podem recompensar apenas em XP");
+      valido = false;
+    }
+
     return valido;
   }
 

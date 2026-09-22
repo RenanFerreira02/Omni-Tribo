@@ -164,6 +164,19 @@ export interface EnderecoResponse {
   uf: string;
 }
 
+/**
+ * De onde sai o token da recompensa, congelado na criação da missão.
+ *
+ * Existe no backend desde a V23 e só passou a sair no JSON com o ADR 0035 — antes disso o app não
+ * conseguia distinguir três situações que pedem telas diferentes e que `poteTokens: 0` não separa:
+ *
+ * - `COMUNIDADE` — falta financiamento de um vizinho da tribo; publicar dá 422 até o pote cobrir;
+ * - `PATROCINADOR` — a transportadora já pagou o pote na conversão; nada a fazer;
+ * - `CUNHAGEM` — ENTREGA criada por humano; publica sem pote e o token é emitido na conclusão;
+ * - `SEM_TOKEN` — recompensa só em XP; publica na hora e NÃO aceita financiamento.
+ */
+export type FontePote = 'COMUNIDADE' | 'PATROCINADOR' | 'CUNHAGEM' | 'SEM_TOKEN';
+
 export interface MissaoResponse {
   id: string;
   criadorId: string;
@@ -261,6 +274,15 @@ export interface MissaoResponse {
    */
   avisoRisco: string | null;
 
+  /**
+   * De onde sai o token desta missão. Ver {@link FontePote}.
+   *
+   * É o campo que permite à tela dizer POR QUE uma missão em rascunho não publica — ou que ela
+   * publica agora, valendo só XP. `tokensRecompensa` e `poteTokens` sozinhos não bastam: pote zero
+   * significa coisas opostas em `COMUNIDADE` e em `SEM_TOKEN`.
+   */
+  fontePote: FontePote;
+
   versao: number;
 }
 
@@ -344,6 +366,43 @@ export interface CriarMissaoRequest {
   janelaInicio: string;
   janelaFim: string;
   pontoCustodiaId?: string;
+  /**
+   * `false` cria a missão valendo só XP — sem token, sem pote e publicável na hora (ADR 0035).
+   *
+   * Só TRIBO e AJUDA aceitam `false`; em ENTREGA e COLETA o servidor responde 400 apontando este
+   * campo. Ausente equivale a `true`, mas o app SEMPRE envia explícito: o padrão por categoria
+   * (AJUDA nasce só-XP, TRIBO nasce com token) é decisão de produto e mora aqui, não no servidor.
+   */
+  recompensaEmToken: boolean;
+}
+
+/**
+ * Corpo do `PATCH /missoes/{id}`. Todo campo ausente significa "não alterar".
+ *
+ * Em RASCUNHO o servidor RECALCULA a recompensa a cada edição (ADR 0036) — inclusive quando só o
+ * peso muda. A partir de ABERTA ela é promessa e fica congelada, e `recompensaEmToken` passa a ser
+ * recusado com 409.
+ */
+export interface AtualizarMissaoRequest {
+  titulo?: string;
+  descricao?: string;
+  cep?: string;
+  logradouro?: string;
+  bairro?: string;
+  cidade?: string;
+  uf?: string;
+  origemLat?: number;
+  origemLon?: number;
+  destinoLat?: number;
+  destinoLon?: number;
+  janelaInicio?: string;
+  janelaFim?: string;
+  raioCheckinM?: number;
+  pesoKg?: number;
+  volumeL?: number;
+  recompensaEmToken?: boolean;
+  /** Só onde não há peso e volume (TRIBO, AJUDA). Com os dois presentes o servidor responde 422. */
+  complexidade?: ComplexidadeMissao;
 }
 
 /**
