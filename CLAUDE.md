@@ -36,11 +36,11 @@ propósito, não são pendência.
   pelo servidor e **congelada**, e o DTO de criação não tem valor de recompensa.
 - O **multiplicador de risco** entra na BASE (junto da complexidade), em [1,00; 1,50]. Mudou o YAML
   da recompensa? Suba `versao`.
-- `missao.fonte_pote` decide quem paga: `COMUNIDADE`, `PATROCINADOR`, `SEM_TOKEN` ou `CUNHAGEM`.
+- `missao.fonte_pote` decide quem paga: `COMUNIDADE`, `PATROCINADOR` ou `SEM_TOKEN` (`CUNHAGEM` é legado, ADR 0038).
   Publicar exige pote cobrindo a recompensa. Cancelar ou expirar **estorna**, e isso acontece em
   `MissaoService.aplicar` **e** em `ExpiracaoMissoesService.expirarUma`.
 - `CONCLUIDA` é o único estado que credita. **Nenhuma missão tem `valor_brl > 0`.**
-- Emissão explícita só em `APORTE_PATROCINADOR`; o resgate queima. Reconciliação (`integro`) não
+- A invariante tem duas pontas: `APORTE_PATROCINADOR` emite, o resgate queima. Reconciliação (`integro`) não
   detecta emissão.
 
 ## Comandos
@@ -71,9 +71,9 @@ pergunte.
 
 **Banco**
 - Flyway é a única fonte de schema, e `ddl-auto` é sempre `validate`.
-- A versão de migration é uma **sequência global**: schema em `db/migration` (V1–V8, V11–V30;
-  **próxima V31**; **V9 e V10 queimadas**) e seed só dev/test em `db/seed` (V900+; **próximo
-  V907**). Use `/migration`.
+- A versão de migration é uma **sequência global**: schema em `db/migration` (V1–V8, V11–V31;
+  **próxima V32**; **V9 e V10 queimadas**) e seed só dev/test em `db/seed` (V900+; **próximo
+  V908**). Use `/migration`.
 - Migration nova em banco de dev existente exige `make reset`. Renomeou migration? `./mvnw clean`
   também. **Nunca edite migration já aplicada.**
 - Dinheiro é `numeric(12,2)`/BigDecimal; tokens são `bigint`; coordenada é

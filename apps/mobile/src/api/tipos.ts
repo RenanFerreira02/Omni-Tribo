@@ -172,7 +172,7 @@ export interface EnderecoResponse {
  *
  * - `COMUNIDADE` — falta financiamento de um vizinho da tribo; publicar dá 422 até o pote cobrir;
  * - `PATROCINADOR` — a transportadora já pagou o pote na conversão; nada a fazer;
- * - `CUNHAGEM` — ENTREGA criada por humano; publica sem pote e o token é emitido na conclusão;
+ * - `CUNHAGEM` — LEGADO (antes da V31): ENTREGA que publicou sem pote e emite na conclusão;
  * - `SEM_TOKEN` — recompensa só em XP; publica na hora e NÃO aceita financiamento.
  */
 export type FontePote = 'COMUNIDADE' | 'PATROCINADOR' | 'CUNHAGEM' | 'SEM_TOKEN';
@@ -369,9 +369,9 @@ export interface CriarMissaoRequest {
   /**
    * `false` cria a missão valendo só XP — sem token, sem pote e publicável na hora (ADR 0035).
    *
-   * Só TRIBO e AJUDA aceitam `false`; em ENTREGA e COLETA o servidor responde 400 apontando este
-   * campo. Ausente equivale a `true`, mas o app SEMPRE envia explícito: o padrão por categoria
-   * (AJUDA nasce só-XP, TRIBO nasce com token) é decisão de produto e mora aqui, não no servidor.
+   * Só COLETA recusa `false` (400 apontando este campo, ADR 0038). Ausente equivale a `true`, mas
+   * o app SEMPRE envia explícito: o padrão por categoria (AJUDA e ENTREGA nascem só-XP, TRIBO e
+   * COLETA com token) é decisão de produto e mora aqui, não no servidor.
    */
   recompensaEmToken: boolean;
 }

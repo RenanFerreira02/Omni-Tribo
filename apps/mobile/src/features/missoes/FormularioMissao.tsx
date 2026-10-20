@@ -44,17 +44,21 @@ import {
 const ALTURA_SELETOR_MAPA = 320;
 
 /**
- * Recompensar em token é o padrão — EXCETO em AJUDA.
+ * Recompensar em token é o padrão de TRIBO e COLETA; AJUDA e ENTREGA nascem "só XP".
  *
- * A assimetria é o argumento do próprio ADR 0025, lido ao contrário. Num mutirão quem financia
- * também se beneficia: o bem é coletivo, e pedir o pote à tribo é coerente. Numa AJUDA o
- * beneficiário é uma pessoa só, e o ADR previu que financiar favor alheio poderia se mostrar pouco
- * atraente e represar a categoria em RASCUNHO — foi o que aconteceu. Então AJUDA nasce publicável.
+ * Num mutirão ou numa coleta quem financia também se beneficia: o bem é coletivo, e pedir o pote à
+ * tribo é coerente. Numa AJUDA ou numa ENTREGA entre vizinhos o beneficiário é uma pessoa só, e
+ * financiar favor alheio represava a missão em RASCUNHO (ADR 0035). Então elas nascem publicáveis.
  *
- * É padrão, não regra: as duas categorias aceitam as duas formas, e o chip está sempre à vista.
+ * É padrão, não regra: o chip está sempre à vista. Só COLETA não oferece "só XP" (ADR 0038).
  */
 export function padraoRecompensaEmToken(categoria: CategoriaMissao): boolean {
-  return categoria !== 'AJUDA';
+  return categoria === 'TRIBO' || categoria === 'COLETA';
+}
+
+/** COLETA é a única categoria que exige token — o servidor recusa "só XP" nela com 400. */
+export function aceitaSoXp(categoria: CategoriaMissao): boolean {
+  return categoria !== 'COLETA';
 }
 
 export interface FormularioMissaoProps {
@@ -234,9 +238,9 @@ export function FormularioMissao({
                         setValue('pesoKg', undefined);
                         setValue('volumeL', undefined);
                         setValue('complexidade', undefined, { shouldValidate: true });
-                        // E a forma de recompensa reassume o padrão da categoria nova: entrega e
-                        // coleta só aceitam token, e manter "só XP" aqui montaria um corpo que o
-                        // servidor recusa com 400.
+                        // E a forma de recompensa reassume o padrão da categoria nova: coleta só
+                        // aceita token, e manter "só XP" ao trocar para ela montaria um corpo que
+                        // o servidor recusa com 400.
                         setValue('recompensaEmToken', padraoRecompensaEmToken(categoria), {
                           shouldValidate: true,
                         });
@@ -343,8 +347,8 @@ export function FormularioMissao({
           </View>
         )}
 
-        {/* ─── Forma de recompensa: só TRIBO e AJUDA escolhem ─────────────────────────────── */}
-        {movimentaObjeto ? null : (
+        {/* ─── Forma de recompensa: toda categoria escolhe, menos COLETA ───────────────────── */}
+        {!aceitaSoXp(valores.categoria) ? null : (
           <View>
             <Text style={estilos.rotulo}>Como esta missão recompensa</Text>
             <View

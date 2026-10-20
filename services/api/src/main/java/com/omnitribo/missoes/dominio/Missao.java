@@ -254,63 +254,39 @@ public class Missao {
     this.criadaEm = criadaEm;
     // A missão nasce RASCUNHO neste instante. A partir daqui quem mexe é a máquina de estados.
     this.estadoDesde = criadaEm;
-    // DERIVADA da categoria e congelada aqui, num ponto único. Este construtor é a razão pela qual
-    // a V23 não criou um CHECK de coerência entre fonte_pote e categoria no banco: aquele CHECK
-    // reprovaria os INSERTs dos próprios seeds, que rodam depois da migration e não podem ser
-    // editados. A garantia mora aqui, e todo caminho de criação passa por aqui.
-    // AJUDA entrou aqui em 2026-08-21 (ADR 0025) e a razão é que o argumento que a mantinha fora
-    // não
-    // era dela: "exigir pote faria membros da tribo custearem a logística do varejista" descreve
-    // ENTREGA, que tem um varejista do outro lado. AJUDA é missão entre vizinhos, como TRIBO, e em
-    // TRIBO quem financia NUNCA é o criador — são os outros membros. O ADR 0009 continua valendo.
-    //
-    // Sobra CUNHAGEM só para ENTREGA criada por humano, que é o caso onde o financiador correto
-    // (o patrocinador) existe mas não está ligado àquela missão.
-    //
-    // SEM_TOKEN vem PRIMEIRO, e é derivada da RECOMPENSA e não de um parâmetro novo (ADR 0035).
-    // Recompensa com zero token só existe por Recompensa.semToken(), porque a calculadora tem piso
-    // de 1 token — então "tokens == 0" é exatamente "o criador escolheu recompensar só em XP", e a
-    // equivalência SEM_TOKEN <-> tokens_recompensa = 0 passa a valer nos DOIS sentidos, por
-    // construção. Um 25º parâmetro booleano neste construtor seria o risco que o comentário da
-    // recompensa acima descreve: posição intercambiável que o compilador não protege.
-    //
-    // Quem barra "só XP" em ENTREGA e COLETA é CriacaoMissaoVerificador, com 400 apontando o campo.
-    // Aqui a regra é total de propósito: não há ramo inalcançável a manter.
-    this.fontePote = derivarFontePote(categoria, recompensa);
+    // DERIVADA da recompensa e congelada aqui, num ponto único que todo caminho de criação
+    // atravessa. Não há CHECK de coerência no banco porque os seeds inserem depois das migrations.
+    this.fontePote = derivarFontePote(recompensa);
   }
 
   /**
-   * De onde sairá o token desta missão, em função da categoria e da recompensa congelada.
+   * De onde sairá o token desta missão (ADR 0038).
    *
-   * <p>Ponto único, chamado pelo construtor e por {@link #recongelarRecompensa}. Duas cópias desta
-   * regra divergiriam em silêncio na próxima mudança — foi o que quase aconteceu quando AJUDA
-   * trocou de lado e {@code FinanciamentoService.validarEstado} ainda listava categorias (ADR
-   * 0025).
+   * <p>Toda missão criada por pessoa paga do pote financiado por OUTROS membros da tribo, ou é só
+   * XP. Nenhuma emite token na conclusão — a ENTREGA criada por humano era a última que emitia
+   * ({@link FontePote#CUNHAGEM}), e o argumento que a mantinha fora do pote ("vizinhos custeando a
+   * logística do varejista") descreve a entrega da TRANSPORTADORA, que já chega patrocinada pelo
+   * webhook. A missão de retirada nasce {@code COMUNIDADE} e passa a {@code PATROCINADOR} em {@link
+   * #financiadaPeloPatrocinador()}, na mesma transação.
+   *
+   * <p>{@code tokens == 0} é exatamente "o criador escolheu só XP": a calculadora tem piso de 1
+   * token, e zero só nasce de {@code Recompensa.semToken()} (ADR 0035).
    */
-  private static FontePote derivarFontePote(
-      CategoriaMissao categoria, CalculadoraDeRecompensa.Recompensa recompensa) {
-    if (recompensa.tokens() == 0) {
-      return FontePote.SEM_TOKEN;
-    }
-    return categoria == CategoriaMissao.ENTREGA ? FontePote.CUNHAGEM : FontePote.COMUNIDADE;
+  private static FontePote derivarFontePote(CalculadoraDeRecompensa.Recompensa recompensa) {
+    return recompensa.tokens() == 0 ? FontePote.SEM_TOKEN : FontePote.COMUNIDADE;
   }
 
   /**
    * Recongela a recompensa depois de o PATCH mudar os insumos (ADR 0036, revisado).
    *
-   * <p>O javadoc de {@link #editarRascunho} exclui a recompensa da edição com um argumento que só
-   * cobre ABERTA — "mudaria o contrato sob os pés de quem está prestes a aceitar". <b>Ele está
-   * certo sobre o que protege e errado sobre o meio:</b> o que impede a recompensa de uma missão
-   * publicada de mudar não é o congelamento, é o POTE, que já está comprometido e fechado. Onde não
-   * há pote — {@link FontePote#CUNHAGEM}, a ENTREGA criada por humano — o congelamento não protegia
-   * nada e escondia o oposto: publicar com destino a 8 km e depois aproximá-lo para 500 m mantinha
-   * a recompensa alta, que naquela fonte é emitida na conclusão. Token do nada, pelo caminho que o
-   * ADR 0024 fechou por outro lado.
+   * <p>O que protege a recompensa de uma missão publicada não é o congelamento, é o POTE, já
+   * comprometido. Quem garante que ele não fica órfão, nas DUAS direções, é {@code
+   * MissaoService.recongelarRecompensaEditada}, que recusa antes de chamar este método.
    *
-   * <p>Escreve {@code fonte_pote} junto porque trocar entre "só XP" e "com token" é precisamente o
-   * que muda a fonte — e é a edição que destrava quem criou uma missão comunitária e não conseguiu
-   * financiar o pote. Quem garante que o pote já financiado não fica órfão, nas DUAS direções, é
-   * {@code MissaoService.recongelarRecompensaEditada}, que recusa antes de chamar este método.
+   * <p>Escreve {@code fonte_pote} junto porque trocar entre "só XP" e "com token" é o que muda a
+   * fonte. A exceção é a {@link FontePote#CUNHAGEM} LEGADA (missão publicada antes da V31): ela
+   * mantém a fonte com que foi prometida, ou passaria a exigir um pote que nunca teve e não poderia
+   * mais ser concluída.
    *
    * @throws IllegalStateException fora dos estados editáveis — erro de programação, não entrada de
    *     usuário: {@code MissaoStateMachine.validarEdicao} já recusou antes, com 403 ou 409.
@@ -327,7 +303,8 @@ public class Missao {
     this.complexidade = recompensa.complexidade();
     this.versaoFormula = recompensa.versaoFormula();
     this.multiplicadorRisco = recompensa.multiplicadorRisco();
-    this.fontePote = derivarFontePote(this.categoria, recompensa);
+    boolean legadoCunhado = this.fontePote == FontePote.CUNHAGEM && recompensa.tokens() > 0;
+    this.fontePote = legadoCunhado ? FontePote.CUNHAGEM : derivarFontePote(recompensa);
   }
 
   /**
@@ -473,15 +450,19 @@ public class Missao {
    * sabe se existe patrocinador com saldo, e essa resposta só aparece depois de a recompensa estar
    * calculada e a carteira travada.
    *
-   * <p>A guarda não é decorativa. Aceitar esta chamada numa missão COMUNIDADE trocaria a fonte de
-   * um pote que membros da tribo já financiaram, e o estorno passaria a procurar lançamentos do
-   * motivo errado — o dinheiro deles ficaria preso na missão. Estado impossível vira erro alto
-   * aqui, e não saldo perdido em silêncio depois.
+   * <p>A guarda não é decorativa. Aceitar esta chamada numa missão que membros da tribo já
+   * financiaram trocaria a fonte do pote deles, e o estorno passaria a procurar lançamentos do
+   * motivo errado — o dinheiro ficaria preso na missão. Por isso só passa a missão recém-criada:
+   * {@code COMUNIDADE} e com o pote ainda VAZIO.
    */
   public void financiadaPeloPatrocinador() {
-    if (this.fontePote != FontePote.CUNHAGEM) {
+    if (this.fontePote != FontePote.COMUNIDADE || this.poteTokens != 0) {
       throw new IllegalStateException(
-          "Só missão de fonte CUNHAGEM pode passar a PATROCINADOR; esta é " + this.fontePote + ".");
+          "Só missão COMUNIDADE com pote vazio pode passar a PATROCINADOR; esta é "
+              + this.fontePote
+              + " com pote "
+              + this.poteTokens
+              + ".");
     }
     this.fontePote = FontePote.PATROCINADOR;
   }

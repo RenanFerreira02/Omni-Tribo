@@ -41,27 +41,15 @@ import org.springframework.test.web.servlet.MvcResult;
  * respondeu {@code integro=true} o tempo todo — corretamente, porque ledger e projeção nunca
  * divergiram.
  *
- * <p>Este teste chama {@link com.omnitribo.carteira.SuporteCarteira#assertLedgerReconcilia} nos
- * DOIS ramos de propósito. Não é redundância: é a demonstração executável de que a reconciliação
- * passa mesmo quando há cunhagem. Se algum dia alguém propuser "a reconciliação já cobre isso",
- * este teste é a resposta.
+ * <p>Este teste chama {@link com.omnitribo.carteira.SuporteCarteira#assertLedgerReconcilia} além do
+ * Δ: as duas perguntas são diferentes, e a reconciliação passaria mesmo se houvesse cunhagem.
  *
- * <h2>Por que ramifica em vez de exigir conservação nas quatro categorias</h2>
+ * <h2>As quatro categorias exigem Δ = 0</h2>
  *
- * <p>{@code MissaoService.pagaTokensDoPote} lê {@code missao.fonte_pote}. Três das quatro
- * categorias criadas por usuário pagam do pote — TRIBO, COLETA e, desde o ADR 0025, AJUDA. Só
- * ENTREGA criada por humano ainda <b>cunha</b>, e por um motivo específico: o financiador correto
- * dela é o PATROCINADOR (ADR 0024), que existe mas não está ligado a uma missão que um usuário
- * criou por conta própria. Exigir pote da tribo aí faria vizinhos custearem logística de varejista.
- *
- * <p><b>O ramo que cunha encolheu duas vezes, e as duas mudanças passaram por aqui.</b> Este teste
- * exigia {@code delta == recompensa} para ENTREGA e AJUDA; a V23 tirou a entrega falida do ramo e o
- * ADR 0025 tirou AJUDA. As duas vezes a assertion foi APERTADA — de "cunha N" para "Δ = 0" —, nunca
- * relaxada. É esse o registro executável de que cada lacuna fechou.
- *
- * <p>O objetivo continua sendo <b>declarar os dois regimes</b> em vez de apagar um: tanto uma
- * emissão vazando para as categorias com pote quanto uma mudança de regime acidental na que cunha
- * quebram o build.
+ * <p>Toda missão criada por pessoa com recompensa em token paga do pote financiado por outro membro
+ * da tribo — desde o ADR 0038, inclusive ENTREGA. Este teste ramificava: exigia {@code delta ==
+ * recompensa} para ENTREGA e AJUDA, depois só para ENTREGA. A cada lacuna que fechou, a assertion
+ * foi APERTADA, nunca relaxada; hoje não há ramo que cunha.
  */
 @Import(JwtTestConfig.class)
 class ConservacaoTokensTest extends TesteIntegracaoMvcBase {
@@ -111,35 +99,26 @@ class ConservacaoTokensTest extends TesteIntegracaoMvcBase {
   @ParameterizedTest(name = "{0}")
   @EnumSource(CategoriaMissao.class)
   void conservacaoDaOfertaDeTokenDependeDaCategoria(CategoriaMissao categoria) throws Exception {
-    // Espelha `Missao.fontePote`, e é a ÚNICA categoria que sobrou cunhando. Deriva da categoria em
-    // vez de ler a coluna de propósito: se o construtor mudar de regime sem que alguém decida, este
-    // teste discorda dele e o build fecha vermelho — que é o ponto.
-    boolean pagaDoPote = categoria != CategoriaMissao.ENTREGA;
-
     long circulacaoAntes = tokensEmCirculacao(jdbcTemplate);
 
     UUID missaoId = criarMissaoEmRascunho(categoria);
 
-    if (pagaDoPote) {
-      // ENTREGA recebe 422 aqui ("não aceita financiamento em tokens"), então o passo simplesmente
-      // não existe para ela. É o que torna a cunhagem possível — e é o que AJUDA deixou de ser.
-      mockMvc
-          .perform(
-              post("/api/v1/tribos/{triboId}/financiamentos", tribo)
-                  .header("Authorization", bearer(financiador))
-                  .header("Idempotency-Key", "conservacao-" + missaoId)
-                  .contentType(MediaType.APPLICATION_JSON)
-                  .content(
-                      """
-                      {"missaoId":"%s","tokens":%d}
-                      """
-                          .formatted(missaoId, recompensa)))
-          .andExpect(status().isCreated());
+    mockMvc
+        .perform(
+            post("/api/v1/tribos/{triboId}/financiamentos", tribo)
+                .header("Authorization", bearer(financiador))
+                .header("Idempotency-Key", "conservacao-" + missaoId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {"missaoId":"%s","tokens":%d}
+                    """
+                        .formatted(missaoId, recompensa)))
+        .andExpect(status().isCreated());
 
-      assertThat(tokensEmCirculacao(jdbcTemplate))
-          .as("financiar move token da carteira para o pote — não cria nem destrói")
-          .isEqualTo(circulacaoAntes);
-    }
+    assertThat(tokensEmCirculacao(jdbcTemplate))
+        .as("financiar move token da carteira para o pote — não cria nem destrói")
+        .isEqualTo(circulacaoAntes);
 
     acao(missaoId, "publicar", criador);
     acao(missaoId, "aceitar", executor);
@@ -154,22 +133,12 @@ class ConservacaoTokensTest extends TesteIntegracaoMvcBase {
 
     long delta = tokensEmCirculacao(jdbcTemplate) - circulacaoAntes;
 
-    if (pagaDoPote) {
-      assertThat(delta)
-          .as("%s paga DO pote: a oferta de token não pode mudar no ciclo inteiro", categoria)
-          .isZero();
-    } else {
-      assertThat(delta)
-          .as(
-              "%s criada por humano CUNHA %d tokens — a última lacuna, e ela é deliberada: o "
-                  + "financiador correto é o patrocinador (ADR 0024), que não está ligado a uma "
-                  + "missão que um usuário criou. Se este valor mudar, a lacuna mudou de tamanho "
-                  + "ou fechou, e as duas coisas exigem decisão explícita.",
-              categoria, recompensa)
-          .isEqualTo(recompensa);
-    }
+    assertThat(delta)
+        .as("%s paga DO pote: a oferta de token não pode mudar no ciclo inteiro", categoria)
+        .isZero();
 
-    // Roda nos dois ramos: a reconciliação passa mesmo no caso que cunha. É o ponto do teste.
+    // A reconciliação passaria mesmo se houvesse cunhagem; conferida à parte, porque é outra
+    // pergunta.
     assertLedgerReconcilia(jdbcTemplate);
   }
 
