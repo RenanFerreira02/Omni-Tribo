@@ -29,7 +29,7 @@ public record ComandoCheckin(
     BigDecimal acuraciaM,
     /**
      * Flag reportada pelo dispositivo (expo-location / Android). Entrada não confiável por natureza
-     * — ver docs/seguranca/antifraude-geolocalizacao.md.
+     * — ver docs/ARQUITETURA.md (seção Antifraude).
      */
     boolean mocked,
     BigDecimal origemLat,

@@ -7,25 +7,25 @@ import { render } from '@/testes/render';
 import { servidor } from '@/testes/servidor';
 import { useSessao } from '@/stores/sessao';
 import { cores } from '@/theme';
-import type { MarcadorMapa } from '@/components/MapaLeaflet';
+import type { MarcadorMapa } from '@/components/Mapa';
 
 const BASE = 'http://api.teste/api/v1';
 
 /**
  * Captura dos marcadores que a TELA monta.
  *
- * O `MapaLeaflet` de verdade entrega os marcadores à página por `injectJavaScript`, dentro de uma
+ * O `Mapa` de verdade entrega os marcadores à página por `injectJavaScript`, dentro de uma
  * WebView que já é dublê — o que a tela decidiu não sobrevive até nenhum nó inspecionável. Trocando
  * o componente por um capturador, a asserção recai exatamente sobre a fronteira que estava errada:
  * a prop que `mapa.tsx` monta.
  */
 const marcadoresCapturados: MarcadorMapa[][] = [];
 
-jest.mock('@/components/MapaLeaflet', () => {
+jest.mock('@/components/Mapa', () => {
   const React = jest.requireActual('react');
   const { View } = jest.requireActual('react-native');
   return {
-    MapaLeaflet: (props: { marcadores: unknown[]; testID?: string }) => {
+    Mapa: (props: { marcadores: unknown[]; testID?: string }) => {
       marcadoresCapturados.push(props.marcadores as never);
       return React.createElement(View, { testID: props.testID });
     },

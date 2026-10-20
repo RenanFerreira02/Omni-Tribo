@@ -69,11 +69,12 @@ describe('criar missão', () => {
     expect(screen.getByTestId('explicacao-recompensa')).toHaveTextContent(/financiar o pote/i);
   });
 
-  it('ENTREGA e COLETA não oferecem a escolha — elas movem objeto e têm custo real', async () => {
+  it('ENTREGA oferece a escolha e nasce "Só XP"; só COLETA não oferece — ela sempre paga token', async () => {
     await render(<CriarMissao />);
 
+    // Entrega entre vizinhos é favor de pessoa para pessoa, como AJUDA (ADR 0038).
     await fireEvent.press(screen.getByTestId('categoria-ENTREGA'));
-    expect(screen.queryByTestId('recompensa-so-xp')).toBeNull();
+    expect(screen.getByTestId('recompensa-so-xp').props.accessibilityState.selected).toBe(true);
 
     await fireEvent.press(screen.getByTestId('categoria-COLETA'));
     expect(screen.queryByTestId('recompensa-so-xp')).toBeNull();
@@ -86,9 +87,9 @@ describe('criar missão', () => {
     await fireEvent.press(screen.getByTestId('recompensa-com-token'));
     expect(screen.getByTestId('recompensa-com-token').props.accessibilityState.selected).toBe(true);
 
-    // ...e uma ida a ENTREGA, que só aceita token, e a volta. Sem o reset, uma ida de AJUDA "só XP"
-    // para ENTREGA montaria um corpo que o servidor recusa com 400 no campo.
-    await fireEvent.press(screen.getByTestId('categoria-ENTREGA'));
+    // ...e uma ida a COLETA, que só aceita token, e a volta. Sem o reset, uma ida de AJUDA "só XP"
+    // para COLETA montaria um corpo que o servidor recusa com 400 no campo.
+    await fireEvent.press(screen.getByTestId('categoria-COLETA'));
     await fireEvent.press(screen.getByTestId('categoria-AJUDA'));
     expect(screen.getByTestId('recompensa-so-xp').props.accessibilityState.selected).toBe(true);
   });

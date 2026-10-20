@@ -15,7 +15,7 @@ import { MissaoCard } from '@/components/MissaoCard';
 import { TituloTela } from '@/components/TituloTela';
 import { FolhaInferior } from '@/components/FolhaInferior';
 import { JustificativaLocalizacao } from '@/components/JustificativaLocalizacao';
-import { MapaLeaflet, type MarcadorMapa, type RegiaoMapa } from '@/components/MapaLeaflet';
+import { Mapa, type MarcadorMapa, type RegiaoMapa } from '@/components/Mapa';
 import { SaldoToken } from '@/components/SaldoToken';
 import { useClima, usePontosCustodiaProximos, useTribo } from '@/features/mapa/hooks';
 import { useApresentacaoRadar } from '@/features/mapa/useApresentacaoRadar';
@@ -220,7 +220,7 @@ export default function TelaMapa() {
       </View>
 
       {apresentacao === 'mapa' ? (
-        <MapaLeaflet
+        <Mapa
           centro={centro}
           marcadores={marcadores}
           mostrarUsuario={coordenada !== null}

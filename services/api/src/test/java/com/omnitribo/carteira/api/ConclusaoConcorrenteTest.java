@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.omnitribo.JwtTestConfig;
 import com.omnitribo.TesteIntegracaoMvcBase;
+import com.omnitribo.missoes.PoteDeTeste;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -221,6 +222,7 @@ class ConclusaoConcorrenteTest extends TesteIntegracaoMvcBase {
     tokensDaMissao = corpoCriada.get("tokensRecompensa").asLong();
     xpDaMissao = corpoCriada.get("xpRecompensa").asInt();
 
+    PoteDeTeste.cobrir(jdbcTemplate, missaoId);
     mockMvc
         .perform(post(BASE + "/{id}/publicar", missaoId).header("Authorization", bearer(criador)))
         .andExpect(status().isOk());

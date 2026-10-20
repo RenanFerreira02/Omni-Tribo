@@ -36,10 +36,10 @@ import org.springframework.test.web.servlet.MockMvc;
 /**
  * A rajada do §6, reproduzida — e a prova de que ela não grava mais 631 linhas.
  *
- * <p>Em 2026-08-25 o teste de carga ({@code docs/evidencias/f21-carga.md} §6) mediu <b>631 linhas
+ * <p>Em 2026-08-25 o teste de carga (o teste de carga de 2026-08-25 §6) mediu <b>631 linhas
  * idênticas</b> em {@code alerta}, todas {@code PONTO_CUSTODIA_LOTADO}, todas do mesmo ponto, em
  * menos de 3 minutos. Nenhum teste cobria aquele caminho: {@code gravarPontoLotado} estava em
- * <b>0/35 instruções</b> no JaCoCo ({@code docs/auditoria/varredura-orfaos.md}, item 5.4). {@code
+ * <b>0/35 instruções</b> no JaCoCo (a varredura de órfãos de 2026-08-20, item 5.4). {@code
  * WebhookEntregaFalidaTest} chega a apagar {@code PONTO_CUSTODIA_LOTADO} no {@code @AfterEach} sem
  * nunca drenar a outbox — limpava um alerta que não chegava a existir.
  *

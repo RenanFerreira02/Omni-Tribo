@@ -118,7 +118,7 @@ Antes de terminar qualquer tarefa: `./mvnw verify`, e cole a saída real. Compil
     threads). Não é 100 porque as threads serializam atrás de um único `FOR UPDATE` na missão; 40 é
     margem para runner de CI lento não virar `SQLTransientConnectionException` — que apareceria como
     500 e seria lido como bug de concorrência em vez do problema de infra que é.
-- **`ContadorDeQueries` (F15) mede QUERIES POR REQUISIÇÃO**, e é registrado em
+- **`ContadorDeQueries` mede QUERIES POR REQUISIÇÃO**, e é registrado em
   `TesteIntegracaoMvcBase` — não precisa de setup por teste. Use-o quando a pergunta for "isto faz
   N+1?": o fan-out de entrega falida custa **2+4N** queries, medido em `FanOutContagemDeQueriesTest`.
   Duas armadilhas: `Captura.porTabela()` depende de um `Pattern` e devolve **mapa vazio em silêncio**

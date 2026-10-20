@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.omnitribo.JwtTestConfig;
 import com.omnitribo.TesteIntegracaoMvcBase;
+import com.omnitribo.missoes.PoteDeTeste;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -207,6 +208,7 @@ class MissaoAceiteConcorrenteTest extends TesteIntegracaoMvcBase {
         UUID.fromString(
             JSON.readTree(criacao.getResponse().getContentAsString()).get("id").asText());
 
+    PoteDeTeste.cobrir(jdbcTemplate, missaoId);
     mockMvc
         .perform(post(BASE + "/{id}/publicar", missaoId).header("Authorization", bearer(ALICE_ID)))
         .andExpect(status().isOk());

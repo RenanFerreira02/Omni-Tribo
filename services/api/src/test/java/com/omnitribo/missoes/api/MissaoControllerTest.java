@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.omnitribo.JwtTestConfig;
 import com.omnitribo.TesteIntegracaoMvcBase;
+import com.omnitribo.missoes.PoteDeTeste;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -57,6 +58,7 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
         .andExpect(jsonPath("$.criadorId").value(ALICE_ID.toString()))
         .andExpect(jsonPath("$.executorId").doesNotExist());
 
+    PoteDeTeste.cobrir(jdbcTemplate, missaoId);
     mockMvc
         .perform(post(BASE + "/{id}/publicar", missaoId).header("Authorization", bearer(ALICE_ID)))
         .andExpect(status().isOk())
@@ -112,8 +114,13 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
 
   @Test
   void cancelarSemCorpoNaoQuebra() throws Exception {
-    // @RequestBody(required = false): POST sem corpo não pode virar NPE → 500.
-    UUID missaoId = criarEPublicar();
+    // @RequestBody(required = false): POST sem corpo não pode virar NPE → 500. Missão só-XP: o que
+    // se mede aqui é o corpo vazio, e cancelar uma missão com pote exige financiamento de verdade
+    // por trás (o estorno o procura) — ver resolverCancelandoNaoCreditaNinguem.
+    UUID missaoId = criarMissao(ALICE_ID, corpoEntregaSoXp());
+    mockMvc
+        .perform(post(BASE + "/{id}/publicar", missaoId).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isOk());
 
     mockMvc
         .perform(post(BASE + "/{id}/cancelar", missaoId).header("Authorization", bearer(ALICE_ID)))
@@ -279,7 +286,21 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
 
   @Test
   void resolverCancelandoNaoCreditaNinguem() throws Exception {
-    UUID emDisputa = criarMissaoEm("EM_DISPUTA");
+    UUID emDisputa = criarMissao(ALICE_ID, corpoEntregaValido());
+    long tokens =
+        jdbcTemplate.queryForObject(
+            "SELECT tokens_recompensa FROM missao WHERE id = ?", Long.class, emDisputa);
+    UUID vizinho = financiarComVizinhoDaAlice(emDisputa, tokens);
+    mockMvc
+        .perform(post(BASE + "/{id}/publicar", emDisputa).header("Authorization", bearer(ALICE_ID)))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(post(BASE + "/{id}/aceitar", emDisputa).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(post(BASE + "/{id}/iniciar", emDisputa).header("Authorization", bearer(BOB_ID)))
+        .andExpect(status().isOk());
+    jdbcAtualizarStatus(emDisputa, "EM_DISPUTA");
 
     mockMvc
         .perform(
@@ -291,10 +312,67 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("CANCELADA"));
 
-    Long lancamentos =
+    Long recompensas =
         jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM lancamento WHERE missao_id = ?", Long.class, emDisputa);
-    assertThat(lancamentos).as("disputa cancelada não paga ninguém").isZero();
+            "SELECT COUNT(*) FROM lancamento WHERE missao_id = ? AND motivo = 'RECOMPENSA_MISSAO'",
+            Long.class,
+            emDisputa);
+    assertThat(recompensas).as("disputa cancelada não paga ninguém").isZero();
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT saldo_tokens FROM carteira WHERE usuario_id = ?", Long.class, vizinho))
+        .as("o pote volta inteiro para quem o financiou")
+        .isEqualTo(tokens);
+  }
+
+  /**
+   * Um vizinho da tribo da Alice com saldo (lançamento de abertura coerente, para a reconciliação
+   * global das outras classes) financia o pote pela API — o caminho real, com ledger.
+   */
+  private UUID financiarComVizinhoDaAlice(UUID missaoId, long tokens) throws Exception {
+    UUID tribo =
+        jdbcTemplate.queryForObject(
+            "SELECT tribo_id FROM usuario WHERE id = ?", UUID.class, ALICE_ID);
+    UUID vizinho = UUID.randomUUID();
+    UUID carteira = UUID.randomUUID();
+    jdbcTemplate.update(
+        """
+        INSERT INTO usuario (id, nome, email, senha_hash, handle, tribo_id, xp, nivel, streak,
+                             rating, papel, status, criado_em, atualizado_em, versao)
+        VALUES (?, 'Vizinho financiador', ?, '{bcrypt}$2a$10$naoUsadoNesteTeste', ?, ?, 0, 1, 0,
+                0.0, 'USUARIO', 'ATIVO', NOW(), NOW(), 0)
+        """,
+        vizinho,
+        "vizinho-" + vizinho + "@teste.dev",
+        "v" + vizinho.toString().substring(0, 10),
+        tribo);
+    jdbcTemplate.update(
+        "INSERT INTO carteira (id, usuario_id, saldo_brl, saldo_tokens, versao)"
+            + " VALUES (?, ?, 0.00, ?, 0)",
+        carteira,
+        vizinho,
+        tokens);
+    jdbcTemplate.update(
+        """
+        INSERT INTO lancamento (id, carteira_id, sinal, motivo, valor_brl, valor_tokens,
+                                chave_idempotencia, saldo_apos_brl, saldo_apos_tokens, criado_em)
+        VALUES (?, ?, 'CREDITO', 'BONUS', 0.00, ?, ?, 0.00, ?, NOW())
+        """,
+        UUID.randomUUID(),
+        carteira,
+        tokens,
+        "abertura-" + carteira,
+        tokens);
+
+    mockMvc
+        .perform(
+            post("/api/v1/tribos/{triboId}/financiamentos", tribo)
+                .header("Authorization", bearer(vizinho))
+                .header("Idempotency-Key", "financia-" + missaoId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"missaoId\":\"%s\",\"tokens\":%d}".formatted(missaoId, tokens)))
+        .andExpect(status().isCreated());
+    return vizinho;
   }
 
   @Test
@@ -719,6 +797,7 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
 
   private UUID criarEPublicar() throws Exception {
     UUID missaoId = criarMissao(ALICE_ID, corpoEntregaValido());
+    PoteDeTeste.cobrir(jdbcTemplate, missaoId);
     mockMvc
         .perform(post(BASE + "/{id}/publicar", missaoId).header("Authorization", bearer(ALICE_ID)))
         .andExpect(status().isOk());
@@ -761,6 +840,11 @@ class MissaoControllerTest extends TesteIntegracaoMvcBase {
       campos.add(erro.get("campo").asText());
     }
     return campos;
+  }
+
+  private static String corpoEntregaSoXp() {
+    return corpoEntregaValido()
+        .replace("\"raioCheckinM\": 50,", "\"raioCheckinM\": 50,\n  \"recompensaEmToken\": false,");
   }
 
   private static String corpoEntregaValido() {

@@ -208,12 +208,9 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
       throw new TransicaoInvalidaException(
           "A forma de recompensa só pode mudar enquanto a missão está em rascunho.");
     }
-    boolean carregaCoisa =
-        missao.getCategoria() == CategoriaMissao.ENTREGA
-            || missao.getCategoria() == CategoriaMissao.COLETA;
-    if (!recompensaEmToken && carregaCoisa) {
-      throw new RegraNegocioVioladaException(
-          "Só missões TRIBO e AJUDA podem recompensar apenas em XP.");
+    // Mesma regra (4) de CriacaoMissaoVerificador (ADR 0038): só COLETA exige token.
+    if (!recompensaEmToken && missao.getCategoria() == CategoriaMissao.COLETA) {
+      throw new RegraNegocioVioladaException("Missões COLETA não podem recompensar apenas em XP.");
     }
   }
 
@@ -1234,22 +1231,10 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   /**
    * Se a conclusão paga DO POTE ou CUNHA. Lê {@code missao.fonte_pote}, congelado na criação.
    *
-   * <p><b>Era por CATEGORIA até a V23, e a troca fechou a cunhagem implícita por missão.</b> A
-   * regra antiga — "TRIBO e COLETA pagam do pote, ENTREGA e AJUDA cunham" — não conseguia
-   * distinguir as duas ENTREGAs: a do webhook, que hoje tem patrocinador, e a criada por humano,
-   * que não tem. Virar a chave por categoria teria deixado a segunda impublicável, porque {@code
-   * FinanciamentoService.validarEstado} recusa financiamento de ENTREGA e o pote jamais alcançaria
-   * a recompensa. Ver {@link FontePote} e ADR 0024.
-   *
-   * <p><b>NENHUMA categoria paga em BRL.</b> O ADR 0009 tirou o BRL do ciclo de missões e a {@code
-   * ck_missao_economia} da <b>V15</b> exige {@code valor_brl = 0} em TODAS as categorias, não só em
-   * duas (a partição por categoria era da V3, e não vale mais).
-   *
-   * <p>O que SOBRA de cunhagem é {@code FontePote.CUNHAGEM}, e desde o ADR 0025 isso é só ENTREGA
-   * criada por humano — AJUDA passou a pagar do pote como TRIBO. Está declarado na linha da missão
-   * em vez de implícito num {@code if}, que é a diferença entre uma lacuna conhecida e uma
-   * surpresa. A emissão que sustenta o resto agora tem um ponto único e auditado — {@code
-   * AporteToken}.
+   * <p>Só a {@link FontePote#CUNHAGEM} LEGADA cunha — missão publicada antes da V31, mantendo a
+   * recompensa prometida. Nenhuma missão nova nasce nela (ADR 0038); a emissão que sustenta o resto
+   * tem um ponto único e auditado, {@code AporteToken}. Nenhuma categoria paga em BRL ({@code
+   * ck_missao_economia}, V15).
    */
   private static boolean pagaTokensDoPote(Missao missao) {
     return missao.getFontePote() != FontePote.CUNHAGEM;

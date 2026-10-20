@@ -175,8 +175,8 @@ function LinhaRascunho({
  * Por que este rascunho ainda não está no ar — derivado de `fontePote`, nunca do pote sozinho.
  *
  * As quatro fontes dão três frases diferentes, e a diferença importa: `COMUNIDADE` sem pote é uma
- * espera por outra pessoa; `SEM_TOKEN` não espera nada; `CUNHAGEM` e `PATROCINADOR` publicam
- * direto. Ler só `poteTokens === 0` juntaria a primeira com a segunda, que são opostas.
+ * espera por outra pessoa; `SEM_TOKEN` não espera nada; `PATROCINADOR` (e a `CUNHAGEM` legada)
+ * publicam direto. Ler só `poteTokens === 0` juntaria a primeira com a segunda, que são opostas.
  */
 export function situacaoDoRascunho(missao: MissaoResponse): {
   texto: string;

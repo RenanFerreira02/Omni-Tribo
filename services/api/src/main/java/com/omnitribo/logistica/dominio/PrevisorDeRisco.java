@@ -28,9 +28,9 @@ import java.util.Set;
  * permite afirmar "reprodutível" sem ressalva. Trocar por {@code Math} aqui é regressão silenciosa.
  *
  * <p><b>Honestidade:</b> os coeficientes vieram de um dataset SINTÉTICO, com correlações que nós
- * mesmos injetamos e documentamos em {@code docs/qualidade/modelo-previsao.md}. Isto é um modelo
- * demonstrando um mecanismo, não um modelo validado contra a operação real — validar com dados
- * reais é o próximo passo declarado no ADR 0022.
+ * mesmos injetamos e documentamos em {@code docs/MODELO-RISCO.md}. Isto é um modelo demonstrando um
+ * mecanismo, não um modelo validado contra a operação real — validar com dados reais é o próximo
+ * passo declarado no ADR 0022.
  */
 public final class PrevisorDeRisco {
 

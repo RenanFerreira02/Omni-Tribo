@@ -48,7 +48,7 @@ import java.util.UUID;
  * <p>Na prática: um {@code MissaoConcluida} que o despachante não consiga tratar cinco vezes para
  * de ser tentado, o executor recebeu o crédito e não foi avisado — e agora existe um lugar onde
  * isso aparece. Este javadoc já prometeu "retry até conseguir" e entrega "at-least-once"; as duas
- * afirmações eram falsas e foram corrigidas em 2026-08-20 (ver docs/auditoria/varredura-orfaos.md
+ * afirmações eram falsas e foram corrigidas em 2026-08-20 (ver a varredura de órfãos de 2026-08-20
  * §1.1). Uma QUARTA ocorrência da mesma frase sobreviveu àquela varredura e só caiu em 2026-09-09:
  * a descrição OpenAPI de {@code AlertaController.listar}, que é contrato publicado. Ela escapou
  * porque a varredura conferiu comentários e aquela morava numa string de anotação — vale lembrar ao

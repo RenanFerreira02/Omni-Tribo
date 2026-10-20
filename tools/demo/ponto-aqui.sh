@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cria (ou remaneja) um ponto de custódia NAS SUAS COORDENADAS, para gravar o vídeo-pitch de onde
+# Cria (ou remaneja) um ponto de custódia NAS SUAS COORDENADAS, para demonstrar o check-in de onde
 # você está.
 #
 # POR QUE ISTO EXISTE. A origem da missão de retirada é a coordenada do PONTO DE CUSTÓDIA, e o
@@ -119,7 +119,7 @@ psql_ "INSERT INTO ponto_custodia (id, codigo, tipo, apelido, ponto, tribo_id, c
               ativo = TRUE;" >/dev/null
 
 # Persiste as coordenadas LOCALMENTE, e é isto que transforma "rode a cada reset" em "rode uma vez":
-# o pitch-armar.sh lê este arquivo e recria o ponto sozinho quando o `make demo` o apaga.
+# os scripts de demo leem este arquivo para saber qual ponto usar.
 #
 # `tools/demo/.env.ponto` é ignorado pelo git por `.gitignore:25` (`.env.*`) — conferido com
 # `git check-ignore`. É de propósito: endereço de quem grava não é fixture pública, e foi por isso
@@ -133,7 +133,7 @@ ESTADO="$RAIZ/demo/.env.ponto"
 escapar() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
 cat > "$ESTADO" <<ARQUIVO
-# Ponto de gravação do vídeo-pitch — gerado por tools/demo/ponto-aqui.sh
+# Ponto de custódia da demonstração — gerado por tools/demo/ponto-aqui.sh
 # NÃO VERSIONADO: são as coordenadas de onde você grava. Apague o arquivo para voltar ao padrão.
 PONTO_CUSTODIA=$(escapar "$PONTO_ID")
 PONTO_LAT=$(escapar "$LAT")
@@ -197,9 +197,7 @@ else
 fi
 
 echo
-echo "${negrito}agora arme o pitch — sem variável nenhuma:${normal}"
-echo "  ${cinza}bash tools/demo/pitch-armar.sh${normal}"
+echo "${negrito}agora dispare uma entrega falida neste ponto:${normal}"
+echo "  ${cinza}PONTO_CUSTODIA=$PONTO_ID bash tools/carrier-mock/enviar.sh${normal}"
 echo
-echo "${cinza}Ele lê tools/demo/.env.ponto (não versionado) e usa este ponto sozinho. Se um${normal}"
-echo "${cinza}'make demo' apagar o ponto, ele o RECRIA daqui — você não precisa rodar isto de novo.${normal}"
 echo "${cinza}O check-in vai exigir o aparelho a 200 m de lat $LAT, lon $LON.${normal}"

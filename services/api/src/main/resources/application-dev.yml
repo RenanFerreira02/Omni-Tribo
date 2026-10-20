@@ -46,7 +46,6 @@ app:
       # a reconciliação acusar erro no meio da própria medição.
       #
       # O patrocinador dela é cadastrado pelo endpoint ADMIN dentro do script, e nunca recebe aporte.
-      # Ver tools/evidencias/conservacao-por-categoria.sh e docs/evidencias/f14-*.md.
       transportadora-sem-saldo: ${WEBHOOK_SEGREDO_SEM_SALDO:segredo-de-desenvolvimento-sem-saldo}
 
 logging:
