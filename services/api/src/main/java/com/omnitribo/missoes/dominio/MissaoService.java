@@ -69,12 +69,9 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   private static final String NAO_ENCONTRADA = "Missão não encontrada.";
 
   /**
-   * Mapper próprio, não injetado.
-   *
-   * <p>Duas razões. Primeira, técnica: o Spring Boot 4.1 autoconfigura o mapper do Jackson 3
-   * (tools.jackson), então não existe bean de com.fasterxml.jackson.databind.ObjectMapper para
-   * injetar. Segunda, de projeto: o payload gravado na trilha append-only é registro histórico e
-   * não pode mudar de formato quando alguém ajustar a serialização da API.
+   * Mapper próprio, não injetado: o Boot 4.1 só autoconfigura o Jackson 3, e o payload da trilha
+   * append-only é registro histórico — não pode mudar de formato quando a serialização da API
+   * mudar.
    */
   private static final JsonMapper MAPPER_TRILHA = JsonMapper.builder().build();
 
@@ -83,31 +80,24 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   private final ConsultasGeoespaciais consultasGeoespaciais;
   private final CacheMissoesProximas cacheMissoesProximas;
 
-  // Injetados pela INTERFACE (porta em api/ do outro módulo): a regra ArchUnit proíbe
-  // missoes.dominio de tocar dominio/ ou infra/ alheios, e é o TIPO DECLARADO aqui que o ArchUnit
-  // inspeciona. Trocar por uma implementação concreta continuaria compilando e quebraria o teste
-  // de arquitetura — que é exatamente o ponto dele.
+  // Portas de outros módulos, injetadas pela INTERFACE: é o tipo declarado que o ArchUnit
+  // inspeciona.
   private final RegistroCheckin registroCheckin;
   private final CreditoRecompensa creditoRecompensa;
   private final ProgressaoUsuario progressaoUsuario;
   private final PublicadorEventos publicadorEventos;
   private final BaixaCustodia baixaCustodia;
 
-  // Só o financiamento pelo PATROCINADOR passa por aqui. O financiamento comunitário continua em
-  // FinanciamentoService, que é onde vivem as regras de tribo e o endpoint que as expõe — este
-  // serviço não deve ganhar aquelas regras junto.
+  // Só o financiamento do PATROCINADOR passa por aqui; o comunitário vive em FinanciamentoService.
   private final FinanciamentoMissao financiamentoMissao;
 
-  // Exceção deliberada à regra acima: EstornoFinanciamentoService é do PRÓPRIO módulo missoes, e
-  // por isso pode ser injetado como classe concreta.
+  // Do próprio módulo, por isso pode ser classe concreta.
   private final EstornoFinanciamentoService estornoFinanciamentoService;
 
-  // Calibração da fórmula de recompensa. Injetada como record de properties para que ajustar os
-  // números não exija recompilar — a FÓRMULA é código, os NÚMEROS são configuração.
+  // A FÓRMULA é código; os NÚMEROS são configuração.
   private final ParametrosRecompensa parametrosRecompensa;
 
-  // Calibração da missão gerada por entrega falida. Separada da recompensa de propósito: mudar um
-  // prazo aqui não pode exigir subir a versao da FÓRMULA.
+  // Separada da recompensa: mudar um prazo daqui não exige subir a versão da fórmula.
   private final ParametrosEntregaFalida parametrosEntregaFalida;
 
   public MissaoService(
@@ -139,21 +129,16 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
     this.parametrosEntregaFalida = parametrosEntregaFalida;
   }
 
-  // A trilha de auditoria fica no serviço, não no controller: é onde a escrita acontece e onde o
-  // proxy do @Transactional já existe. Anotar o controller criaria um proxy CGLIB sobre o MVC sem
-  // ganho nenhum. Só escrita é auditada; leitura não.
+  // Auditoria no serviço, onde a escrita e o proxy transacional já existem. Leitura não é auditada.
   @Auditavel(acao = "MISSAO_CRIADA", entidade = "missao")
   @Transactional
   public MissaoResponse criar(CriarMissaoRequest req, AtorMissao ator) {
     Instant agora = Instant.now();
 
-    // A recompensa é DERIVADA aqui, não recebida: até o ADR 0009 ela vinha do corpo, e uma missão
-    // trivial podia nascer valendo o teto. Congelada junto com a versão da fórmula — ver o javadoc
-    // de CalculadoraDeRecompensa.
+    // A recompensa é DERIVADA no servidor e congelada com a versão da fórmula (ADR 0009).
     CalculadoraDeRecompensa.Recompensa recompensa = calcularRecompensa(req);
 
-    // Toda missão nasce RASCUNHO, e o criador é sempre o dono do JWT. Nenhum dos dois é
-    // aceito do corpo da requisição.
+    // Toda missão nasce RASCUNHO, e o criador é sempre o dono do JWT.
     Missao missao =
         new Missao(
             UUID.randomUUID(),
@@ -163,8 +148,7 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
             req.descricao(),
             StatusMissao.RASCUNHO,
             recompensa,
-            // ZERO fixo, não mais vindo do request: nenhuma categoria remunera em BRL desde o ADR
-            // 0009, e a ck_missao_economia (V15) recusaria qualquer outra coisa no INSERT.
+            // BRL é sempre zero (ADR 0009); ck_missao_economia recusaria outro valor.
             BigDecimal.ZERO,
             Coordenadas.ponto(req.origemLat(), req.origemLon()),
             Coordenadas.ponto(req.destinoLat(), req.destinoLon()),
@@ -183,22 +167,15 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
 
     Missao salva = missaoRepository.save(missao);
 
-    // No-op semântico hoje: a missão nasce RASCUNHO e o radar só devolve ABERTA, então não há
-    // entrada de cache que esta criação possa invalidar. Fica aqui de propósito — no dia em que
-    // `criar` aceitar outro status inicial, o gancho já está no lugar certo.
+    // Hoje é no-op (RASCUNHO não aparece no radar); fica como gancho se o status inicial mudar.
     cacheMissoesProximas.invalidarAposCommit();
 
     return MissaoResponse.de(salva);
   }
 
   /**
-   * Recusa trocar entre "só XP" e "com token" fora de RASCUNHO.
-   *
-   * <p>Não é validação de corpo e por isso não cabe em {@code EdicaoMissaoVerificador}: depende da
-   * missão, que o verificador não vê. É <b>409</b>, e não 422, porque a frase é literalmente "não
-   * cabe neste estado, caberia em outro" — a mesma edição funcionaria enquanto a missão fosse
-   * rascunho. Publicar congela a fonte porque a partir dali a recompensa é promessa feita a quem
-   * está prestes a aceitar (ADR 0036).
+   * Recusa trocar entre "só XP" e "com token" fora de RASCUNHO. É 409, não 422: a mesma edição
+   * caberia em outro estado. Publicar congela a fonte, porque dali em diante é promessa (ADR 0036).
    */
   private static void validarTrocaDeRecompensa(Missao missao, Boolean recompensaEmToken) {
     if (recompensaEmToken == null) {
@@ -215,54 +192,17 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   }
 
   /**
-   * Recalcula e recongela a recompensa depois de uma edição (ADR 0036, revisado).
-   *
-   * <p><b>A recompensa acompanha os dados em TODO estado editável</b> — RASCUNHO e ABERTA. Deixá-la
-   * congelada permitiria criar a missão com um conjunto de insumos e executá-la com outro, mantendo
-   * o valor do primeiro: publicar uma ENTREGA com destino a 8 km e depois aproximá-lo para 500 m,
-   * com a recompensa alta intacta. Em {@link FontePote#CUNHAGEM} isso é emissão de token sem
-   * contrapartida, que é o defeito estrutural que o ADR 0024 existe para ter fechado.
-   *
-   * <p><b>O que a publicação muda não é SE recalcula — é o que acontece quando o POTE não pode
-   * acompanhar.</b> Numa missão COMUNIDADE publicada o pote é exatamente igual à recompensa ({@code
-   * validarTeto} o limita a isso, e {@code validarPoteSuficienteParaPublicar} o exige), e mexer no
-   * valor quebra uma invariante DIFERENTE em cada direção:
-   *
-   * <ul>
-   *   <li><b>para baixo</b> — a conclusão debita exatamente {@code tokensRecompensa} e CONCLUIDA é
-   *       terminal, então a sobra do pote nunca volta a ninguém. A reconciliação segue respondendo
-   *       {@code integro=true}, porque ledger e projeção continuam batendo: é a perda que o ADR
-   *       0032 existe para caçar. Vale em qualquer estado, por isso a guarda não pergunta o status;
-   *   <li><b>para cima</b> — o pote deixa de cobrir a recompensa e a conclusão passa a falhar com
-   *       422 <b>para sempre</b>. É exatamente a classe de missão impossível de concluir que a
-   *       guarda de publicação existe para impedir. Só vale depois de publicada: em RASCUNHO subir
-   *       acima do pote é normal, porque quem financia ainda pode completar.
-   * </ul>
-   *
-   * <p>O efeito prático em COMUNIDADE publicada é que só sobrevive a edição de valor NEUTRO. Quem
-   * precisa mesmo mudar o valor cancela a missão, que estorna aos financiadores, e cria outra.
-   *
-   * <p>Missão {@link FontePote#PATROCINADOR} também tem pote comprometido e não chega aqui por
-   * outra razão: o criador dela é o usuário-sistema, e {@code MissaoStateMachine.validarEdicao}
-   * exige {@code ator == criador}. Nenhum humano autentica como ele.
-   */
-  /**
-   * Se este PATCH toca algo de que a recompensa depende.
-   *
-   * <p>A lista é a dos parâmetros de {@code CalculadoraDeRecompensa.Insumos} que o PATCH alcança,
-   * mais {@code recompensaEmToken}, que decide a FONTE. Categoria não entra: é imutável. Janela,
-   * raio de check-in, título, descrição e endereço textual também não — nenhum deles chega à
-   * fórmula. <b>Cuidado ao acrescentar campo ao DTO de edição</b>: um insumo novo que não entre
-   * aqui volta a produzir o defeito original, uma missão com dados que não explicam o próprio
-   * valor.
+   * Se este PATCH toca algo de que a recompensa depende: os insumos da calculadora que o PATCH
+   * alcança, mais {@code recompensaEmToken}, que decide a fonte. <b>Campo novo no DTO de edição que
+   * entre na fórmula precisa entrar aqui</b>, senão a missão volta a ter um valor que os dados dela
+   * não explicam.
    */
   private static boolean mexeuEmInsumoDaRecompensa(AtualizarMissaoRequest req) {
     return req.pesoKg() != null
         || req.volumeL() != null
         || req.complexidade() != null
         || req.recompensaEmToken() != null
-        // Origem e destino entram pela DISTÂNCIA, que é um termo aditivo da fórmula. Basta a
-        // latitude: o verificador de edição já exige que lat e lon venham aos pares.
+        // Origem e destino entram pela distância; os dois vêm aos pares (EdicaoMissaoVerificador).
         || req.origemLat() != null
         || req.destinoLat() != null;
   }
@@ -274,9 +214,7 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
             ? recompensaEmToken
             : missao.getFontePote() != FontePote.SEM_TOKEN;
 
-    // Mesma regra (3) da criação, aqui como 422 em vez de 400: ela depende de peso e volume DA
-    // MISSÃO, que o verificador de corpo não enxerga. Recusar, e não ignorar, pela razão de sempre
-    // — ignorar faria a tela mostrar um esforço que não teve efeito na recompensa.
+    // Regra (3) da criação, como 422: depende de peso e volume DA MISSÃO, que o verificador não vê.
     boolean derivaDoObjeto = missao.getPesoKg() != null && missao.getVolumeL() != null;
     if (complexidade != null && derivaDoObjeto) {
       throw new RegraNegocioVioladaException(
@@ -316,13 +254,8 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   }
 
   /**
-   * Recompensa que a missão teria com os dados que ela tem AGORA.
-   *
-   * <p>O valor ofertado entra como nulo, e continua correto mesmo agora que ABERTA também
-   * recalcula: ele só existe em missão de retirada, cujo criador é o usuário-sistema — e {@code
-   * validarEdicao} exige {@code ator == criador}, então o PATCH nunca a alcança. O multiplicador de
-   * risco congelado é preservado pela razão inversa: se alguma missão editável tiver um, recalcular
-   * com 1,00 o apagaria em silêncio.
+   * Recompensa que a missão teria com os dados de AGORA. Valor ofertado nulo (só missão de retirada
+   * o tem, e o PATCH não a alcança); multiplicador de risco congelado preservado.
    */
   private CalculadoraDeRecompensa.Recompensa calcularRecompensaDe(
       Missao missao, boolean comToken, ComplexidadeMissao complexidadeNova) {
@@ -351,13 +284,7 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
     return comToken ? recompensa : recompensa.semToken();
   }
 
-  /**
-   * Monta os insumos e chama a calculadora.
-   *
-   * <p>A distância só é medida quando há destino — TRIBO nunca tem, e uma consulta ao PostGIS para
-   * descobrir isso seria ida ao banco para receber zero. Quem mede é {@code
-   * ConsultasGeoespaciais.distanciaMetros}, que recebe quatro escalares e não toca a tabela.
-   */
+  /** Monta os insumos e chama a calculadora. Distância só é medida quando há destino. */
   public CalculadoraDeRecompensa.Recompensa calcularRecompensa(CriarMissaoRequest req) {
     Double distanciaM = null;
     if (req.destinoLat() != null && req.destinoLon() != null) {
@@ -374,54 +301,26 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
                 req.pesoKg(),
                 req.volumeL(),
                 distanciaM,
-                // Missão criada por usuário nunca tem valor ofertado: o DTO não tem o campo e não
-                // deve ter — quem cria a missão não paga (ADR 0009). Só a conversão de entrega
-                // falida preenche isto, com o valor que a TRANSPORTADORA declarou.
+                // Só a conversão de entrega falida tem valor ofertado — quem cria não paga.
                 null),
             parametrosRecompensa);
 
-    // Zerar a parte em token acontece AQUI, e não dentro da calculadora, por duas razões. A
-    // calculadora é função pura da FÓRMULA, e "este criador abriu mão da moeda" não é insumo de
-    // fórmula nenhuma — é decisão de produto. E este método é o ponto que POST /missoes e
-    // POST /missoes/previa-recompensa compartilham (MissaoController), então a prévia nunca promete
-    // token que a criação não paga. Ver ADR 0035.
+    // Zerar o token é decisão de produto, não de fórmula, e acontece no ponto que a prévia e a
+    // criação compartilham: a prévia nunca promete token que a criação não paga (ADR 0035).
     return req.recompensaEmTokenEfetiva() ? recompensa : recompensa.semToken();
   }
 
   /**
-   * Converte uma entrega falida em missão de retirada, já ABERTA. Implementa {@link
-   * ConversaoEntregaFalida}.
+   * Converte uma entrega falida em missão de retirada já ABERTA ({@link ConversaoEntregaFalida}).
    *
-   * <p><b>Roda na transação do webhook</b> ({@code REQUIRED}, que é o default), que já segura o
-   * {@code FOR UPDATE} do ponto de custódia. A missão e o incremento da ocupação precisam commitar
-   * juntos: separados, existe um instante em que a vaga está ocupada por uma encomenda sem missão
-   * que a retire.
+   * <p>Roda na transação do webhook, que segura o {@code FOR UPDATE} do ponto de custódia: missão e
+   * ocupação commitam juntas. A publicação passa pela máquina de estados mesmo sem criador humano,
+   * para gravar a trilha.
    *
-   * <p><b>Nasce ABERTA, não RASCUNHO.</b> Rascunho existe para o criador revisar antes de publicar,
-   * e aqui não há criador humano — a encomenda já está fisicamente na loja quando o webhook chega.
-   * A transição passa pela {@code MissaoStateMachine} mesmo assim, e não por um {@code
-   * StatusMissao.ABERTA} no construtor: é o que grava a linha PUBLICADA em {@code missao_evento}. A
-   * regra "status de missão muda SEMPRE pela máquina de estados" não tem exceção para código nosso.
-   *
-   * <p><b>Exige pote, e o financiamento vem ANTES da missão existir.</b> Quem paga é a
-   * TRANSPORTADORA, na mesma transação — não os vizinhos, que é o que tornaria a conversão o
-   * inverso do modelo. Se o patrocinador não cobrir a recompensa, {@code
-   * FinanciamentoMissao.debitarPatrocinador} devolve vazio, este método devolve {@link
-   * Optional#empty()} e o chamador grava SEM_PATROCINIO: nenhuma missão nasce e nenhuma vaga é
-   * ocupada. Ver ADR 0024.
-   *
-   * <p><b>Quem garante o pote aqui é a ORDEM do corpo, não {@code
-   * validarPoteSuficienteParaPublicar}</b> — aquele método não roda neste caminho, porque a
-   * transição chama a máquina de estados direto, sem passar por {@code aplicar}. É o que o
-   * comentário sobre {@code financiadaPeloPatrocinador()} explica adiante, e é a única coisa que
-   * impede uma missão patrocinada de nascer com o pote vazio.
-   *
-   * <p>(Este javadoc descreveu até 2026-09-09 o mundo anterior ao ADR 0024: dizia "não exige pote",
-   * atribuía a dispensa a uma checagem por CATEGORIA que nunca existiu — {@code
-   * validarPoteSuficienteParaPublicar} lê {@code fonte_pote} — e afirmava que o token de ENTREGA
-   * era cunhado na conclusão por falta de carteira de patrocinador. Contradizia o comentário do
-   * próprio corpo, trinta linhas abaixo. A cunhagem desta missão acabou na V23: hoje ela nasce
-   * {@code FontePote.PATROCINADOR} e a emissão é só {@code AporteToken}.)
+   * <p>O pote é pago pela TRANSPORTADORA antes de a missão existir (ADR 0024). Sem saldo, devolve
+   * {@link Optional#empty()}: nada é escrito e o chamador grava SEM_PATROCINIO. {@code
+   * validarPoteSuficienteParaPublicar} não roda neste caminho — quem garante o pote é a ORDEM do
+   * corpo.
    */
   @Override
   @Transactional
@@ -436,8 +335,7 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
               encomenda.destinoLon());
     }
 
-    // Complexidade DERIVADA de peso e volume, como em toda ENTREGA — o webhook não declara, e o
-    // verificador de criação recusaria se declarasse.
+    // Complexidade derivada de peso e volume, como em toda ENTREGA.
     CalculadoraDeRecompensa.Recompensa recompensa =
         CalculadoraDeRecompensa.calcular(
             new CalculadoraDeRecompensa.Insumos(
@@ -447,28 +345,18 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
                 encomenda.volumeL(),
                 distanciaM,
                 encomenda.valorOfertadoBrl(),
-                // Único caminho do sistema que produz multiplicador diferente de 1: só a entrega
-                // falida passa por avaliação de risco. Missão criada por usuário usa o construtor
-                // curto de Insumos e recebe o neutro.
+                // Único caminho com multiplicador de risco diferente de 1 (ADR 0022).
                 encomenda.multiplicadorRisco()),
             parametrosRecompensa);
 
     Instant fimDaJanela = encomenda.agora().plus(parametrosEntregaFalida.prazoRetirada());
 
-    // O id é gerado AQUI, antes da entidade existir, porque o financiamento precisa dele para
-    // gravar `lancamento.missao_id` — e o financiamento precisa acontecer ANTES de a missão ser
-    // salva. A ordem não é estilo: se o patrocinador não puder pagar, nada pode ter sido escrito.
+    // O id nasce antes da entidade porque o financiamento grava `lancamento.missao_id` e precisa
+    // acontecer ANTES: se o patrocinador não puder pagar, nada pode ter sido escrito.
     UUID missaoId = UUID.randomUUID();
 
-    // FINANCIAMENTO PRIMEIRO. Se voltar vazio, a transação continua viva e o chamador grava a
-    // recusa na entrega falida — nenhuma missão nasce, nenhum lançamento existe, e a ocupação do
-    // ponto de custódia não é incrementada.
-    //
-    // Recompensa zero não financia nada: um lançamento de valor zero consumiria uma chave de
-    // idempotência sem mover moeda, e ck_lancamento_valor_nao_nulo (V13) o recusaria. A missão
-    // nasce
-    // patrocinada do mesmo jeito — pote zero cobrindo recompensa zero é coerente, e a conclusão
-    // pula o débito do pote pela guarda `tokens > 0`.
+    // Financiamento primeiro. Vazio = sem patrocínio: nenhuma missão, nenhum lançamento, nenhuma
+    // vaga ocupada. Recompensa zero não financia (lançamento zerado é recusado pelo ledger).
     if (recompensa.tokens() > 0
         && financiamentoMissao
             .debitarPatrocinador(
@@ -490,17 +378,14 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
     Missao missao =
         new Missao(
             missaoId,
-            // O criador é o próprio sistema. É o que destrava a publicação sem inventar evento
-            // novo: AtorEsperado.CRIADOR compara identidade, e AtorMissao aceita usuarioId com
-            // papel SISTEMA.
+            // Criador = usuário-sistema: satisfaz AtorEsperado.CRIADOR sem evento novo.
             UsuarioSistema.ID,
             CategoriaMissao.ENTREGA,
             tituloDaRetirada(encomenda.descricaoDoItem()),
             descricaoDaRetirada(encomenda),
             StatusMissao.RASCUNHO,
             recompensa,
-            // ZERO literal. O valor ofertado pela transportadora já entrou na recompensa em TOKEN
-            // acima; copiá-lo para cá violaria ck_missao_economia e o ADR 0009.
+            // Zero: o valor ofertado já entrou na recompensa em TOKEN (ADR 0009).
             BigDecimal.ZERO,
             Coordenadas.ponto(encomenda.origemLat(), encomenda.origemLon()),
             Coordenadas.ponto(encomenda.destinoLat(), encomenda.destinoLon()),
@@ -520,10 +405,8 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
     missao.exigirNivelMinimo(parametrosEntregaFalida.nivelMinimo());
     missao.registrarFaixaRisco(encomenda.faixaRisco());
 
-    // A missão passa a PATROCINADOR e o pote recebe o que o patrocinador acabou de pagar. Os dois
-    // juntos, aqui, ANTES do PUBLICAR: `validarPoteSuficienteParaPublicar` não roda neste caminho
-    // — a transição abaixo chama a máquina de estados direto, sem passar por `aplicar` —, então
-    // nada além desta ordem impede uma missão patrocinada de nascer com o pote vazio.
+    // PATROCINADOR e pote creditado ANTES do PUBLICAR: é a única coisa que impede a missão
+    // patrocinada de nascer com o pote vazio.
     missao.financiadaPeloPatrocinador();
     if (recompensa.tokens() > 0) {
       missao.creditarPote(recompensa.tokens());
@@ -542,9 +425,7 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
     missaoRepository.save(missao);
     missaoEventoRepository.save(trilha);
 
-    // Aqui a invalidação NÃO é no-op, ao contrário da de `criar`: esta missão nasce ABERTA e o
-    // radar de proximidade devolve exatamente ABERTA. Sem isto, quem consultou a região nos últimos
-    // 30 segundos continuaria sem ver a missão até o TTL vencer.
+    // Aqui a invalidação vale: a missão nasce ABERTA e entra no radar na hora.
     cacheMissoesProximas.invalidarAposCommit();
 
     return Optional.of(
@@ -553,16 +434,9 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   }
 
   /**
-   * Regra de Elegibilidade por Reputação: missão com custódia de encomenda de TERCEIRO não é
-   * aceitável por qualquer conta recém-criada.
-   *
-   * <p>Sai cedo no caso comum ({@code nivelMinimo == 1}, que é toda missão criada por usuário) para
-   * não pagar uma consulta de XP em cada aceite do sistema inteiro por causa de uma regra que só
-   * vale para entrega falida.
-   *
-   * <p>SISTEMA e ADMIN não são isentos, e isso é deliberado: nenhum dos dois aceita missão em nome
-   * de ninguém — {@code AtorEsperado} para ACEITAR já é o executor —, então uma isenção aqui só
-   * poderia servir para contornar a regra.
+   * Elegibilidade por reputação: encomenda de TERCEIRO não é aceitável por conta recém-criada. Sai
+   * cedo quando {@code nivelMinimo == 1}. Ninguém é isento — nem SISTEMA nem ADMIN aceitam por
+   * outro.
    */
   private void validarNivelParaAceitar(Missao missao, AtorMissao ator) {
     if (missao.getNivelMinimo() <= 1) {
@@ -576,24 +450,17 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
 
   private static String tituloDaRetirada(String descricaoDoItem) {
     String titulo = "Retirar e entregar: " + descricaoDoItem;
-    // O título tem limite de 120 no schema, e a descrição do item vem de terceiro. Truncar é melhor
-    // que estourar o INSERT com um 500 no webhook de um parceiro.
+    // Título tem 120 no schema e a descrição vem de terceiro: truncar é melhor que 500 no webhook.
     return titulo.length() <= 120 ? titulo : titulo.substring(0, 117) + "...";
   }
 
   /**
-   * O check-in acontece na RETIRADA, no ponto de custódia — e o texto precisa dizer isso.
-   *
-   * <p>{@code registrarCheckin} valida a proximidade contra {@code missao.getOrigem()}, que aqui é
-   * o ponto de custódia. Não é limitação: a origem é a coordenada da LOJA, que é dado nosso e
-   * conferido, enquanto o destino veio da transportadora. Usar o destino como centro do geofence
-   * seria deixar um terceiro escolher onde o nosso controle antifraude acredita que alguém esteve.
+   * O check-in é na RETIRADA: o geofence usa a origem, que é a LOJA (dado nosso e conferido). Usar
+   * o destino deixaria a transportadora escolher onde o antifraude acredita que alguém esteve.
    */
   private static String descricaoDaRetirada(Encomenda encomenda) {
-    // Concatenação, e não String.formatted: o texto tem quebras de linha, e o SpotBugs
-    // (VA_FORMAT_STRING_USES_NEWLINE) exige %n em format string. %n emitiria o separador de linha
-    // da PLATAFORMA dentro de um texto que vai para o banco e depois para o app — CRLF no servidor
-    // Windows, LF no Linux, para a mesma missão. A descrição é dado, não saída de console.
+    // Concatenação e não formatted(): %n viraria CRLF ou LF conforme o servidor, num texto que é
+    // dado.
     return """
            Uma entrega falhou e a encomenda está guardada num ponto de custódia do bairro.
 
@@ -609,8 +476,7 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
 
   @Transactional(readOnly = true)
   public PaginaResponse<MissaoResponse> listar(MissaoFiltroRequest filtro, AtorMissao ator) {
-    // O escopo é traduzido aqui a partir do ator do JWT — o cliente nunca informa um id de
-    // usuário para filtrar, senão listaria as missões de qualquer pessoa.
+    // O escopo vem do JWT; o cliente nunca informa o id de quem filtrar.
     UUID criadorId =
         filtro.minhas() == MissaoFiltroRequest.Escopo.CRIADAS ? ator.usuarioId() : null;
     UUID executorId =
@@ -633,9 +499,7 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
                 executorId,
                 ator.usuarioId(),
                 pagina)
-            // Recorte por PARTICIPAÇÃO. Sem ele, esta listagem entregava coordenada exata mais
-            // logradouro e CEP de toda missão do sistema a qualquer autenticado, paginada — um mapa
-            // de endereços do bairro, pela mesma porta que TriboController se recusa a abrir.
+            // Recorte por participação: sem ele, a listagem viraria um mapa de endereços do bairro.
             .map(m -> MissaoResponse.de(m, ator.usuarioId()));
 
     return PaginaResponse.de(page);
@@ -643,22 +507,14 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
 
   @Transactional(readOnly = true)
   public MissaoResponse buscarPorId(UUID missaoId, AtorMissao ator) {
-    // Detalhe também recorta: quem só está olhando uma missão aberta de terceiro vê bairro e
-    // coordenada aproximada; ao ACEITAR, passa a ver endereço completo — que é quando de fato
-    // precisa chegar ao lugar.
+    // Quem só olha vê bairro e coordenada aproximada; quem ACEITA passa a ver o endereço completo.
     return MissaoResponse.de(carregarVisivel(missaoId, ator), ator.usuarioId());
   }
 
   /**
-   * Missões ABERTA dentro do raio, da mais próxima para a mais distante.
-   *
-   * <p>Duas consultas de propósito. A primeira, no PostGIS, devolve só (id, distância) — porque
-   * ConsultasGeoespaciais mora em compartilhado e a regra ArchUnit a proíbe de conhecer Missao. A
-   * segunda reidrata as entidades e reusa MissaoResponse.de, o que mantém uma única representação
-   * de leitura da missão na API e evita trafegar enum como String.
-   *
-   * <p>Nenhum filtro de visibilidade é necessário: só ABERTA sai daqui, e ABERTA é pública. É
-   * também o que mantém o resultado independente do solicitante — ver ChaveProximidade.
+   * Missões ABERTA no raio, da mais próxima para a mais distante. Duas consultas: o PostGIS devolve
+   * (id, distância) — {@code ConsultasGeoespaciais} não pode conhecer Missao — e a segunda
+   * reidrata. Só ABERTA sai daqui, e ABERTA é pública: o resultado independe de quem pergunta.
    */
   @Transactional(readOnly = true)
   public List<MissaoProximaResponse> buscarProximas(MissaoProximaFiltroRequest filtro) {
@@ -690,23 +546,13 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
         missaoRepository.findAllById(alvos.stream().map(AlvoProximo::id).toList()).stream()
             .collect(Collectors.toMap(Missao::getId, m -> m));
 
-    // Itera sobre `alvos`, NÃO sobre porId.values(): é esta iteração que preserva a ordenação por
-    // distância vinda do PostGIS. findAllById não promete ordem nenhuma.
+    // Itera em `alvos` para preservar a ordem por distância; findAllById não promete ordem.
     return alvos.stream()
         .map(
             alvo ->
                 new MissaoProximaResponse(
-                    // SEMPRE recortada, para todo mundo — e é isso que preserva o cache.
-                    //
-                    // Recortar por solicitante aqui seria um erro grave: o resultado é cacheado por
-                    // ChaveProximidade (célula de geohash + raio + categoria), sem o usuário, então
-                    // uma resposta montada para um participante seria servida a um estranho. Ou a
-                    // chave passaria a incluir o solicitante, e o cache viraria uma entrada por
-                    // usuário — deixando de ser cache.
-                    //
-                    // Não custa nada: o radar só devolve ABERTA, e missão ABERTA não tem executor.
-                    // O criador que vê a própria missão aqui não precisa do endereço exato — ele o
-                    // escreveu. Quem aceitar passa a ver tudo em GET /missoes/{id}.
+                    // SEMPRE recortada: o cache é por região, sem o usuário, então recortar por
+                    // solicitante serviria a resposta de um participante a um estranho.
                     MissaoResponse.deAproximada(porId.get(alvo.id())),
                     BigDecimal.valueOf(alvo.distanciaM()).setScale(1, RoundingMode.HALF_UP)))
         .toList();
@@ -723,9 +569,9 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
     MissaoStateMachine.validarEdicao(missao, ator);
     validarTrocaDeRecompensa(missao, req.recompensaEmToken());
 
-    // Campos nulos preservam o valor atual. Categoria, status e executor não estão no DTO: enviá-
-    // los no JSON não altera nada. A RECOMPENSA é a exceção desde o ADR 0036 — em RASCUNHO ela
-    // acompanha os dados, e o recongelamento acontece logo abaixo, depois da edição.
+    // Nulo preserva o atual; categoria, status e executor não estão no DTO. A recompensa é
+    // recalculada
+    // abaixo (ADR 0036).
     Point origem =
         req.origemLat() != null
             ? Coordenadas.ponto(req.origemLat(), req.origemLon())
@@ -751,22 +597,16 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
         ouAtual(req.pesoKg(), missao.getPesoKg()),
         ouAtual(req.volumeL(), missao.getVolumeL()));
 
-    // Os DOIS estados editáveis recalculam. Quem decide o que é permitido não é o status, é se há
-    // pote comprometido — ver o javadoc de recongelarRecompensaEditada.
-    //
-    // Só quando um INSUMO de fato veio no corpo, e a condição não é otimização. Recalcular em toda
-    // edição faria corrigir a vírgula do título de uma missão publicada FALHAR com 422 sempre que a
-    // calibração do YAML tivesse mudado desde a criação: o valor novo divergiria do pote, que está
-    // fechado. A recompensa acompanha os DADOS; texto e endereço não são dados dela.
+    // Recalcula só quando um INSUMO veio no corpo: corrigir o título de uma missão financiada não
+    // pode
+    // falhar com 422 porque a calibração do YAML mudou desde a criação.
     if (mexeuEmInsumoDaRecompensa(req)) {
       recongelarRecompensaEditada(missao, req.recompensaEmToken(), req.complexidade());
     }
 
     Missao salva = missaoRepository.save(missao);
 
-    // Obrigatório, e não é óbvio: este PATCH move `origem` e `raioCheckinM` sem mudar status
-    // nenhum. Uma missão ABERTA que muda de lugar entra e sai de raios de busca — o resultado do
-    // radar muda sem que nenhuma transição tenha ocorrido.
+    // Mover origem ou raio muda o radar sem transição de estado: invalida o cache.
     cacheMissoesProximas.invalidarAposCommit();
 
     return MissaoResponse.de(salva);
@@ -779,28 +619,16 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   }
 
   /**
-   * Missão que paga DO POTE só é publicável com o pote já cobrindo a recompensa em tokens.
-   *
-   * <p>Lê {@code fonte_pote}, não a categoria: vale para TRIBO, COLETA e AJUDA (ADR 0025), e também
-   * para a missão de retirada — que nunca reprova aqui porque nasce com o pote já financiado pelo
-   * patrocinador, na mesma transação da conversão.
-   *
-   * <p>Fecha um beco sem saída que a conservação da moeda cria. Como a conclusão paga DO POTE e não
-   * cunha token, uma missão publicada com pote menor que a recompensa chegaria a
-   * AGUARDANDO_CONFIRMACAO e o {@code /confirmar} falharia com 422 para sempre — e as únicas saídas
-   * desse estado são CONFIRMAR e CONTESTAR, então só um admin destravaria, via disputa.
-   *
-   * <p>Recusar aqui é falhar cedo: no publicar, o criador ainda pode financiar ou baixar a
-   * recompensa. Depois de alguém ter executado a missão, não pode mais.
+   * Missão que paga DO POTE só publica com o pote cobrindo a recompensa: senão chegaria a
+   * AGUARDANDO_CONFIRMACAO e a conclusão falharia com 422 para sempre. Falhar cedo, enquanto o
+   * criador ainda pode financiar ou baixar o valor.
    */
   private static void validarPoteSuficienteParaPublicar(Missao missao) {
     if (!pagaTokensDoPote(missao)) {
       return;
     }
     long recompensa = missao.getTokensRecompensa();
-    // recompensa == 0 é a missão comunitária de só XP (ADR 0035): não há pote a exigir e ela
-    // publica na hora. A guarda já era escrita assim antes dela existir — o caminho estava aberto e
-    // nunca era alcançado, porque a calculadora tem piso de 1 token.
+    // Recompensa 0 é a missão só-XP (ADR 0035): não há pote a exigir.
     if (recompensa > 0 && missao.getPoteTokens() < recompensa) {
       throw new PoteInsuficienteException(
           "Missão "
@@ -848,14 +676,10 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   // ─── Check-in ──────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Check-in geolocalizado. EM_ANDAMENTO → AGUARDANDO_CONFIRMACAO.
+   * Check-in geolocalizado: EM_ANDAMENTO → AGUARDANDO_CONFIRMACAO.
    *
-   * <p>UMA transação, UMA conexão, e a linha de auditoria commitada mesmo quando o check-in é
-   * recusado. Isso funciona porque a rejeição volta como VALOR, não como exceção: lançar daqui de
-   * dentro apagaria a linha no rollback. Quem transforma a recusa em 422 é o controller, depois do
-   * commit. Ver {@link ResultadoRegistroCheckin}.
-   *
-   * <p>O caminho aceito é atômico: linha de check-in, transição e trilha entram no mesmo commit.
+   * <p>Uma transação e uma conexão. A recusa volta como VALOR, não exceção, para a linha antifraude
+   * commitar mesmo quando o check-in é recusado; quem a transforma em 422 é o controller.
    */
   @Auditavel(acao = "MISSAO_CHECKIN", entidade = "missao")
   @Transactional
@@ -868,30 +692,26 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
             .buscarParaAtualizar(missaoId)
             .orElseThrow(() -> new RecursoNaoEncontradoException(NAO_ENCONTRADA));
 
-    // Rascunho alheio responde 404, não 403 — mesma regra de carregarVisivel(). Sem isto, um 403
-    // aqui confirmaria a existência de um rascunho que o solicitante não deveria sequer saber que
-    // existe. Vai depois do buscarParaAtualizar para preservar o invariante do lock ser a primeira
-    // leitura da transação.
+    // Rascunho alheio é 404, não 403 (403 confirmaria que ele existe). Depois do lock, que precisa
+    // ser
+    // a primeira leitura da transação.
     if (missao.getStatus() == StatusMissao.RASCUNHO && !ator.ehMesmo(missao.getCriadorId())) {
       throw new RecursoNaoEncontradoException(NAO_ENCONTRADA);
     }
 
-    // 403 SEMPRE primeiro, antes até da sondagem de idempotência: sondar antes disso permitiria
-    // devolver o estado da missão a quem não é (ou não é mais) o executor.
+    // 403 antes da sondagem: senão o estado da missão vazaria para quem não é o executor.
     MissaoStateMachine.validarAutorizacao(missao, EventoMissao.CHECKIN, ator);
 
     String chave = chaveIdempotencia(ator.usuarioId(), missaoId, chaveCliente);
 
-    // Sondagem ENTRE o 403 e o 409, e a ordem é o ponto todo. Um replay legítimo chega com a missão
-    // já em AGUARDANDO_CONFIRMACAO; se a máquina de estados falasse primeiro, o retry natural do
-    // cliente móvel levaria 409 em vez do mesmo 200 de antes.
+    // Sondagem entre o 403 e o 409: um retry legítimo chega com a missão já transicionada e precisa
+    // do mesmo 200, não de 409.
     Optional<ResultadoCheckin> jaRegistrado = registroCheckin.consultar(chave);
     if (jaRegistrado.isPresent()) {
       ResultadoCheckin anterior = jaRegistrado.get();
 
       if (!anterior.aceito()) {
-        // Replay de uma rejeição: mesmo 422, mesmo motivo, nenhuma linha nova. Idempotência vale
-        // para o fracasso também, senão um retry de rede inventaria um padrão de tentativas.
+        // Replay de rejeição: mesmo 422, nenhuma linha nova.
         return ResultadoRegistroCheckin.rejeitado(
             MissaoResponse.de(missao),
             anterior.codigoRejeicao(),
@@ -899,15 +719,11 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
             anterior.distanciaM(),
             anterior.acuraciaM());
       }
-      // Replay de um aceito: a missão já transicionou no mesmo commit que gravou a linha, então
-      // basta devolver o estado atual. Nenhuma linha nova, nenhum evento novo de trilha.
+      // Replay de aceite: devolve o estado atual, sem linha nem evento novo.
       return ResultadoRegistroCheckin.aceito(MissaoResponse.de(missao));
     }
 
-    // 409 só agora, e antes de qualquer escrita. Ator errado ou estado errado não geram linha em
-    // `checkin`: não são tentativas de check-in que falharam na validação geoespacial, são chamadas
-    // de quem não é o executor ou de missão fora de EM_ANDAMENTO — e não haveria distancia_alvo_m
-    // (NOT NULL) a gravar.
+    // 409 antes de qualquer escrita: ator ou estado errado não são tentativas de check-in.
     MissaoStateMachine.validar(missao, EventoMissao.CHECKIN, ator);
 
     ResultadoCheckin resultado =
@@ -926,10 +742,8 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
                 Instant.now()));
 
     if (!resultado.aceito()) {
-      // NÃO lança: a linha em `checkin` acabou de ser gravada NESTA transação, e uma exceção aqui
-      // a levaria embora no rollback. A transação commita normalmente — sem transição, porque o
-      // check-in foi recusado — e o controller devolve 422 depois. É o que preserva a trilha
-      // antifraude sem precisar de segunda conexão.
+      // NÃO lança: a linha antifraude acabou de ser gravada nesta transação e o rollback a
+      // apagaria.
       return ResultadoRegistroCheckin.rejeitado(
           MissaoResponse.de(missao),
           resultado.codigoRejeicao(),
@@ -954,12 +768,8 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   }
 
   /**
-   * Chave de idempotência derivada, não a chave crua do cliente.
-   *
-   * <p>A constraint uk_checkin_idempotencia é de coluna única e namespace global. Guardar a chave
-   * como veio deixaria o cliente que envia "1" colidir com todo outro cliente que envia "1" — e a
-   * segunda chamada receberia como resposta o replay do check-in de outra pessoa. Compondo com
-   * usuário e missão antes do hash, a colisão entre usuários é impossível por construção.
+   * Chave de idempotência derivada (usuário + missão + chave do cliente): a UNIQUE é global, e com
+   * a chave crua o cliente que manda "1" receberia o replay do check-in de outra pessoa.
    */
   private static String chaveIdempotencia(UUID usuarioId, UUID missaoId, String chaveCliente) {
     String composta = usuarioId + ":" + missaoId + ":" + chaveCliente;
@@ -973,9 +783,8 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   }
 
   /**
-   * Payload da trilha. É AQUI que o motivo de uma suspeita fica registrado: motivo_rejeicao precisa
-   * continuar nulo quando valido=true, senão "motivo_rejeicao IS NOT NULL" deixa de significar
-   * "rejeitado" em toda consulta de fraude escrita depois.
+   * Payload da trilha — é aqui que fica o motivo de uma SUSPEITA: motivo_rejeicao precisa continuar
+   * nulo quando valido=true, ou deixa de significar "rejeitado".
    */
   private static Map<String, Object> payloadCheckin(ResultadoCheckin resultado) {
     Map<String, Object> payload = new LinkedHashMap<>();
@@ -998,22 +807,12 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   }
 
   /**
-   * Implementa {@link ConfirmacaoRetirada}: a transportadora confirma que a encomenda chegou.
+   * A transportadora confirma que a encomenda chegou ({@link ConfirmacaoRetirada}, ADR 0026).
    *
-   * <p>Reusa {@link #confirmar} inteiro — mesmo evento, mesma transição, mesmo crédito. O que muda
-   * é só QUEM assina o ato, e nem isso exigiu mexer na autorização: o criador da missão de retirada
-   * é o usuário-sistema, e {@code AtorMissao.ehMesmo} compara identidade, então este ator satisfaz
-   * {@code AtorEsperado.CRIADOR} por construção. É o mesmo ator de PUBLICAR em {@code
-   * abrirMissaoDeRetirada}, e o conjunto de transições continua o mesmo.
-   *
-   * <p><b>Não generaliza para missão criada por humano</b>, e a garantia não está aqui: está em
-   * quem chama. {@code logistica} resolve o {@code missaoId} a partir de uma linha de {@code
-   * entrega_falida}, então esta porta só alcança missão de retirada. Uma missão criada por gente
-   * continua exigindo o criador de carne e osso.
-   *
-   * <p>A justificativa vai para a trilha porque destravar-por-terceiro precisa de motivo
-   * registrado: quem lê {@code missao_evento} meses depois tem de saber que não foi o criador
-   * humano que confirmou.
+   * <p>Reusa {@link #confirmar} inteiro: o criador da missão de retirada é o usuário-sistema, então
+   * o ator SISTEMA satisfaz {@code AtorEsperado.CRIADOR} por construção. Só alcança missão de
+   * retirada, porque {@code logistica} resolve o id a partir de {@code entrega_falida}. A
+   * justificativa vai para a trilha.
    */
   @Override
   @Transactional
@@ -1029,15 +828,8 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   }
 
   /**
-   * ADMIN destrava uma missão parada: CANCELADA, com estorno do pote aos financiadores.
-   *
-   * <p>Porta manual para o que a varredura por prazo não cobre — missão legítima em disputa
-   * silenciosa, ou parada por um motivo que a regra de prazo não previu. Sem ela, o único desfecho
-   * possível para um caso excepcional seria esperar o prazo e aceitar o que ele decidir.
-   *
-   * <p>Zero código novo de caminho de valor: {@code aplicar} já estorna em CANCELADA. A
-   * justificativa é obrigatória e vai para o payload da trilha — destravar é ato discricionário e
-   * precisa de motivo registrado.
+   * ADMIN destrava uma missão parada: CANCELADA, com estorno do pote. Nenhum caminho de valor novo
+   * ({@code aplicar} já estorna); a justificativa é obrigatória na trilha.
    */
   @Auditavel(acao = "MISSAO_DESTRAVADA", entidade = "missao")
   @Transactional
@@ -1046,12 +838,9 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   }
 
   /**
-   * Conclui pagando o executor porque o CRIADOR não confirmou no prazo — chamado só pela varredura.
-   *
-   * <p>Reusa {@code concluirComCredito} inteiro, com ator SISTEMA: pote debitado, carteira
-   * creditada, XP concedido, trilha e outbox. Nenhum caminho de valor novo nasce daqui, que é o que
-   * torna esta transição segura de acrescentar — a alternativa seria um segundo caminho de crédito,
-   * e dois caminhos de crédito é como se perde a conservação sem perceber.
+   * Conclui pagando o executor quando o CRIADOR não confirmou no prazo — só a varredura chama.
+   * Reusa {@code concluirComCredito}: dois caminhos de crédito é como se perde a conservação sem
+   * ver.
    */
   @Transactional
   public MissaoResponse concluirPorOmissaoDoCriador(UUID missaoId, Instant agora) {
@@ -1082,24 +871,17 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   }
 
   /**
-   * Conclusão de missão com crédito, em UMA transação.
-   *
-   * <p>Ordem obrigatória, e cada passo depende do anterior:
+   * Conclusão com crédito, em UMA transação, nesta ordem:
    *
    * <ol>
-   *   <li><b>Travar a missão</b> ({@code FOR UPDATE}, primeira leitura). É a linha serializadora:
-   *       duas conclusões concorrentes da mesma missão passam por aqui uma de cada vez.
-   *   <li><b>Autorizar</b> (403) — antes de qualquer coisa que revele estado.
-   *   <li><b>Sondar o replay</b>. Sob o lock, então é autoritativo. Se o crédito já existe, devolve
-   *       o estado atual: um retry de rede é a MESMA operação, não conflito. Sondar antes de checar
-   *       a transição é o que evita devolver 409 para quem só perdeu a resposta.
-   *   <li><b>Validar a transição</b> (409).
-   *   <li><b>Debitar o pote</b>, se a missão paga em tokens de custódia.
-   *   <li><b>Creditar a carteira</b> (ordem global: missao → carteira).
-   *   <li><b>Conceder XP</b> (missao → carteira → usuario).
-   *   <li><b>Transicionar</b> e gravar a trilha.
-   *   <li><b>Publicar na outbox</b> — última, e é o passo que o teste de rollback derruba de
-   *       propósito para provar que nada acima sobrevive.
+   *   <li>travar a missão ({@code FOR UPDATE}, primeira leitura);
+   *   <li>autorizar (403);
+   *   <li>sondar o replay, sob o lock — retry é a mesma operação, não conflito;
+   *   <li>validar a transição (409);
+   *   <li>debitar o pote, se a missão paga do pote;
+   *   <li>creditar a carteira e conceder XP (locks: missao → carteira → usuario);
+   *   <li>transicionar e gravar a trilha;
+   *   <li>publicar na outbox — por último, e é o passo que o teste de rollback derruba.
    * </ol>
    */
   private MissaoResponse concluirComCredito(
@@ -1116,37 +898,27 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
 
     UUID executorId = missao.getExecutorId();
 
-    // Sondagem de replay ANTES de validar a transição: um retry de POST /confirmar numa missão já
-    // CONCLUIDA é a mesma operação, não conflito, e checar a transição primeiro devolveria 409 a
-    // quem apenas perdeu a resposta na rede.
-    //
-    // Só faz sentido sondar quando existe executor: a chave é derivada dele, e sem executor não há
-    // como haver crédito anterior. Sem essa condição, uma missão ABERTA (executor nulo) explodiria
-    // em NPE ao derivar a chave.
+    // Replay antes da transição: o retry de /confirmar numa missão já CONCLUIDA precisa do mesmo
+    // 200.
+    // Só com executor: a chave é derivada dele.
     if (executorId != null) {
       String chaveExistente = ChaveIdempotencia.conclusaoMissao(missaoId, executorId);
       if (creditoRecompensa.consultar(chaveExistente).isPresent()) {
         return MissaoResponse.de(missao);
       }
-      // Missão SEM_TOKEN não grava lançamento nenhum (ver a explicação mais abaixo, no crédito),
-      // então a sondagem acima é cega para ela: um retry de POST /confirmar numa só-XP já CONCLUIDA
-      // cairia em 409, e quem só perdeu a resposta na rede leria "esta operação não é permitida no
-      // estado atual". Para ela a idempotência é por ESTADO da linha, sob o mesmo FOR UPDATE — o
-      // precedente é o reenfileiramento da outbox do ADR 0031, que também é idempotente por estado
-      // e sem chave. CONCLUIDA é terminal, então não há ambiguidade sobre QUAL conclusão foi esta.
+      // SEM_TOKEN não grava lançamento, então a sondagem acima é cega para ela: a idempotência é
+      // por
+      // ESTADO, sob o mesmo FOR UPDATE (precedente do ADR 0031).
       if (nadaACreditar(missao) && missao.getStatus() == StatusMissao.CONCLUIDA) {
         return MissaoResponse.de(missao);
       }
     }
 
-    // 409 ANTES de qualquer 422. A ordem do contrato é 403 → 409 → regra de negócio, e é a mesma
-    // desde quando este endpoint era um stub 501 — o app já integra nessa sequência.
+    // 409 antes de 422: a ordem do contrato é 403 → 409 → regra de negócio.
     MissaoStateMachine.validar(missao, evento, ator);
 
     if (executorId == null) {
-      // Inalcançável pelas transições declaradas: só se chega a AGUARDANDO_CONFIRMACAO ou
-      // EM_DISPUTA via ACEITAR, que grava o executor. Guarda explícita para que um estado
-      // impossível vire erro legível em vez de NPE, e depois do 409 para não roubar o código dele.
+      // Inalcançável pelas transições declaradas; vira erro legível em vez de NPE.
       throw new RegraNegocioVioladaException("Missão sem executor não pode ser concluída.");
     }
 
@@ -1155,9 +927,7 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
     long tokens = missao.getTokensRecompensa();
     boolean pagaDoPote = pagaTokensDoPote(missao);
     if (pagaDoPote && tokens > 0) {
-      // Missão TRIBO/COLETA paga do pote financiado, não de token cunhado — é o que conserva a
-      // oferta da moeda. A guarda de publicação já exige pote >= recompensa, então isto só falha
-      // se alguém contornar o publicar; ainda assim recusamos antes de escrever qualquer coisa.
+      // Paga do pote financiado, não de token emitido. A publicação já exige pote ≥ recompensa.
       if (missao.getPoteTokens() < tokens) {
         throw new RegraNegocioVioladaException(
             "Pote da missão tem "
@@ -1169,11 +939,8 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
       missao.debitarPote(tokens);
     }
 
-    // Missão SEM_TOKEN não passa pelo ledger, e a razão é uma barreira do próprio ledger: o compact
-    // constructor de Movimento recusa lançamento que não move nem BRL nem token ("Movimento precisa
-    // mover BRL ou tokens."), espelhando ck_lancamento_valor_nao_nulo. Um crédito de 0/0 consumiria
-    // uma chave de idempotência sem mover nada e o cliente leria isso como sucesso. A conclusão
-    // dela concede XP e nada mais — que é exatamente o que ela prometeu. Ver ADR 0035.
+    // SEM_TOKEN não passa pelo ledger: Movimento (e ck_lancamento_valor_nao_nulo) recusa lançamento
+    // que não move nada. A conclusão dela concede XP e só (ADR 0035).
     ResultadoCredito credito = null;
     if (!nadaACreditar(missao)) {
       credito =
@@ -1202,17 +969,11 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
     missaoRepository.save(missao);
     missaoEventoRepository.save(trilha);
 
-    // Baixa da custódia: a encomenda saiu do ponto e a vaga volta a existir. No-op para toda missão
-    // que não veio de entrega falida, que é a maioria.
-    //
-    // SÍNCRONA, dentro desta transação, e não pela outbox. A entrega pela outbox pode REPETIR, e um
-    // decremento de ocupação redespachado liberaria uma vaga que nunca existiu — divergência que só
-    // apareceria muito depois, quando um ponto aceitasse mais encomendas do que cabe. Aqui, ou a
-    // conclusão inteira commita, ou nada muda.
+    // Baixa da custódia SÍNCRONA, nesta transação: pela outbox ela poderia repetir, e um decremento
+    // redespachado liberaria uma vaga que nunca existiu.
     baixaCustodia.darBaixa(missaoId, agora);
 
-    // Mesma transação do crédito: se a conclusão der rollback, o anúncio não sobrevive; se ela
-    // commitar, o anúncio está durável e o drenador o entrega com retry. Ver PublicadorEventos.
+    // Mesma transação do crédito: rollback leva o anúncio junto; commit o deixa durável.
     publicadorEventos.publicar(
         "MissaoConcluida",
         missaoId,
@@ -1241,13 +1002,8 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   }
 
   /**
-   * Se a conclusão desta missão não tem o que escrever no ledger — recompensa zerada nas duas
-   * moedas.
-   *
-   * <p>Testa os VALORES e não {@code fonte_pote == SEM_TOKEN} de propósito: quem decide se há
-   * lançamento é o {@code Movimento}, que olha BRL e token, e é dele a barreira que estamos
-   * respeitando. Ler a fonte aqui criaria uma segunda definição da mesma condição, que divergiria
-   * no dia em que alguma outra fonte também chegasse zerada.
+   * Se a conclusão não tem o que escrever no ledger. Testa os VALORES, e não a fonte, porque a
+   * barreira respeitada é a do {@code Movimento}, que olha BRL e token.
    */
   private static boolean nadaACreditar(Missao missao) {
     return missao.getTokensRecompensa() == 0 && missao.getValorBrl().signum() == 0;
@@ -1258,27 +1014,21 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   private MissaoResponse aplicar(
       UUID missaoId, EventoMissao evento, AtorMissao ator, Map<String, Object> payload) {
 
-    // FOR UPDATE, e obrigatoriamente a PRIMEIRA leitura da transação: se a entidade já estivesse
-    // no persistence context, o Hibernate devolveria a instância em cache sem reemitir o
-    // SELECT ... FOR UPDATE, e o lock nunca seria adquirido.
+    // FOR UPDATE como PRIMEIRA leitura: com a entidade já no persistence context, o Hibernate não
+    // reemitiria o SELECT ... FOR UPDATE e o lock não existiria.
     Missao missao =
         missaoRepository
             .buscarParaAtualizar(missaoId)
             .orElseThrow(() -> new RecursoNaoEncontradoException(NAO_ENCONTRADA));
 
-    // Guarda de publicação: precisa rodar sob o lock, com a missão já carregada, e ANTES da
-    // transição — depois de transicionar, recusar exigiria desfazer.
+    // Guarda de publicação sob o lock e antes da transição.
     if (evento == EventoMissao.PUBLICAR) {
       MissaoStateMachine.validarAutorizacao(missao, evento, ator);
       validarPoteSuficienteParaPublicar(missao);
     }
 
-    // Trava de reputação, na mesma posição e pelo mesmo motivo da guarda de pote acima: precisa
-    // rodar sob o lock, com a missão carregada, e ANTES da transição — depois de transicionar,
-    // recusar exigiria desfazer.
-    //
-    // Depois de validarAutorizacao e antes de validar(): a ordem 403 → 422 do projeto. Quem nem
-    // podia agir sobre esta missão recebe 403 sem descobrir o nível exigido dela.
+    // Trava de reputação sob o lock e antes da transição; depois da autorização (403 → 422), para
+    // quem não pode agir não descobrir o nível exigido.
     if (evento == EventoMissao.ACEITAR) {
       MissaoStateMachine.validarAutorizacao(missao, evento, ator);
       validarNivelParaAceitar(missao, ator);
@@ -1288,10 +1038,9 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
     MissaoEvento trilha =
         MissaoStateMachine.transicionar(missao, evento, ator, serializar(payload), agora);
 
-    // Estorno do pote em estado terminal sem pagamento. Sem isto, os tokens financiados ficariam
-    // presos na missão para sempre e a conservação da moeda — que é a garantia central desta fase —
-    // seria falsa: a soma (carteiras + potes) continuaria fechando, mas parte dela estaria em
-    // custódia inalcançável, o que economicamente é o mesmo que queimar dinheiro dos outros.
+    // Estado terminal sem pagamento estorna o pote: sem isto o token ficaria preso numa missão
+    // morta e
+    // a reconciliação continuaria dizendo integro=true.
     StatusMissao destino = missao.getStatus();
     if ((destino == StatusMissao.CANCELADA || destino == StatusMissao.EXPIRADA)
         && missao.getPoteTokens() > 0) {
@@ -1302,17 +1051,14 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
     // Mesma transação da missão: status e trilha não têm como divergir.
     missaoEventoRepository.save(trilha);
 
-    // Ponto único de invalidação para publicar/aceitar/iniciar/desistir/cancelar/contestar — todas
-    // entram ou saem de ABERTA, que é o que o radar devolve.
+    // Ponto único de invalidação: estas transições entram ou saem de ABERTA, que é o que o radar
+    // vê.
     cacheMissoesProximas.invalidarAposCommit();
 
     return MissaoResponse.de(missao);
   }
 
-  /**
-   * Carrega respeitando a visibilidade: rascunho alheio responde 404, não 403. Um 403 confirmaria a
-   * existência de um recurso privado a quem não deveria sequer saber que ele existe.
-   */
+  /** Visibilidade: rascunho alheio é 404, não 403 — um 403 confirmaria que ele existe. */
   private Missao carregarVisivel(UUID missaoId, AtorMissao ator) {
     Missao missao =
         missaoRepository
@@ -1330,8 +1076,7 @@ public class MissaoService implements ConversaoEntregaFalida, ConfirmacaoRetirad
   }
 
   /**
-   * Chave própria: a justificativa do admin numa disputa não é o mesmo dado que o motivo de quem
-   * desistiu ou cancelou, e a trilha é lida por quem investiga incidente.
+   * Chave própria: a justificativa do admin numa disputa não é o mesmo dado que um motivo comum.
    */
   private static Map<String, Object> payloadJustificativa(String justificativa) {
     return payloadTexto("justificativa", justificativa);

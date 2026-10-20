@@ -23,45 +23,23 @@ import org.springframework.data.repository.query.Param;
 public interface MissaoRepository extends JpaRepository<Missao, UUID> {
 
   /**
-   * SELECT ... FOR UPDATE na linha da missão. É o mecanismo que garante exatamente um vencedor no
-   * aceite concorrente.
+   * SELECT ... FOR UPDATE na missão: exatamente um vencedor no aceite concorrente (ADR 0006).
    *
-   * <p>Por que lock pessimista e não @Version com retry:
+   * <p>Lock pessimista e não @Version: o perdedor bloqueia por microssegundos, relê a linha já
+   * ACEITA e recebe o MESMO 409 de qualquer transição inválida — um caminho de erro só. @Version
+   * fica como defesa nos caminhos que não travam (PATCH).
    *
-   * <ul>
-   *   <li>Com @Version, o perdedor só descobre a colisão no flush/commit — a
-   *       ObjectOptimisticLockingFailureException nasce no interceptor transacional, depois de o
-   *       método de negócio ter retornado, e o INSERT em missao_evento do perdedor já foi emitido
-   *       para ser desfeito no rollback.
-   *   <li>Com FOR UPDATE, o perdedor bloqueia por microssegundos, relê a linha já ACEITA e cai na
-   *       TransicaoInvalidaException — o MESMO 409 de qualquer outra transição inválida. Um caminho
-   *       de erro, não dois.
-   *   <li>Retry seria pior ainda: o estado já mudou para ACEITA, então repetir nunca sucede. Retry
-   *       só faz sentido quando a colisão é espúria.
-   *   <li>A contenção é por linha e brevíssima — uma missão, poucos aceites simultâneos.
-   * </ul>
-   *
-   * <p>@Version permanece na entidade como defesa em profundidade para os caminhos que não travam a
-   * linha (PATCH).
-   *
-   * <p>CHAMADA OBRIGATORIAMENTE COMO PRIMEIRA LEITURA DA TRANSAÇÃO: se a entidade já estiver no
-   * persistence context, o Hibernate devolve a instância em cache sem reemitir o SELECT ... FOR
-   * UPDATE, e o lock jamais é adquirido.
+   * <p><b>Tem de ser a PRIMEIRA leitura da transação</b>: com a entidade já no persistence context,
+   * o Hibernate devolve o cache sem reemitir o FOR UPDATE.
    */
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("select m from Missao m where m.id = :id")
   Optional<Missao> buscarParaAtualizar(@Param("id") UUID id);
 
   /**
-   * Listagem paginada com filtros opcionais.
-   *
-   * <p>A regra de visibilidade fica DENTRO da query: rascunho só aparece para o próprio criador.
-   * Filtrar depois da consulta quebraria a contagem da página e vazaria a existência de rascunhos
-   * alheios pelo totalElementos.
-   *
-   * <p>cast(:cidade as string) não é decoração: sem o cast, um filtro nulo chega ao PostgreSQL como
-   * parâmetro sem tipo, o driver assume bytea e a consulta estoura com "function lower(bytea) does
-   * not exist". O cast informa o tipo mesmo quando o valor é nulo.
+   * Listagem paginada com filtros opcionais. A visibilidade fica DENTRO da query (rascunho só para
+   * o criador), senão o totalElementos vazaria rascunho alheio. {@code cast(:x as string)}:
+   * parâmetro nulo sem tipo chega como bytea e a consulta estoura.
    */
   @Query(
       """
@@ -88,27 +66,12 @@ public interface MissaoRepository extends JpaRepository<Missao, UUID> {
       Pageable pageable);
 
   /**
-   * Candidatas à expiração depois de um cursor, SEM lock.
+   * Candidatas à expiração depois de um cursor, SEM lock — quem trava é {@code
+   * travarSeAindaExpiravel}, uma por vez (ADR 0014).
    *
-   * <p>Quem trava é {@code travarSeAindaExpiravel}, uma missão por vez. Esta consulta só enumera —
-   * roda fora de transação de escrita e devolve projeção, não entidade.
-   *
-   * <p><b>Keyset por {@code (janelaFim, id)}, não offset.</b> Com uma transação por missão, uma
-   * missão que falha continua ABERTA e vencida; com {@code LIMIT/OFFSET 0} ela reapareceria no topo
-   * do próximo lote e o job repetiria a mesma falha até o teto por execução. O par ordenado dá
-   * ordem TOTAL — só {@code janelaFim} não bastaria, porque duas missões podem vencer no mesmo
-   * instante e o cursor ficaria preso ou pularia uma delas.
-   *
-   * <p>Substitui {@code buscarAbertasVencidas}, que foi REMOVIDO em vez de mantido "por segurança":
-   * aquele método travava o lote inteiro numa transação só, que é a causa do deadlock — deixá-lo
-   * vivo garantiria que alguém voltasse a chamá-lo.
-   *
-   * <p><b>Sem {@code :aposJanela is null}, e a ausência é obrigatória.</b> Um parâmetro nulo sem
-   * tipo declarado chega ao PostgreSQL sem informação suficiente e a consulta estoura com {@code
-   * could not determine data type of parameter $2} — a mesma armadilha que os {@code CAST(:param AS
-   * ...)} de {@code buscarComFiltros} e {@code ConsultasGeoespaciais} existem para evitar. Aqui a
-   * saída é melhor que um cast: o primeiro lote passa o cursor-sentinela {@code (EPOCH,
-   * 00000000-...)}, que é menor que qualquer chave real, e o predicado fica com um caminho só.
+   * <p>Keyset por {@code (janelaFim, id)}, não offset: uma missão que falha continua vencida e, com
+   * offset, voltaria ao topo de todo lote. O par dá ordem total. O primeiro lote usa um cursor-
+   * sentinela em vez de {@code :x is null}, que estouraria por parâmetro sem tipo.
    */
   @Query(
       """
@@ -128,11 +91,8 @@ public interface MissaoRepository extends JpaRepository<Missao, UUID> {
       Pageable lote);
 
   /**
-   * Gêmea da anterior, contando o prazo desde {@code estado_desde} em vez de {@code janela_fim}.
-   *
-   * <p>São duas consultas e não uma com a coluna parametrizada porque o nome da coluna não pode ser
-   * um parâmetro bindado — e concatená-lo seria a única concatenação de SQL do projeto, justamente
-   * numa consulta que o job roda em laço.
+   * Gêmea da anterior, com prazo a partir de {@code estado_desde}. Duas consultas porque nome de
+   * coluna não pode ser parâmetro bindado, e concatenar seria a única SQL concatenada do projeto.
    */
   @Query(
       """
@@ -152,20 +112,9 @@ public interface MissaoRepository extends JpaRepository<Missao, UUID> {
       Pageable lote);
 
   /**
-   * Trava a missão e reconfirma que ela AINDA está no status esperado.
-   *
-   * <p>A reconfirmação no {@code where} não é redundante: entre a seleção (sem lock) e este lock,
-   * alguém pode ter aceitado, feito check-in ou confirmado. Sem ela, o job aplicaria a transição
-   * sobre uma missão que já saiu do estado — e a máquina de estados recusaria com exceção, o que
-   * viraria uma falha registrada para um evento perfeitamente normal.
-   *
-   * <p>O prazo NÃO é reconferido aqui de propósito: ele já foi avaliado na seleção, e reavaliá-lo
-   * exigiria saber qual coluna a regra usa. O que importa sob o lock é o estado, que é o que muda
-   * por ação concorrente.
-   *
-   * <p>{@code lock.timeout = -2} é {@code org.hibernate.LockOptions.SKIP_LOCKED}: se uma operação
-   * está em curso sobre esta linha, o job devolve vazio em vez de bloquear atrás dela. O usuário
-   * ganha a corrida, e a missão simplesmente não expira nesta rodada.
+   * Trava a missão e reconfirma que ela AINDA está no status esperado — entre a seleção e o lock
+   * alguém pode ter agido. {@code lock.timeout = -2} é SKIP_LOCKED: com operação em curso na linha,
+   * o job desiste nesta rodada e o usuário ganha a corrida.
    */
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))
@@ -174,11 +123,8 @@ public interface MissaoRepository extends JpaRepository<Missao, UUID> {
       @Param("id") UUID id, @Param("status") StatusMissao status);
 
   /**
-   * Criadas e concluídas pelo usuário-sistema, numa statement (painel de impacto, ADR 0029).
-   *
-   * <p>Duas contagens juntas pela mesma razão do resumo de entregas falidas: separadas, uma
-   * conclusão acontecendo entre as duas leituras produziria {@code concluidas > criadas} — um
-   * número impossível, causado só pelo instante da consulta.
+   * Criadas e concluídas pelo usuário-sistema numa statement: separadas, poderiam dar concluídas >
+   * criadas.
    */
   @Query(
       value =
@@ -191,34 +137,15 @@ public interface MissaoRepository extends JpaRepository<Missao, UUID> {
       nativeQuery = true)
   ResumoSistemaProjecao contarDoSistema(@Param("sistema") UUID sistema);
 
-  /**
-   * Tokens parados em pote, em qualquer estado — metade da conservação do ADR 0027.
-   *
-   * <p>{@code COALESCE} porque {@code SUM} de conjunto vazio é NULL, e um banco recém-criado
-   * devolveria nulo onde o painel espera zero.
-   */
+  /** Tokens parados em pote, em qualquer estado. COALESCE: SUM de conjunto vazio é NULL. */
   @Query(value = "SELECT COALESCE(SUM(pote_tokens), 0) FROM missao", nativeQuery = true)
   long somarPotes();
 
   /**
-   * Missões não-terminais cujo pote está parado além do limiar — o dinheiro que a reconciliação NÃO
-   * acha (ADR 0032).
-   *
-   * <p><b>O marco muda por status, e é isso que separa este diagnóstico de um contador de
-   * potes.</b> ABERTA mede por {@code janela_fim} e os demais por {@code estado_desde}, replicando
-   * {@code RegraExpiracao.Marco}: sem a distinção, toda missão comunitária financiada com janela
-   * longa apareceria como imobilizada assim que passasse do limiar parada em ABERTA — que é o
-   * estado NORMAL de uma oferta esperando executor. Um instrumento cujo falso positivo é o caso
-   * comum não é consultado duas vezes.
-   *
-   * <p>Os dois conjuntos entram BINDADOS, vindos de {@code StatusMissao.ehTerminal()} e de {@code
-   * RegraExpiracao.medidosPorJanelaFim()}. Nenhum nome de status é literal aqui: um estado novo na
-   * máquina passa a ser considerado sem que esta consulta seja editada.
-   *
-   * <p>Devolve a ENTIDADE, e não uma projeção, no molde de {@code
-   * OutboxRepository.buscarEsgotados}: a página tem no máximo 100 linhas por {@code
-   * PotesImobilizadosFiltroRequest}, e quem monta o DTO é o serviço. As projeções escalares deste
-   * repositório existem para agregados que varrem a tabela inteira, que é outro problema.
+   * Missões não-terminais com pote parado além do limiar — o dinheiro que a reconciliação não acha
+   * (ADR 0032). O marco muda por status: ABERTA por {@code janela_fim}, os demais por {@code
+   * estado_desde}; sem isso, toda oferta financiada com janela longa seria falso positivo. Os
+   * conjuntos de status entram BINDADOS, vindos do enum.
    */
   @Query(
       value =
@@ -244,19 +171,9 @@ public interface MissaoRepository extends JpaRepository<Missao, UUID> {
       Pageable paginacao);
 
   /**
-   * Contagem e soma dos mesmos potes, numa statement só.
-   *
-   * <p>Juntas pela razão que o {@code ReconciliacaoRepository} já documenta: sob READ COMMITTED,
-   * contar e somar em consultas separadas pode straddle um commit concorrente e publicar um par
-   * impossível — zero missões com tokens presos, ou o contrário.
-   *
-   * <p>{@code coalesce(..., 0L)} porque {@code sum} de conjunto vazio é NULL, e o caso saudável do
-   * sistema é justamente o conjunto vazio. O literal é {@code 0L}, não {@code 0}: com um inteiro a
-   * expressão inteira seria promovida a Integer e o construtor não casaria.
-   *
-   * <p><b>O predicado é repetido de propósito, e o risco é conhecido:</b> se ele divergir do da
-   * consulta acima, o resumo passa a contradizer a lista sem que nada falhe. É por isso que {@code
-   * PoteImobilizadoTest.resumoConcordaComALista} assere a igualdade em vez de confiar na leitura.
+   * Contagem e soma dos mesmos potes numa statement (separadas, poderiam straddle um commit). O
+   * predicado é repetido de propósito; {@code PoteImobilizadoTest} trava que resumo e lista
+   * concordem.
    */
   @Query(
       """
