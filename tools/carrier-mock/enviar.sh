@@ -44,6 +44,8 @@ CHECKIN_LON="${CHECKIN_LON:--46.6934}"
 DESTINO_LAT="${DESTINO_LAT:--23.5695}"
 DESTINO_LON="${DESTINO_LON:--46.6870}"
 
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/transportadora.sh"
+
 for programa in curl openssl jq; do
   command -v "$programa" >/dev/null || { echo "Faltando: $programa"; exit 1; }
 done
@@ -62,20 +64,9 @@ falhas=0
 # registrado e o caminho feliz viraria replay sem ninguém notar.
 execucao="$(date +%s)"
 
-assinar() { # $1=timestamp  $2=corpo
-  printf '%s.%s' "$1" "$2" \
-    | openssl dgst -sha256 -hmac "$SEGREDO" -hex \
-    | sed 's/^.*= //'
-}
-
 # ── Cliente HTTP autenticado, para a parte do ciclo que é do USUÁRIO ────────────────
 # O mock precisa disto porque aceitar, iniciar e fazer check-in são atos do vizinho, com JWT.
 # Só o reporte e a confirmação são da transportadora, por HMAC.
-login() {
-  curl -s -X POST "$API/api/v1/auth/login" -H 'Content-Type: application/json' \
-    -d "{\"email\":\"$1\",\"senha\":\"$SENHA_SEED\"}" | jq -r '.accessToken'
-}
-
 acao() { # acao TOKEN MISSAO ACAO [CORPO]
   local extra=()
   [ -n "${4:-}" ] && extra=(-H 'Content-Type: application/json' -d "$4")

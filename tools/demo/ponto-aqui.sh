@@ -31,16 +31,17 @@ set -euo pipefail
 # até um centro. Como este ponto passa a ser um ponto da tribo, a distância dele até si mesmo é 0 m
 # e a Cidade Líder entra no raio de `app.notificacoes.raio-alerta-metros` de onde quer que você
 # esteja. Pôr o ponto em tribo nenhuma (`tribo_id` nulo) tiraria a missão do fan-out por completo.
-TRIBO="${TRIBO:-aaaaaaaa-0000-0000-0000-000000000901}"
+TRIBO="${TRIBO:-aaaaaaaa-0000-0000-0000-000000000908}"
 
 # Fixos para que reexecutar REMANEJE o mesmo ponto em vez de acumular pontos órfãos a cada ensaio.
 # `codigo` tem UNIQUE, então sem o upsert a segunda execução morreria em violação de constraint.
-PONTO_ID="${PONTO_ID:-cccccccc-0000-0000-0000-000000000907}"
-CODIGO="${CODIGO:-PT-AQUI-001}"
+# Padrão: o ponto do ESTANDE semeado na V908 — este script o move para onde o celular está.
+PONTO_ID="${PONTO_ID:-cccccccc-0000-0000-0000-000000000982}"
+CODIGO="${CODIGO:-EST-ARCA-01}"
 
 LAT="${1:-}"
 LON="${2:-}"
-APELIDO="${3:-Ponto de gravação}"
+APELIDO="${3:-Estande Omni-Tribo · Espaço Arca}"
 
 if [ -z "$LAT" ] || [ -z "$LON" ]; then
   echo "Uso: bash tools/demo/ponto-aqui.sh <LAT> <LON> [\"apelido\"]"
@@ -115,7 +116,6 @@ psql_ "INSERT INTO ponto_custodia (id, codigo, tipo, apelido, ponto, tribo_id, c
           SET ponto = EXCLUDED.ponto,
               apelido = EXCLUDED.apelido,
               tribo_id = EXCLUDED.tribo_id,
-              ocupacao = 0,
               ativo = TRUE;" >/dev/null
 
 # Persiste as coordenadas LOCALMENTE, e é isto que transforma "rode a cada reset" em "rode uma vez":
@@ -153,7 +153,7 @@ printf '  %-14s %s\n' "vagas" "$(psql_ "SELECT capacidade - ocupacao FROM ponto_
 # de SQL_TRIBOS_NO_RAIO — distância mínima a qualquer ponto da tribo, e não até um centro.
 RAIO_ALERTA="${RAIO_ALERTA:-3000}"
 echo
-echo "${negrito}o alerta do bloco 1:00 vai chegar?${normal}"
+echo "${negrito}tribos que recebem o aviso (até ${RAIO_ALERTA} m)${normal}"
 psql_ "SELECT t.nome || ' — ' || round(MIN(ST_Distance(p.geo,
             ST_SetSRID(ST_MakePoint($LON, $LAT), 4326)::geography))) || ' m'
        FROM (SELECT pc.tribo_id, pc.ponto AS geo FROM ponto_custodia pc
@@ -189,15 +189,14 @@ DESTINATARIOS=$(psql_ "SELECT count(*) FROM usuario u
            WHERE c.usuario_id = u.id AND c.tipo = 'LOCALIZACAO'
            ORDER BY c.criado_em DESC LIMIT 1) IS TRUE;")
 if [ "${DESTINATARIOS:-0}" -gt 0 ]; then
-  echo "  ${verde}✓${normal} $DESTINATARIOS pessoa(s) na Tribo Cidade Líder"
+  echo "  ${verde}✓${normal} $DESTINATARIOS pessoa(s) na $(psql_ "SELECT nome FROM tribo WHERE id = '$TRIBO';")"
 else
   echo "  ${vermelho}✗${normal} ninguém — o seed não dá consentimento a esta tribo."
-  echo "    Ligue NOTIFICACAO e LOCALIZACAO em Perfil → Privacidade, no app, antes de gravar."
+  echo "    Ligue NOTIFICACAO e LOCALIZACAO em Perfil → Privacidade, no app, antes de abrir o estande."
   echo "    Sem isso a missão nasce e aparece no radar, mas nenhum alerta chega na aba Avisos."
 fi
 
 echo
-echo "${negrito}agora dispare uma entrega falida neste ponto:${normal}"
-echo "  ${cinza}PONTO_CUSTODIA=$PONTO_ID bash tools/carrier-mock/enviar.sh${normal}"
+echo "${negrito}pronto para o estande:${normal}  bash tools/feira/entrega.sh   (lê este ponto sozinho)"
 echo
-echo "${cinza}O check-in vai exigir o aparelho a 200 m de lat $LAT, lon $LON.${normal}"
+echo "${cinza}O check-in exige o aparelho perto de lat $LAT, lon $LON: 300 m no profile feira, 200 m no dev.${normal}"

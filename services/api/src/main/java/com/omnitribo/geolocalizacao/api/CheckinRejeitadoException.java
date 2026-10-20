@@ -62,7 +62,8 @@ public class CheckinRejeitadoException extends RegraNegocioVioladaException {
       String mensagem,
       BigDecimal distanciaM,
       Integer raioM,
-      BigDecimal acuraciaM) {
+      BigDecimal acuraciaM,
+      BigDecimal acuraciaMaximaM) {
 
     Map<String, Object> props = new LinkedHashMap<>();
     switch (motivo) {
@@ -72,7 +73,7 @@ public class CheckinRejeitadoException extends RegraNegocioVioladaException {
       }
       case ACURACIA_INSUFICIENTE -> {
         poe(props, "acuraciaM", acuraciaM);
-        poe(props, "acuraciaMaximaM", LimitesCheckin.ACURACIA_MAXIMA_M);
+        poe(props, "acuraciaMaximaM", acuraciaMaximaM);
       }
       case LOCALIZACAO_SIMULADA -> {
         /* Nenhum número é acionável aqui. */

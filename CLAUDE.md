@@ -48,6 +48,7 @@ propósito, não são pendência.
 ```bash
 bash tools/gerar-chaves-dev.sh          # clone novo: sem PEM nenhum contexto Spring sobe
 make demo                               # chaves + banco do zero (recusa se a 8080 estiver ocupada)
+make feira                              # idem + o roteiro do estande (API em dev,feira; docs/FEIRA.md)
 cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev   # API 8080, actuator 8090
 cd services/api && ./mvnw verify        # testes + Spotless + SpotBugs + gates JaCoCo
 cd services/api && ./mvnw spotless:apply
@@ -73,7 +74,7 @@ pergunte.
 - Flyway é a única fonte de schema, e `ddl-auto` é sempre `validate`.
 - A versão de migration é uma **sequência global**: schema em `db/migration` (V1–V8, V11–V31;
   **próxima V32**; **V9 e V10 queimadas**) e seed só dev/test em `db/seed` (V900+; **próximo
-  V908**). Use `/migration`.
+  V909**). Use `/migration`.
 - Migration nova em banco de dev existente exige `make reset`. Renomeou migration? `./mvnw clean`
   também. **Nunca edite migration já aplicada.**
 - Dinheiro é `numeric(12,2)`/BigDecimal; tokens são `bigint`; coordenada é
@@ -132,7 +133,8 @@ Senha `Senha@123`:
 - `admin@omnitribo.dev` (ADMIN);
 - `alice` e `carol` (Pinheiros e Vila Madalena);
 - `bob`, `diana` e `erik`;
-- `renan`, `marlene` e `jonas` (Cidade Líder; `renan` é o executor da demo).
+- `marlene` e `jonas` (Cidade Líder);
+- `renan` (executor da demo), `paula`, `sergio` e `beatriz` (Vila Leopoldina, em volta do estande — V908).
 
 Transportadoras: `transportadora-dev` e `transportadora-teste` com patrocinador;
 `outra-transportadora` sem, que é a fixture do desfecho `SEM_PATROCINIO`.

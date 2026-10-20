@@ -20,7 +20,7 @@ import org.testcontainers.utility.DockerImageName;
 public abstract class ContainerConfig {
 
   /**
-   * {@code max_connections} elevado de 100 (padrão) para 500.
+   * {@code max_connections} elevado de 100 (padrão) para 700.
    *
    * <p>O limite não é por pool, é por SERVIDOR, e a suíte mantém VÁRIOS contextos Spring vivos ao
    * mesmo tempo — o cache de contexto do Spring não os descarta entre classes, e {@code
@@ -35,14 +35,17 @@ public abstract class ContainerConfig {
    * <p><b>A conta a refazer ao adicionar teste:</b> o consumo é (nº de contextos × 40). E ganha
    * contexto próprio toda classe que muda a configuração do Spring — hoje {@code @MockitoBean}
    * ({@code ConclusaoRollbackTest}), {@code @MockitoSpyBean} ({@code EnumeracaoUsuarioTest}) e
-   * {@code @TestPropertySource} ({@code SaqueDesabilitadoTest}). Foi exatamente ao acrescentar as
-   * duas últimas que 300 deixou de bastar. Se uma classe nova falhar ao carregar contexto sem
-   * motivo aparente, suspeite deste número antes de procurar o erro no código dela.
+   * {@code @TestPropertySource} ({@code SaqueDesabilitadoTest}, {@code RegistroRateLimitTest},
+   * {@code CheckinTetoConfiguradoTest}). Foi exatamente ao acrescentar contextos assim que 300 e
+   * depois 500 deixaram de bastar — o segundo com {@code CheckinTetoConfiguradoTest}, cujo sintoma
+   * foi SQLState 53300 no {@code MigracaoTest}, a classe seguinte. Se uma classe nova falhar ao
+   * carregar contexto sem motivo aparente, suspeite deste número antes de procurar o erro no código
+   * dela.
    */
   static final PostgreSQLContainer<?> POSTGRES =
       new PostgreSQLContainer<>(
               DockerImageName.parse("postgis/postgis:16-3.5").asCompatibleSubstituteFor("postgres"))
-          .withCommand("postgres", "-c", "max_connections=500");
+          .withCommand("postgres", "-c", "max_connections=700");
 
   static {
     POSTGRES.start();

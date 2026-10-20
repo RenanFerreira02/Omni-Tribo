@@ -32,6 +32,7 @@ SMART HAS & AI Logistics Extension.
 | [docs/ECONOMIA.md](docs/ECONOMIA.md) | moedas, recompensa, de onde sai o token, a invariante |
 | [docs/MODELO-RISCO.md](docs/MODELO-RISCO.md) | o modelo, as 14 features, as métricas |
 | [docs/DECISOES.md](docs/DECISOES.md) | as decisões de arquitetura, com a alternativa descartada |
+| [docs/FEIRA.md](docs/FEIRA.md) | o estande do FIAP NEXT: montagem, roteiro por visitante, plano B |
 | [apps/mobile/README.md](apps/mobile/README.md) | endereço da API no celular, firewall, build EAS |
 
 ## Rodar
@@ -53,6 +54,7 @@ cd apps/mobile && npm install && npm start                                 # ter
   - `renan@omnitribo.dev` (executor da demo);
   - `alice`, `bob`, `carol`, `diana` e `erik` `@omnitribo.dev`.
 - Simular a transportadora (entrega falida e confirmação): `bash tools/carrier-mock/enviar.sh`.
+- **Modo feira** (bairro povoado na Vila Leopoldina, entrega falida numa tecla, telão): `make feira` — ver [docs/FEIRA.md](docs/FEIRA.md).
 
 **Testes:** `make test` roda `./mvnw verify` (testes, Spotless, SpotBugs e gates JaCoCo) e
 `npm test`. Também existem `cd apps/mobile && npm run typecheck && npm run lint`, e o e2e contra a

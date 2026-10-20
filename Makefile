@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help demo up down reset logs ps psql test
+.PHONY: help demo feira preparar up down reset logs ps psql test
 
 # Todo alvo de compose passa por este wrapper: ele escolhe docker ou podman, porque o CLI do docker
 # pode sobreviver ao Docker Desktop desinstalado apontando para um socket morto.
@@ -15,9 +15,9 @@ help: ## Exibe esta ajuda
 	@cp .env.example .env
 	@echo ".env criado a partir de .env.example."
 
-# Prepara a demonstração do zero. NÃO sobe backend nem Metro: processo longo dentro do make perde o
-# terminal próprio e mistura os logs. O alvo prepara e IMPRIME os dois comandos que faltam.
-demo: .env ## Recria chaves e banco do zero e imprime os comandos para subir API e Metro
+# Prepara do zero. NÃO sobe backend nem Metro: processo longo dentro do make perde o terminal
+# próprio e mistura os logs. Os alvos preparam e IMPRIMEM os comandos que faltam.
+preparar: .env
 	@# Recusa antes de destruir: um backend de pé não remigra (o Flyway só roda no boot), e recriar
 	@# o volume por baixo dele o deixa ligado a um banco sem schema — login que não responde.
 	@if (exec 3<>/dev/tcp/127.0.0.1/8080) 2>/dev/null; then \
@@ -48,11 +48,26 @@ demo: .env ## Recria chaves e banco do zero e imprime os comandos para subir API
 	 done; \
 	 printf '\r  ok  banco aceitando conexão (%ss)     \n' "$$tentativa"
 	@echo ""
+
+demo: preparar ## Recria chaves e banco do zero e imprime os comandos para subir API e Metro
 	@echo "Falta você, em DOIS terminais:"
 	@echo "   1   cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev"
 	@echo "   2   cd apps/mobile && npm start"
 	@echo ""
 	@echo "Depois:  bash tools/demo/checar-ambiente.sh   (espere todos os ✓)"
+
+feira: preparar ## Estande do FIAP NEXT: banco do zero e os comandos dos três terminais e do telão
+	@echo "Estande pronto para subir. Em TRÊS terminais (roteiro completo em docs/FEIRA.md):"
+	@echo "   1   cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev,feira"
+	@echo "   2   cd apps/mobile && npm start"
+	@echo "   3   bash tools/feira/povoar.sh && bash tools/feira/entrega.sh"
+	@echo ""
+	@echo "No estande, com o celular junto ao PC:"
+	@echo "   bash tools/demo/ponto-aqui.sh <LAT> <LON>   (move o ponto do estande para onde você está)"
+	@echo "   bash tools/demo/checar-ambiente.sh         (espere todos os ✓)"
+	@echo ""
+	@echo "Telão: http://localhost:8081 no navegador, entre como admin@omnitribo.dev e abra"
+	@echo "       http://localhost:8081/impacto?telao=1   (não recarregue: na web recarregar desloga)"
 
 up: .env ## Sobe PostgreSQL+PostGIS
 	@$(COMPOSE) up -d

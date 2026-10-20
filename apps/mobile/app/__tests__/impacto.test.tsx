@@ -16,10 +16,13 @@ jest.mock('expo-router', () => ({
   // de navegação, e o comportamento que interessa — disparar uma vez na montagem — é o mesmo.
   useFocusEffect: (efeito: () => void) => mockUseEffect(efeito, [efeito]),
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn() }),
-  useLocalSearchParams: () => ({}),
+  useLocalSearchParams: () => mockParametros.atual,
 }));
 
+const mockParametros: { atual: Record<string, string> } = { atual: {} };
+
 beforeEach(() => {
+  mockParametros.atual = {};
   useSessao.setState({
     accessToken: 'access-1',
     refreshToken: 'refresh-1',
@@ -39,6 +42,18 @@ beforeEach(() => {
  * `accessibilityLabel` ausente, e o rótulo é o que um leitor de tela entrega.
  */
 describe('painel de impacto', () => {
+  it('no telão (?telao=1) avisa que é ao vivo; fora dele, não', async () => {
+    mockParametros.atual = { telao: '1' };
+    await render(<TelaImpacto />);
+    expect(await screen.findByTestId('impacto-ao-vivo')).toHaveTextContent(/a cada 5 s/);
+  });
+
+  it('sem o parâmetro do telão, não há indicação de atualização automática', async () => {
+    await render(<TelaImpacto />);
+    expect(await screen.findByLabelText('Custo evitado estimado: R$ 75,00')).toBeTruthy();
+    expect(screen.queryByTestId('impacto-ao-vivo')).toBeNull();
+  });
+
   it('mostra o custo evitado com a conta que o produziu', async () => {
     await render(<TelaImpacto />);
 

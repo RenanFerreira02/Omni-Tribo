@@ -2,6 +2,7 @@ package com.omnitribo.geolocalizacao.dominio;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.omnitribo.geolocalizacao.api.LimitesCheckin;
 import com.omnitribo.geolocalizacao.api.MotivoRejeicaoCheckin;
 import com.omnitribo.geolocalizacao.api.ResultadoCheckin.Veredito;
 import java.math.BigDecimal;
@@ -14,6 +15,7 @@ class AvaliacaoAntifraudeTest {
 
   private static final Instant AGORA = Instant.parse("2026-08-07T12:00:00Z");
   private static final int RAIO_50 = 50;
+  private static final BigDecimal LIMITE_50 = LimitesCheckin.ACURACIA_MAXIMA_M;
   private static final BigDecimal ACURACIA_BOA = new BigDecimal("10");
 
   private static final BigDecimal LAT_ANTERIOR = new BigDecimal("-23.5629");
@@ -97,6 +99,42 @@ class AvaliacaoAntifraudeTest {
     assertThat(avaliacao.motivoRejeicao()).contains("Precisão");
   }
 
+  // ─── Teto configurável (ADR 0040) ─────────────────────────────────────────────────────────
+
+  @Test
+  void com_teto_de_150_a_precisao_de_120_e_aceita_e_a_de_151_e_recusada_citando_150() {
+    BigDecimal teto150 = new BigDecimal("150");
+
+    AvaliacaoAntifraude.Avaliacao dentro =
+        AvaliacaoAntifraude.avaliar(
+            new BigDecimal("10"),
+            new BigDecimal("120"),
+            teto150,
+            false,
+            RAIO_50,
+            null,
+            null,
+            null,
+            null,
+            AGORA);
+    AvaliacaoAntifraude.Avaliacao fora =
+        AvaliacaoAntifraude.avaliar(
+            new BigDecimal("10"),
+            new BigDecimal("151"),
+            teto150,
+            false,
+            RAIO_50,
+            null,
+            null,
+            null,
+            null,
+            AGORA);
+
+    assertThat(dentro.aceito()).isTrue();
+    assertThat(fora.codigoRejeicao()).isEqualTo(MotivoRejeicaoCheckin.ACURACIA_INSUFICIENTE);
+    assertThat(fora.motivoRejeicao()).contains("150 m");
+  }
+
   // ─── Cinemática ────────────────────────────────────────────────────────────────────────────
 
   @Test
@@ -106,6 +144,7 @@ class AvaliacaoAntifraudeTest {
         AvaliacaoAntifraude.avaliar(
             new BigDecimal("10"),
             ACURACIA_BOA,
+            LIMITE_50,
             false,
             RAIO_50,
             LAT_ANTERIOR,
@@ -132,6 +171,7 @@ class AvaliacaoAntifraudeTest {
         AvaliacaoAntifraude.avaliar(
             new BigDecimal("10"),
             ACURACIA_BOA,
+            LIMITE_50,
             false,
             RAIO_50,
             LAT_ANTERIOR,
@@ -166,6 +206,7 @@ class AvaliacaoAntifraudeTest {
         AvaliacaoAntifraude.avaliar(
             new BigDecimal("10"),
             ACURACIA_BOA,
+            LIMITE_50,
             false,
             RAIO_50,
             LAT_ANTERIOR,
@@ -188,6 +229,7 @@ class AvaliacaoAntifraudeTest {
         AvaliacaoAntifraude.avaliar(
             new BigDecimal("10"),
             ACURACIA_BOA,
+            LIMITE_50,
             false,
             RAIO_50,
             LAT_ANTERIOR,
@@ -214,6 +256,7 @@ class AvaliacaoAntifraudeTest {
         AvaliacaoAntifraude.avaliar(
             new BigDecimal("10"),
             ACURACIA_BOA,
+            LIMITE_50,
             false,
             RAIO_50,
             LAT_ANTERIOR,
@@ -236,6 +279,7 @@ class AvaliacaoAntifraudeTest {
         AvaliacaoAntifraude.avaliar(
             new BigDecimal("10"),
             ACURACIA_BOA,
+            LIMITE_50,
             false,
             RAIO_50,
             LAT_ANTERIOR,
@@ -259,6 +303,7 @@ class AvaliacaoAntifraudeTest {
         AvaliacaoAntifraude.avaliar(
             new BigDecimal("9999"),
             ACURACIA_BOA,
+            LIMITE_50,
             false,
             RAIO_50,
             LAT_ANTERIOR,
@@ -276,6 +321,6 @@ class AvaliacaoAntifraudeTest {
   private static AvaliacaoAntifraude.Avaliacao semAnterior(
       BigDecimal distanciaM, BigDecimal acuraciaM, boolean mocked) {
     return AvaliacaoAntifraude.avaliar(
-        distanciaM, acuraciaM, mocked, RAIO_50, null, null, null, null, AGORA);
+        distanciaM, acuraciaM, LIMITE_50, mocked, RAIO_50, null, null, null, null, AGORA);
   }
 }

@@ -1,0 +1,16 @@
+# Profile de DEMONSTRAÇÃO no estande (FIAP NEXT). Sempre junto do dev:
+#   ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev,feira
+#
+# Isto é calibração de demonstração, NÃO de produto (ADR 0040). Dentro de pavilhão o GPS do
+# aparelho costuma reportar precisão pior que 50 m, e o estande não pode depender de achar uma
+# janela para o check-in passar. A validação continua inteira no servidor — só a régua é mais
+# larga. Nenhum outro profile carrega estes valores.
+app:
+  geolocalizacao:
+    # Padrão: 50 m (LimitesCheckin). A recusa cita o valor vigente, então o app explica o certo.
+    acuracia-maxima-m: 150
+  missoes:
+    entrega-falida:
+      # Padrão: 200 m. A origem da missão de retirada é o ponto de custódia do estande, e o
+      # visitante faz o check-in alguns passos dali.
+      raio-checkin-m: 300
