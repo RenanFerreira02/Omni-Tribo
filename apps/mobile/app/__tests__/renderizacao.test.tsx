@@ -61,67 +61,105 @@ beforeEach(() => {
  * montados, que é determinística, e o tempo vai para o log.
  */
 describe('custo de renderização das listas', () => {
-  it('a lista do radar monta TODOS os pontos de custódia, e só uma janela das missões', async () => {
+  it('a lista do radar virtualiza missões E pontos — nenhuma das duas seções monta inteira', async () => {
     const perfil = novoPerfil('radar-lista');
     await render(perfil.sonda(<TelaMapa />));
     await fireEvent.press(await screen.findByTestId('botao-permitir'));
     await fireEvent.press(await screen.findByTestId('apresentacao-lista'));
     await screen.findByTestId('lista-radar');
 
-    await waitFor(() => expect(screen.queryAllByTestId(/^radar-ponto-/).length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(screen.queryAllByTestId(/^radar-missao-/).length).toBeGreaterThan(0),
+    );
 
     const missoesMontadas = screen.queryAllByTestId(/^radar-missao-/).length;
     const pontosMontados = screen.queryAllByTestId(/^radar-ponto-/).length;
 
-    // eslint-disable-next-line no-console
     console.log(
       `radar em lista: ${missoesMontadas}/${MISSOES} missões montadas, ` +
         `${pontosMontados}/${PONTOS} pontos montados · ${perfil.resumo()}`,
     );
 
-    // As missões passam pela virtualização da FlatList: só a janela inicial monta.
     expect(missoesMontadas).toBeLessThan(MISSOES);
-
-    // Os pontos NÃO passam: vivem no `ListFooterComponent`, que a FlatList renderiza inteiro, de uma
-    // vez, fora de qualquer janela. Esta é a assimetria que a medição existe para registrar — e a
-    // asserção falha no dia em que a segunda seção for virtualizada, que é quando ela deve falhar.
-    expect(pontosMontados).toBe(PONTOS);
+    // Os pontos moravam no `ListFooterComponent`, que a FlatList renderiza inteiro: montavam os 50
+    // de uma vez (medido: 50/50). Agora são linhas da mesma lista e entram na janela como as missões.
+    expect(pontosMontados).toBeLessThan(PONTOS);
   });
 
-  it('o custo do rodapé não virtualizado cresce com o número de pontos', async () => {
-    // Mede a DIFERENÇA, não um valor absoluto: o custo de render no jest não é latência de
-    // aparelho, e só a razão entre duas medições do mesmo teste diz alguma coisa. Cinco pontos
-    // contra cinquenta, tudo o mais igual.
+  it('com 50 pontos na janela, só uma parte monta — o custo deixou de acompanhar a lista', async () => {
+    // Sem missões, para os pontos começarem DENTRO da janela inicial: é o pior caso do antigo
+    // rodapé. Mede montados e custo com 5 e com 50; a razão vai para o log.
     const medir = async (quantos: number) => {
       servidor.use(
+        http.get(`${BASE}/missoes/proximas`, () => HttpResponse.json([])),
         http.get(`${BASE}/pontos-custodia`, () =>
           HttpResponse.json(muitosPontos().slice(0, quantos)),
         ),
       );
-      const perfil = novoPerfil(`rodape-${quantos}`);
+      const perfil = novoPerfil(`lista-pontos-${quantos}`);
       const tela = await render(perfil.sonda(<TelaMapa />));
       await fireEvent.press(await screen.findByTestId('botao-permitir'));
       await fireEvent.press(await screen.findByTestId('apresentacao-lista'));
       await screen.findByTestId('lista-radar');
-      await waitFor(() => expect(screen.queryAllByTestId(/^radar-ponto-/).length).toBe(quantos));
+      await waitFor(() =>
+        expect(screen.queryAllByTestId(/^radar-ponto-/).length).toBeGreaterThan(0),
+      );
+      const montados = screen.queryAllByTestId(/^radar-ponto-/).length;
       const custo = perfil.commits().reduce((soma, c) => soma + c.atualMs, 0);
       // `await` obrigatório: `unmount()` é assíncrono na RNTL 14, e sem ele o render seguinte
       // TRAVA o processo — sem falhar e sem estourar o testTimeout.
       await tela.unmount();
-      return custo;
+      return { montados, custo };
     };
 
-    const comCinco = await medir(5);
-    const comCinquenta = await medir(50);
+    const cinco = await medir(5);
+    const cinquenta = await medir(50);
 
-    // eslint-disable-next-line no-console
     console.log(
-      `rodapé não virtualizado: 5 pontos = ${comCinco.toFixed(2)} ms, ` +
-        `50 pontos = ${comCinquenta.toFixed(2)} ms ` +
-        `(${(comCinquenta / comCinco).toFixed(2)}× )`,
+      `lista de pontos: 5 → ${cinco.montados} montados, ${cinco.custo.toFixed(2)} ms; ` +
+        `50 → ${cinquenta.montados} montados, ${cinquenta.custo.toFixed(2)} ms ` +
+        `(${(cinquenta.custo / cinco.custo).toFixed(2)}×)`,
     );
 
-    expect(comCinquenta).toBeGreaterThan(comCinco);
+    expect(cinco.montados).toBe(5);
+    expect(cinquenta.montados).toBeLessThan(PONTOS);
+  });
+
+  it('a lista do radar mantém as seções, a ordem do servidor, e o toque no ponto abre a folha', async () => {
+    servidor.use(
+      http.get(`${BASE}/missoes/proximas`, () => HttpResponse.json(muitasMissoes().slice(0, 2))),
+      http.get(`${BASE}/pontos-custodia`, () => HttpResponse.json(muitosPontos().slice(0, 3))),
+    );
+    await render(<TelaMapa />);
+    await fireEvent.press(await screen.findByTestId('botao-permitir'));
+    await fireEvent.press(await screen.findByTestId('apresentacao-lista'));
+
+    expect(await screen.findByText('Missões próximas (2)')).toBeTruthy();
+    expect(screen.getByText('Pontos de custódia (3)')).toBeTruthy();
+
+    const ids = screen.queryAllByTestId(/^radar-ponto-/).map((n) => n.props.testID as string);
+    expect(ids).toEqual(
+      muitosPontos()
+        .slice(0, 3)
+        .map((p) => `radar-ponto-${p.id}`),
+    );
+
+    await fireEvent.press(screen.getByTestId(ids[1]!));
+    expect(await screen.findByTestId('folha-ponto')).toBeTruthy();
+    expect(screen.getAllByText('Ponto de carga 1').length).toBeGreaterThan(0);
+  });
+
+  it('sem missões e sem pontos, a lista mostra os dois estados vazios', async () => {
+    servidor.use(
+      http.get(`${BASE}/missoes/proximas`, () => HttpResponse.json([])),
+      http.get(`${BASE}/pontos-custodia`, () => HttpResponse.json([])),
+    );
+    await render(<TelaMapa />);
+    await fireEvent.press(await screen.findByTestId('botao-permitir'));
+    await fireEvent.press(await screen.findByTestId('apresentacao-lista'));
+
+    expect(await screen.findByTestId('radar-sem-missoes')).toBeTruthy();
+    expect(await screen.findByTestId('radar-sem-pontos')).toBeTruthy();
   });
 
   it('trocar o filtro de categoria re-renderiza a lista inteira de missões', async () => {
@@ -138,7 +176,6 @@ describe('custo de renderização das listas', () => {
     await waitFor(() => expect(perfil.atualizacoes().length).toBeGreaterThan(0));
 
     const montadas = screen.queryAllByTestId(/^missao-/).length;
-    // eslint-disable-next-line no-console
     console.log(
       `toque no chip ENTREGA: ${perfil.atualizacoes().length} commits, ` +
         `${perfil.custoDasAtualizacoesMs().toFixed(2)} ms de render, ` +

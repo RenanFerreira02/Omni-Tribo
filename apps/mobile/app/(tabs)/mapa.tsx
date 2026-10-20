@@ -18,6 +18,7 @@ import { JustificativaLocalizacao } from '@/components/JustificativaLocalizacao'
 import { Mapa, type MarcadorMapa, type RegiaoMapa } from '@/components/Mapa';
 import { SaldoToken } from '@/components/SaldoToken';
 import { useClima, usePontosCustodiaProximos, useTribo } from '@/features/mapa/hooks';
+import { linhasDoRadar } from '@/features/mapa/linhasDoRadar';
 import { useApresentacaoRadar } from '@/features/mapa/useApresentacaoRadar';
 import { useMissoesProximas } from '@/features/missoes/hooks';
 import { useLocalizacao } from '@/features/missoes/useLocalizacao';
@@ -304,16 +305,12 @@ export default function TelaMapa() {
 }
 
 /**
- * O radar em texto: as mesmas missões e os mesmos pontos que o mapa desenha.
+ * O radar em texto: as mesmas missões e os mesmos pontos que o mapa desenha (ADR 0030).
  *
- * <b>Uma FlatList só, com as duas seções.</b> Duas listas empilhadas dariam duas áreas roláveis
- * dentro da mesma tela — quem navega por voz teria de descobrir que existe uma segunda depois de
- * chegar ao fim da primeira. `ListHeaderComponent` e `ListFooterComponent` mantêm um rolo contínuo.
- *
- * <b>NÃO reordena nada.</b> A ordem por distância crescente vem do servidor
- * (`ConsultasGeoespaciaisPostgis` faz `ORDER BY distancia_m ASC` sobre `geography`), e reordenar
- * aqui com um segundo cálculo produziria uma ordem quase igual e ocasionalmente diferente da que o
- * mapa desenha — a mesma razão pela qual `formatarDistancia` só formata o número que chega.
+ * <b>Uma FlatList só, com as duas seções como linhas.</b> Duas listas empilhadas dariam duas áreas
+ * roláveis — quem navega por voz teria de descobrir a segunda ao fim da primeira. E os pontos NÃO
+ * ficam num `ListFooterComponent`: o rodapé é renderizado inteiro, fora da virtualização, e com os
+ * 50 pontos que o servidor devolve montava os 50 de uma vez (medido em `renderizacao.test.tsx`).
  */
 function ListaDoRadar({
   missoes,
@@ -328,62 +325,55 @@ function ListaDoRadar({
   aoAbrirMissao: (id: string) => void;
   aoAbrirPonto: (ponto: PontoCustodiaResponse) => void;
 }) {
+  const linhas = useMemo(
+    () => linhasDoRadar(missoes, pontos, carregando),
+    [missoes, pontos, carregando],
+  );
+
   return (
     <FlatList
       testID="lista-radar"
-      data={missoes}
-      keyExtractor={(item) => item.missao.id}
+      data={linhas}
+      keyExtractor={(linha) => linha.chave}
       contentContainerStyle={estilos.lista}
-      ListHeaderComponent={
-        <TituloTela nivel="secao">
-          {missoes.length > 0 ? `Missões próximas (${missoes.length})` : 'Missões próximas'}
-        </TituloTela>
-      }
-      renderItem={({ item }) => (
-        <MissaoCard
-          missao={item.missao}
-          distanciaM={item.distanciaM}
-          // Direto ao detalhe, sem a folha intermediária que o mapa usa: no mapa o pino não cabe
-          // texto e a folha é o que informa; aqui o item já disse tudo, e uma parada a mais só
-          // atrasaria quem navega por voz.
-          onPress={() => aoAbrirMissao(item.missao.id)}
-          testID={`radar-missao-${item.missao.id}`}
-        />
-      )}
-      ListEmptyComponent={
-        carregando ? null : (
-          <EstadoVazio
-            titulo="Nenhuma missão por aqui"
-            descricao="Não há missões abertas nesta região. Arraste o mapa ou volte mais tarde."
-            testID="radar-sem-missoes"
-          />
-        )
-      }
-      ListFooterComponent={
-        <View style={estilos.secao}>
-          <TituloTela nivel="secao">
-            {pontos.length > 0 ? `Pontos de custódia (${pontos.length})` : 'Pontos de custódia'}
-          </TituloTela>
-          {pontos.length === 0 && !carregando ? (
-            <EstadoVazio
-              titulo="Nenhum ponto por perto"
-              descricao="Pontos de custódia guardam encomendas que falharam na entrega."
-              testID="radar-sem-pontos"
-            />
-          ) : (
-            pontos.map((ponto) => (
-              <ItemPontoCustodia
-                key={ponto.id}
-                ponto={ponto}
-                // Mesma folha que o marcador abre. Não há outro destino para um ponto, e reusá-la
-                // mantém UMA descrição só dele no app.
-                onPress={() => aoAbrirPonto(ponto)}
-                testID={`radar-ponto-${ponto.id}`}
+      renderItem={({ item: linha }) => {
+        switch (linha.tipo) {
+          case 'titulo':
+            return (
+              <View style={linha.secao ? estilos.secao : undefined}>
+                <TituloTela nivel="secao">{linha.texto}</TituloTela>
+              </View>
+            );
+          case 'missao':
+            return (
+              <MissaoCard
+                missao={linha.item.missao}
+                distanciaM={linha.item.distanciaM}
+                // Direto ao detalhe: aqui o item já disse tudo, e a folha intermediária do mapa
+                // seria uma parada a mais para quem navega por voz.
+                onPress={() => aoAbrirMissao(linha.item.missao.id)}
+                testID={`radar-missao-${linha.item.missao.id}`}
               />
-            ))
-          )}
-        </View>
-      }
+            );
+          case 'ponto':
+            return (
+              <ItemPontoCustodia
+                ponto={linha.ponto}
+                // A mesma folha que o marcador abre: UMA descrição só do ponto no app.
+                onPress={() => aoAbrirPonto(linha.ponto)}
+                testID={`radar-ponto-${linha.ponto.id}`}
+              />
+            );
+          case 'vazio':
+            return (
+              <EstadoVazio
+                titulo={linha.titulo}
+                descricao={linha.descricao}
+                testID={linha.testID}
+              />
+            );
+        }
+      }}
     />
   );
 }
