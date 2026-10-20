@@ -23,29 +23,14 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * O painel que responde "quanto a tese economizou" — a única pergunta de VALOR que o sistema
- * responde, ao lado de todas as de integridade.
+ * O painel de "quanto a tese economizou" (ADR 0029) — a única pergunta de VALOR que o sistema
+ * responde.
  *
- * <h2>Por que mora em {@code compartilhado}</h2>
+ * <p>Mora em {@code compartilhado} porque os números vêm de quatro módulos, cada um por uma porta;
+ * em qualquer um dos quatro, aquele passaria a depender dos outros três.
  *
- * <p>Os números vêm de quatro módulos: {@code entrega_falida} ({@code logistica}), {@code missao}
- * ({@code missoes}), {@code checkin} ({@code geolocalizacao}) e {@code lancamento}/{@code carteira}
- * ({@code carteira}). Um serviço central lendo as quatro tabelas teria de alcançar {@code dominio}
- * e {@code infra} alheios, que o ArchUnit proíbe; e hospedá-lo em qualquer um dos quatro faria esse
- * módulo depender dos outros três por causa de um relatório. Aqui o acoplamento aponta todo para
- * {@code compartilhado}, que já é dependência de todos por desenho — mesmo arranjo de {@code
- * DrenadorOutboxService}, que injeta {@code notificacoes/api} pela porta. Ver ADR 0029.
- *
- * <h2>A honestidade é parte do requisito, não um comentário</h2>
- *
- * <p><b>"Re-entrega evitada" é a missão concluída, renomeada.</b> Não são duas evidências: são a
- * mesma contagem sob a interpretação de que a encomenda teria sido re-entregue se ninguém a tivesse
- * retirado. Apresentá-las como confirmação mútua seria a fraude estatística mais fácil de cometer
- * neste painel, e é por isso que o nome do campo e o javadoc dizem o contrário.
- *
- * <p><b>O custo evitado depende de uma premissa que este projeto não mediu</b> ({@link
- * ParametrosImpacto}). Por isso a resposta traz a mesma conta com a premissa em ±50%: a afirmação
- * defensável não é o número, é a ORDEM DE GRANDEZA que sobrevive à faixa.
+ * <p>"Re-entrega evitada" é a missão concluída RENOMEADA, não uma segunda evidência. O custo
+ * evitado depende de uma premissa não medida, por isso a resposta traz a conta também em ±50%.
  */
 @Service
 public class ImpactoService {
@@ -55,10 +40,7 @@ public class ImpactoService {
 
   private static final BigDecimal OTIMISTA = new BigDecimal("1.5");
 
-  /**
-   * Casas na fração das taxas. Quatro porque a tela exibe uma casa em porcento (57,8%), e
-   * arredondar já aqui para duas jogaria fora o dígito que a formatação vai usar.
-   */
+  /** Quatro casas na fração: a tela mostra uma casa em porcento. */
   private static final int CASAS_TAXA = 4;
 
   private final EstatisticasEntregasFalidas estatisticasEntregasFalidas;
@@ -84,22 +66,10 @@ public class ImpactoService {
   }
 
   /**
-   * {@code REPEATABLE_READ}, e é a decisão menos óbvia desta classe.
-   *
-   * <p>São seis agregações em quatro módulos, e sob READ COMMITTED <b>cada statement enxerga um
-   * snapshot próprio</b>. Um resgate acontecendo entre a leitura do ledger e a dos saldos
-   * apareceria queimado no total e ainda presente na carteira; uma conclusão entre duas contagens
-   * daria {@code concluidas > criadas}. Seriam incoerências aritméticas na tela causadas só pelo
-   * instante da leitura, e um painel que se contradiz é pior que um painel ausente — ele destrói a
-   * confiança nos números que ESTÃO certos.
-   *
-   * <p>{@code ReconciliacaoRepository} resolve o mesmo problema espremendo tudo numa statement só.
-   * Aqui não dá: as consultas moram em módulos diferentes e juntá-las seria o join cruzando a
-   * fronteira. Então o snapshot vem do nível de isolamento, e as portas rodam {@code MANDATORY}
-   * para garantir que leiam DENTRO desta transação.
-   *
-   * <p>Custo: nenhum bloqueio. No PostgreSQL uma transação read-only em REPEATABLE READ é MVCC puro
-   * — não trava escritor nenhum, e não pode sofrer erro de serialização porque não escreve.
+   * {@code REPEATABLE_READ}: sob READ COMMITTED as seis agregações veriam snapshots diferentes e o
+   * painel poderia se contradizer (ex.: concluídas > criadas). As portas rodam {@code MANDATORY}
+   * para ler dentro desta transação. Read-only em REPEATABLE READ é MVCC puro — não bloqueia
+   * ninguém.
    */
   @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
   public ImpactoResponse apurar() {
@@ -136,15 +106,8 @@ public class ImpactoService {
   }
 
   /**
-   * Segundos entre o webhook e o primeiro check-in válido, uma entrada por missão que teve os dois.
-   *
-   * <p>Missão sem check-in fica FORA da amostra em vez de entrar com valor alto: ninguém apareceu,
-   * então não há tempo de resposta a medir — atribuir-lhe um número inventaria a medição que falta,
-   * e é o oposto do que este painel existe para fazer.
-   *
-   * <p><b>Delta negativo também sai.</b> {@code recebido_em} é o relógio da TRANSPORTADORA, não o
-   * nosso: um relógio adiantado produz check-in "antes" do webhook. Somar isso à amostra
-   * introduziria tempo de resposta negativo, que é ruído de terceiro e não fato do bairro.
+   * Segundos do webhook ao primeiro check-in válido. Sem check-in fica FORA da amostra (não há
+   * tempo a medir); delta negativo também sai — é relógio adiantado da transportadora.
    */
   private List<Long> amostraDeResposta() {
     Map<UUID, Instant> recebimento = estatisticasEntregasFalidas.recebimentoPorMissao();
@@ -177,9 +140,7 @@ public class ImpactoService {
         premissa.multiply(OTIMISTA).multiply(quantidade).setScale(2, RoundingMode.HALF_UP));
   }
 
-  /**
-   * Fração, ou {@code null} quando não há denominador — nunca zero. Ver {@code EntregasFalidas}.
-   */
+  /** Fração, ou {@code null} sem denominador — nunca zero. */
   private static Double taxa(long numerador, long denominador) {
     if (denominador == 0) {
       return null;

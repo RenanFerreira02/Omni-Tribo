@@ -14,17 +14,8 @@ import org.springframework.data.repository.query.Param;
 public interface EntregaFalidaRepository extends JpaRepository<EntregaFalida, UUID> {
 
   /**
-   * Sondagem de idempotência do webhook.
-   *
-   * <p>O par é a chave natural da encomenda e tem UNIQUE desde a V21. Devolve {@code Optional}, e
-   * não {@code List}, porque a unicidade é do banco: se aparecer segunda linha, é a constraint que
-   * está faltando, e um {@code NonUniqueResultException} é exatamente o alarme que se quer nesse
-   * caso — não um "pega o primeiro" silencioso.
-   *
-   * <p>Chamada SOB o lock do ponto de custódia. Sondar antes de travar reabre a corrida: dois
-   * webhooks idênticos leriam "não existe" ao mesmo tempo e os dois inseririam, e aí quem decide é
-   * a UNIQUE, com 500 para um deles. É a mesma ordem que o check-in usa — "adquira todos os locks →
-   * sonde a chave → valide → escreva".
+   * Sondagem de idempotência do webhook pela chave natural (UNIQUE desde a V21). Chamada SOB o lock
+   * do ponto de custódia — sondar antes de travar reabriria a corrida.
    */
   Optional<EntregaFalida> findByTransportadoraAndCodigoRastreio(
       String transportadora, String codigoRastreio);
@@ -33,22 +24,9 @@ public interface EntregaFalidaRepository extends JpaRepository<EntregaFalida, UU
   Optional<EntregaFalida> findByMissaoId(UUID missaoId);
 
   /**
-   * Os quatro desfechos do webhook, numa única statement (painel de impacto, ADR 0029).
-   *
-   * <p>{@code FILTER (WHERE ...)} e não quatro consultas: sob READ COMMITTED cada statement teria
-   * snapshot próprio, e um webhook chegando entre a segunda e a terceira produziria um resumo em
-   * que os três desfechos não somam o total — uma incoerência aritmética visível na tela, causada
-   * só pelo momento da leitura. É a mesma razão que faz a reconciliação caber numa statement só.
-   *
-   * <p>{@code convertidas} olha {@code missao_id IS NOT NULL} e não {@code convertida_em}: a
-   * primeira é a que {@code ck_entrega_falida_recusada_sem_missao} (V21) amarra à ausência de
-   * recusa, então é a coluna cuja coerência o banco garante.
-   *
-   * <p><b>{@code pendentes} é o quarto desfecho</b>: sem missão E sem recusa — encomenda na
-   * custódia que nunca virou missão. O webhook não produz esse estado, mas o schema permite e o
-   * seed V901 usa. Sem contá-lo, os outros três não somam o total e a taxa de conversão sai
-   * calculada sobre um denominador com um grupo invisível dentro. Ver {@code
-   * ResumoEntregasFalidas}.
+   * Os quatro desfechos do webhook numa statement (ADR 0029): separados, um webhook entre as
+   * leituras faria os desfechos não somarem o total. {@code pendentes} — sem missão e sem recusa —
+   * também conta, para a taxa não ter um grupo invisível no denominador.
    */
   @Query(
       value =
@@ -64,10 +42,7 @@ public interface EntregaFalidaRepository extends JpaRepository<EntregaFalida, UU
       nativeQuery = true)
   DesfechosProjecao contarDesfechos();
 
-  /**
-   * {@code (missao_id, recebido_em)} das entregas convertidas — a metade que este módulo tem da
-   * mediana "webhook → check-in". Ver {@code EstatisticasEntregasFalidas.recebimentoPorMissao()}.
-   */
+  /** {@code (missao_id, recebido_em)} das convertidas — metade da mediana "webhook → check-in". */
   @Query(
       value =
           """
@@ -92,27 +67,9 @@ public interface EntregaFalidaRepository extends JpaRepository<EntregaFalida, UU
   }
 
   /**
-   * Frequência de recusa por ponto e motivo — a leitura que o alerta deduplicado deixa de guardar.
-   *
-   * <p>Antes do ADR 0033 o número de recusas existia em dois lugares: aqui, normalizado, e em
-   * {@code alerta}, como uma linha por evento. A segunda cópia foi removida por deduplicação, e
-   * esta consulta é o que garante que o DADO não foi junto — "um ponto que recusa encomendas com
-   * frequência é exatamente o dado que justifica negociar mais capacidade", diz o javadoc de {@code
-   * gravarPontoLotado}, e é isto que responde a ele.
-   *
-   * <p><b>Agregado na hora, sem tabela de agregação e sem cache</b>, pelo mesmo argumento do ADR
-   * 0029: uma segunda fonte de verdade para um número que existe para ser conferido é pior que a
-   * consulta a mais. O que tornou a consulta barata foi o índice parcial {@code
-   * idx_entrega_falida_recusa} (V29) — {@code idx_entrega_falida_ponto} da V21 é parcial em {@code
-   * recusada_em IS NULL}, o complemento exato disto, e portanto inútil aqui.
-   *
-   * <p>O JOIN com {@code ponto_custodia} é FK dentro do mesmo módulo, permitida. Sem ele a resposta
-   * traria um UUID cru e quem lê teria de resolver o ponto numa segunda chamada — justamente o que
-   * este endpoint existe para evitar.
-   *
-   * <p><b>Agrupa por ponto, e não por transportadora.</b> A pergunta é sobre CAPACIDADE do ponto, e
-   * a recusa por lotação não é culpa de quem entregou. O recorte por transportadora não existe aqui
-   * e é uma ausência declarada — ver {@code RecusaPorPontoResponse}.
+   * Frequência de recusa por ponto e motivo — o número que o alerta deduplicado deixou de guardar
+   * (ADR 0033). Agregado na hora, sem tabela nem cache (argumento do ADR 0029), pelo índice parcial
+   * da V29. Por ponto e não por transportadora: a pergunta é capacidade do ponto.
    */
   @Query(
       value =
@@ -152,9 +109,7 @@ public interface EntregaFalidaRepository extends JpaRepository<EntregaFalida, UU
   }
 
   /**
-   * Uma linha do agregado de recusas. O {@code countQuery} conta GRUPOS, não linhas de {@code
-   * entrega_falida} — sem o subselect, {@code totalElementos} traria o número de recusas e a
-   * paginação prometeria páginas que não existem.
+   * Uma linha do agregado. O {@code countQuery} conta GRUPOS, não recusas, para a paginação bater.
    */
   interface RecusaProjecao {
     UUID getPontoCustodiaId();
