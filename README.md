@@ -18,7 +18,7 @@ SMART HAS & AI Logistics Extension.
 
 - **Backend** Spring Boot 4.1 / Java 21: monólito modular com 8 módulos, fronteiras verificadas por
   ArchUnit, PostgreSQL + PostGIS e Flyway.
-- **App** Expo SDK 57 / React Native, que roda no Expo Go: radar e mapa de missões, check-in por
+- **App** Expo SDK 57 / React Native, que roda no Expo Go: radar e mapa de missões (Google Maps, com Leaflet de reserva), check-in por
   GPS, carteira, benefícios e caixa de avisos.
 - **AI Logistics Extension:** um modelo de risco de falha de entrega (regressão logística em Java
   puro, treinada no build) que decide quanto a missão paga e o que o vizinho deve fazer para dar

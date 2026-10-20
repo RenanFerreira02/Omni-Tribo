@@ -13,7 +13,7 @@ import { CampoTexto } from '@/components/CampoTexto';
 import { Card } from '@/components/Card';
 import { Chip } from '@/components/Chip';
 import { FolhaInferior } from '@/components/FolhaInferior';
-import { MapaLeaflet } from '@/components/MapaLeaflet';
+import { Mapa } from '@/components/Mapa';
 import { SaldoToken } from '@/components/SaldoToken';
 import { SeletorDataHora } from '@/components/SeletorDataHora';
 import { useEnderecoPorCep, usePontosCustodiaProximos } from '@/features/mapa/hooks';
@@ -526,7 +526,7 @@ export function FormularioMissao({
         testID="folha-mapa"
       >
         <View style={estilos.mapaSeletor}>
-          <MapaLeaflet
+          <Mapa
             centro={{ lat: valores.origemLat, lon: valores.origemLon }}
             marcadores={[
               {

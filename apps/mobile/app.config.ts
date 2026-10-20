@@ -73,6 +73,8 @@ const config: ExpoConfig = {
   },
   extra: {
     apiUrl: process.env.EXPO_PUBLIC_API_URL ?? null,
+    // Chave da Google Maps JavaScript API (ver .env.example). Ausente: o mapa usa o Leaflet.
+    googleMapsKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY ?? null,
   },
 };
 

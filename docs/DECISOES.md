@@ -61,7 +61,7 @@ Clima (Open-Meteo) e CEP (ViaCEP) entram pelo módulo `integracoes`, escolhidos 
 chave**. Se o provedor falha, a resposta é 503 com `type` estável e a UI esconde o recurso. A
 exclusão de conta LGPD **anonimiza** em vez de apagar, porque o ledger é append-only.
 
-### 0012 — Mapa por WebView + Leaflet
+### 0012 — Mapa por WebView + Leaflet (revisada na 0039)
 Leaflet com tiles OSM numa WebView, atrás de `MapaLeaflet` com props estáveis — nenhuma tela sabe o
 motor. *`react-native-maps` exige development build e chave do Google; o projeto roda no Expo Go.*
 
@@ -193,3 +193,16 @@ A V31 converte RASCUNHO legado para `COMUNIDADE`; missão já publicada em `CUNH
 promessa (e `recongelarRecompensa` preserva essa fonte). O seed V907 dá às entregas abertas do seed
 o pote do patrocinador, com o lançamento correspondente. A invariante fica com duas pontas: aporte
 e resgate. Descartado: proibir a ENTREGA criada por pessoa (tiraria do app a categoria da tese).
+
+### 0039 — Mapa Google em JavaScript, com o Leaflet de reserva (revisa a 0012)
+O mapa principal passa a ser a **Google Maps JavaScript API dentro da WebView**, e não
+`react-native-maps`: no Expo Go Android do SDK 57 o Google nativo sai preto, porque a chave que o
+próprio Expo embute expirou (expo/expo#49323) e o Expo Go não usa a nossa. A fachada `Mapa` mantém
+as props de antes e escolhe o motor: com `EXPO_PUBLIC_GOOGLE_MAPS_KEY`, Google; sem ela — ou se a
+página avisar `falha` (chave recusada, script fora do ar, prazo de 12 s) —, **Leaflet com tiles
+Carto Voyager**, sem chave, sozinho e sem tentar de novo. A WebView declara a origem
+`https://mapa.omnitribo.app` para a chave poder ser restrita por referrer; na web o transporte é um
+`<iframe srcdoc>`, porque o `react-native-webview` não desenha nada fora do aparelho. Marcadores são
+`OverlayView` com o mesmo HTML do Leaflet (alvo de 44 px, forma e glifo). Descartado: development
+build com `react-native-maps` (abandona o QR do Expo Go a quatro dias da feira) e tiles do Google
+dentro do Leaflet (viola os termos de uso).
