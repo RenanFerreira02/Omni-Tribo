@@ -32,20 +32,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
   private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
   /**
-   * Funil de TODAS as respostas de erro produzidas pelo {@code ResponseEntityExceptionHandler}.
-   *
-   * <p>A superclasse traz cerca de quinze handlers prontos — corpo ilegível, método não suportado,
-   * media type inválido, parâmetro obrigatório ausente, handler não encontrado — e nenhum deles
-   * passa pelos {@code @ExceptionHandler} escritos aqui embaixo. O resultado era que a fatia mais
-   * banal de 4xx saía sem {@code type} e sem {@code traceId}, com um contrato de erro diferente do
-   * resto da API: {@code POST /api/v1/missoes} com corpo {@code {}} devolvia apenas {@code
-   * {"detail":"Failed to read request","instance":...,"status":400,"title":"Bad Request"}}.
-   *
-   * <p>Enriquecer aqui, e não sobrescrever os quinze, é o que garante que um handler que a
-   * superclasse venha a ganhar numa versão futura do Spring já nasça dentro do contrato.
-   *
-   * <p>Só preenche o que está faltando: um handler específico que já decidiu o tipo — {@code
-   * handleMethodArgumentNotValid} — continua mandando.
+   * Funil de TODA resposta do {@code ResponseEntityExceptionHandler}: os ~15 handlers herdados não
+   * passam pelos daqui e sairiam sem {@code type} nem {@code traceId}. Só preenche o que falta — um
+   * handler que já decidiu o tipo continua mandando.
    */
   @Override
   protected ResponseEntity<Object> createResponseEntity(
@@ -58,9 +47,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
       if (pd.getInstance() == null) {
         pd.setInstance(URI.create(uriDe(request)));
       }
-      // Uma leitura só, guardada: getProperties() é @Nullable, e chamá-lo duas vezes deixa o
-      // segundo retorno fora do alcance da checagem do primeiro
-      // (NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE).
+      // Uma leitura só: getProperties() é @Nullable (SpotBugs NP_NULL_ON_SOME_PATH).
       Map<String, Object> propriedades = pd.getProperties();
       if (propriedades == null || !propriedades.containsKey("traceId")) {
         pd.setProperty("traceId", MDC.get("correlationId"));
@@ -72,10 +59,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
   /** Valor default de {@code ProblemDetail.type} — o que este handler existe para substituir. */
   private static final URI TIPO_AUSENTE = URI.create("about:blank");
 
-  /**
-   * {@code HttpStatus.valueOf} lança para código fora da enumeração, e o container pode produzir
-   * um. Um erro no mapeamento do tipo não pode virar um 500 por cima do erro original.
-   */
+  /** {@code HttpStatus.valueOf} lança para código desconhecido; o mapeamento não pode virar 500. */
   private static HttpStatus resolverStatus(HttpStatusCode codigo) {
     HttpStatus resolvido = HttpStatus.resolve(codigo.value());
     return resolvido != null ? resolvido : HttpStatus.INTERNAL_SERVER_ERROR;
@@ -97,27 +81,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     pd.setTitle("Requisição inválida");
     pd.setDetail("Um ou mais campos falharam na validação.");
     pd.setProperty("errors", erros);
-    // Devolve PELO funil, e não por ResponseEntity.body() direto: é o funil que preenche type,
-    // instance e traceId. Antes esta era a única resposta de validação sem `instance` — justamente
-    // a mais frequente da API.
+    // Pelo funil, que preenche type, instance e traceId.
     return createResponseEntity(pd, headers, status, request);
   }
 
   /**
-   * 400 para violação de constraint em parâmetro de método (header, path, query).
-   *
-   * <p>Existe por causa de uma sutileza do Spring MVC: num controller anotado com
-   * {@code @Validated} — hoje são SEIS ({@code CarteiraController}, {@code
-   * TriboFinanciamentoController}, {@code PontoCustodiaController}, {@code AlertaController},
-   * {@code IntegracoesController} e {@code UsuarioController}), seja pelo {@code @NotBlank @Size}
-   * no header {@code Idempotency-Key}, seja por constraint em {@code @RequestParam} — a validação
-   * de método embutida do MVC é DESLIGADA e passa a vir do proxy AOP, que lança {@code
-   * ConstraintViolationException} em vez de {@code HandlerMethodValidationException}.
-   *
-   * <p>Sem este handler ela caía no handleGenerico: 500 com {@code log.error} e stack trace para
-   * uma requisição meramente malformada. Qualquer cliente autenticado produziria incidente falso à
-   * vontade mandando {@code Idempotency-Key: abc}, e o contrato do OpenAPI, que promete 400,
-   * estaria mentindo.
+   * 400 para constraint em parâmetro de método (header, path, query). Em controller
+   * {@code @Validated} a validação vem do proxy AOP como {@code ConstraintViolationException}; sem
+   * este handler, um {@code Idempotency-Key} malformado virava 500 com stack trace.
    */
   @ExceptionHandler(ConstraintViolationException.class)
   ProblemDetail handleViolacaoDeParametro(
@@ -138,10 +109,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     return pd;
   }
 
-  /**
-   * O propertyPath de um parâmetro de método vem como {@code metodo.argumento}; só o último
-   * segmento interessa ao cliente — o nome do método é detalhe interno.
-   */
+  /** Do propertyPath {@code metodo.argumento}, só o argumento interessa ao cliente. */
   private static String nomeDoParametro(ConstraintViolation<?> violacao) {
     String caminho = violacao.getPropertyPath().toString();
     int ultimoPonto = caminho.lastIndexOf('.');
@@ -165,25 +133,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler(DominioException.class)
   ProblemDetail handleDominio(DominioException ex, HttpServletRequest request) {
     ProblemDetail pd = ProblemDetail.forStatusAndDetail(ex.getHttpStatus(), ex.getMessage());
-    // A exceção escolhe o próprio tipo: subclasse com semântica específica pode sobrescrever
-    // getTipo() sem que este handler saiba da existência dela.
+    // A exceção escolhe o próprio tipo (getTipo), sem este handler conhecê-la.
     pd.setType(ex.getTipo());
     pd.setInstance(URI.create(request.getRequestURI()));
-    // Campos numéricos que a exceção quis expor, ANTES do traceId: assim uma subclasse descuidada
-    // não consegue sobrescrever o que liga esta resposta à linha de log do servidor.
+    // Campos da exceção ANTES do traceId: uma subclasse não consegue sobrescrevê-lo.
     ex.getPropriedades().forEach(pd::setProperty);
     pd.setProperty("traceId", MDC.get("correlationId"));
     return pd;
   }
 
   /**
-   * 403 de @PreAuthorize.
-   *
-   * <p>O interceptor de method security lança AuthorizationDeniedException (subclasse de
-   * AccessDeniedException) DENTRO do proxy do controller, então ela é resolvida pelo
-   * DispatcherServlet antes de chegar ao ExceptionTranslationFilter do Spring Security. Sem este
-   * handler, o handleGenerico abaixo a capturaria e devolveria 500 com log de erro — mascarando um
-   * 403 legítimo como falha do servidor.
+   * 403 de @PreAuthorize: o interceptor lança dentro do proxy do controller, antes do filtro do
+   * Security — sem este handler, viraria 500.
    */
   @ExceptionHandler(AccessDeniedException.class)
   ProblemDetail handleAcessoNegadoSecurity(AccessDeniedException ex, HttpServletRequest request) {
@@ -196,9 +157,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
   }
 
   /**
-   * Colisão de @Version nos caminhos que não travam a linha (ex.: PATCH de missão). O aceite
-   * concorrente NÃO passa por aqui — ele é serializado por SELECT ... FOR UPDATE e o perdedor
-   * recebe TransicaoInvalidaException. Este handler é a rede de segurança para o resto.
+   * Colisão de @Version nos caminhos que não travam a linha (PATCH). O aceite concorrente não passa
+   * aqui: é serializado por FOR UPDATE.
    */
   @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
   ProblemDetail handleConflitoConcorrencia(
@@ -207,8 +167,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail.forStatusAndDetail(
             HttpStatus.CONFLICT,
             "O recurso foi alterado por outra operação. Recarregue e tente de novo.");
-    // NÃO é TRANSICAO_INVALIDA, embora ambos sejam 409: aqui o retry da MESMA requisição tende
-    // a funcionar; lá, não. É exatamente a distinção que o status sozinho não expressa.
+    // Não é TRANSICAO_INVALIDA, embora 409: aqui repetir a MESMA requisição tende a funcionar.
     pd.setType(TipoProblema.CONFLITO_CONCORRENCIA);
     pd.setInstance(URI.create(request.getRequestURI()));
     pd.setProperty("traceId", MDC.get("correlationId"));
@@ -216,24 +175,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
   }
 
   /**
-   * Violação de integridade no banco, ramificada pelo SQLState — e SÓ o 22001 muda de status.
-   *
-   * <p><b>A regra do projeto continua valendo:</b> nada captura {@code
-   * DataIntegrityViolationException} para "tratar" replay de idempotência. Se {@code
-   * uk_lancamento_idempotencia} disparar, é defeito, e continua subindo como 500 por este mesmo
-   * método, pelo caminho genérico. O que muda é um caso só.
-   *
-   * <p>{@code 22001} é {@code string_data_right_truncation}: valor maior que a coluna. Isso não é
-   * defeito do servidor, é requisição malformada — e era acionável <b>sem autenticação</b>, com uma
-   * requisição, por qualquer um: um {@code X-Forwarded-For} de 46 caracteres estourava {@code
-   * auditoria.ip}, e como a auditoria de login grava dentro da transação, TODO login virava 500. Um
-   * {@code traceparent} do W3C fazia o mesmo em {@code correlation_id}, sem má-fé nenhuma.
-   *
-   * <p>O truncamento no construtor de {@code Auditoria} e a allowlist do {@code
-   * CorrelationIdFilter} já tornam esse caminho inalcançável pelos headers. Este handler é a
-   * segunda barreira, para a coluna estreita que alguém adicionar depois sem lembrar da primeira:
-   * 400 em vez de 500, e {@code warn} em vez de {@code error}, para não fabricar incidente falso no
-   * log.
+   * Violação de integridade, por SQLState — só o 22001 (valor maior que a coluna) vira 400, com
+   * {@code warn}. Todo o resto continua 500: nada captura violação de integridade para tratar
+   * replay de idempotência. É segunda barreira para coluna estreita adicionada no futuro.
    */
   @ExceptionHandler(DataIntegrityViolationException.class)
   ProblemDetail handleIntegridade(DataIntegrityViolationException ex, HttpServletRequest request) {
@@ -253,10 +197,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     return pd;
   }
 
-  /**
-   * O SQLState vive na {@code SQLException} lá no fundo da cadeia de causas — o Spring embrulha em
-   * {@code DataIntegrityViolationException}, que não o expõe.
-   */
+  /** O SQLState vive na {@code SQLException} no fundo da cadeia de causas. */
   private static String sqlState(Throwable ex) {
     for (Throwable causa = ex; causa != null; causa = causa.getCause()) {
       if (causa instanceof java.sql.SQLException sql) {
@@ -286,12 +227,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
   }
 
   /**
-   * Caminho da requisição a partir do {@link WebRequest} que o {@code
-   * ResponseEntityExceptionHandler} entrega — os handlers herdados não recebem {@code
-   * HttpServletRequest}.
-   *
-   * <p>{@code getDescription(false)} devolve {@code "uri=/api/v1/..."}; o prefixo é formato de log,
-   * não faz parte do contrato da resposta.
+   * Caminho da requisição a partir do {@link WebRequest} (sem o prefixo "uri=" do formato de log).
    */
   private static String uriDe(WebRequest request) {
     String descricao = request.getDescription(false);

@@ -39,20 +39,9 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
   /**
-   * CSP do Swagger UI — deliberadamente mais permissiva que a da API, e SÓ para os paths dele.
-   *
-   * <p>A CSP da API é {@code default-src 'none'}, que é a política certa para quem só devolve JSON
-   * e é fatal para qualquer página. O Swagger UI é uma SPA servida pelo webjar: sem {@code
-   * script-src}, {@code style-src}, {@code img-src} e {@code connect-src} o browser recusa o {@code
-   * swagger-ui-bundle.js}, o CSS e o {@code fetch} de {@code /v3/api-docs} — o HTML chega com 200 e
-   * a página fica EM BRANCO, sem nenhum erro do lado do servidor. O sintoma só aparece no console
-   * do DevTools, como "Refused to load the script".
-   *
-   * <p>{@code 'unsafe-inline'} entra porque o próprio springdoc injeta a configuração da UI num
-   * bloco inline; é o mínimo que ela exige para renderizar. O alcance disso é o menor possível: a
-   * política vale apenas para os três paths do {@code securityMatcher} abaixo, que em produção nem
-   * existem — {@code application-prod.yml} desliga o springdoc, e a cadeia passa a responder 404
-   * com um header relaxado sobre nada.
+   * CSP do Swagger UI, mais permissiva e SÓ nos paths dele: com {@code default-src 'none'} a SPA
+   * fica em branco. {@code 'unsafe-inline'} é o mínimo que o springdoc exige; em produção o
+   * springdoc está desligado.
    */
   private static final String CSP_SWAGGER =
       "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
@@ -81,19 +70,8 @@ public class SecurityConfig {
   }
 
   /**
-   * Cadeia exclusiva da documentação interativa (Swagger UI + schema OpenAPI).
-   *
-   * <p>Existe por UM motivo: a CSP. Autorização e rate limit já liberavam esses paths — eles estão
-   * no {@code permitAll} da cadeia principal e o {@code RateLimitFilter} os isenta por prefixo. O
-   * que derrubava a página era o {@code default-src 'none'} da cadeia principal, que casa {@code
-   * anyRequest()} e portanto alcançava também o Swagger. Ver {@link #CSP_SWAGGER}.
-   *
-   * <p>{@code @Order(0)} pelo mesmo motivo que o Actuator é {@code @Order(1)}: a cadeia principal
-   * casa {@code anyRequest()} e venceria o empate, tornando esta inalcançável.
-   *
-   * <p>{@code RateLimitFilter} e {@code JwtAuthFilter} ficam de fora de propósito. São custo por
-   * requisição e superfície de código sem função nenhuma sobre asset estático anônimo — e o rate
-   * limit já tratava esses paths como isentos, então nada muda de comportamento.
+   * Cadeia da documentação (Swagger + OpenAPI), existente só pela CSP. {@code @Order(0)}: a
+   * principal casa {@code anyRequest()} e venceria. Sem RateLimit nem JWT — asset estático anônimo.
    */
   @Bean
   @Order(0)
@@ -113,22 +91,8 @@ public class SecurityConfig {
   }
 
   /**
-   * Cadeia exclusiva dos endpoints do Actuator, na porta de gestão (8090).
-   *
-   * <p>Sem ela, o {@code anyRequest().authenticated()} da cadeia principal alcançava também a porta
-   * de gestão e {@code GET /actuator/health} respondia 401 — um health check que exige JWT não
-   * serve como health check: nem Docker, nem orquestrador, nem pessoa em plantão têm token. O
-   * {@code show-details: when-authorized} do application.yml também ficava sem sentido, já que não
-   * existia caminho anônimo para ele diferenciar.
-   *
-   * <p><b>Só health e info são anônimos.</b> {@code metrics} continua exigindo autenticação: expõe
-   * contadores de uso, nomes de endpoint e tamanho de pool, que é reconhecimento barato para quem
-   * está sondando. E {@code when-authorized} garante que o anônimo veja apenas {@code
-   * {"status":"UP"}}, sem o estado do banco — o perfil dev sobrescreve para {@code always}, o que é
-   * aceitável só porque a 8090 não é publicada fora da máquina.
-   *
-   * <p>{@code @Order(1)} é obrigatório: a cadeia principal casa {@code anyRequest()} e venceria no
-   * empate, tornando esta inalcançável.
+   * Cadeia do Actuator na porta de gestão (8090): health check que exige JWT não é health check. Só
+   * health e info são anônimos; metrics exige autenticação. {@code @Order(1)} pelo mesmo motivo.
    */
   @Bean
   @Order(1)
@@ -153,9 +117,7 @@ public class SecurityConfig {
   @Order(2)
   public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
     http
-        // CSRF desabilitado: API stateless com Bearer token em Authorization header.
-        // Browsers não enviam Authorization automaticamente (diferente de cookies de sessão),
-        // portanto o vetor CSRF não existe. OWASP CSRF Prevention §3.5 (token-based mitigation).
+        // CSRF desligado: API stateless com Bearer — browser não envia Authorization sozinho.
         .csrf(AbstractHttpConfigurer::disable)
 
         // Stateless: nenhuma HttpSession é criada. Cada request carrega credenciais via JWT.
@@ -164,23 +126,12 @@ public class SecurityConfig {
         // CORS: origens explícitas; nunca wildcard (ver corsConfigSource()).
         .cors(c -> c.configurationSource(corsConfigSource()))
 
-        // Autorização por endpoint.
-        // Apenas os endpoints sem sessão prévia são públicos. /me e /logout exigem token válido.
-        //
-        // Swagger UI e /v3/api-docs NÃO aparecem aqui: são tratados inteiros pelo
-        // swaggerFilterChain, que roda antes por causa da CSP. Duplicá-los nesta lista daria a
-        // impressão de que esta cadeia os atende, e alguém removeria a outra achando redundante.
+        // Só os endpoints sem sessão prévia são públicos. Swagger fica na cadeia própria acima.
         .authorizeHttpRequests(
             auth ->
-                // `/api/v1/webhooks/**` VOLTOU a esta lista, e voltou pela condição que o
-                // comentário anterior exigia: "ele nasce autenticado e a isenção é reintroduzida
-                // JUNTO com o HMAC, não antes". O HMAC agora existe — HmacWebhookFilter, montado
-                // logo abaixo nesta mesma cadeia.
-                //
-                // `permitAll` aqui NÃO significa rota aberta: significa que a autenticação dela não
-                // é o JWT. Quem autentica é o filtro, por assinatura sobre o corpo bruto, e ele
-                // recusa com 401 antes que a requisição chegue a qualquer controller. Remover o
-                // filtro sem remover esta linha deixa a rota anônima e gravável.
+                // Webhooks: permitAll NÃO é rota aberta — quem autentica é o HmacWebhookFilter, por
+                // assinatura no corpo bruto, antes de qualquer controller. Tirar o filtro sem tirar
+                // esta linha deixa a rota anônima e gravável.
                 auth.requestMatchers(
                         "/api/v1/auth/login",
                         "/api/v1/auth/registrar",
@@ -192,18 +143,11 @@ public class SecurityConfig {
                     .anyRequest()
                     .authenticated())
 
-        // Filtros customizados — instanciados aqui, não como @Component, para evitar
-        // que o Spring Boot os registre também como filtros de servlet (dupla execução).
-        // Ordem: Hmac → RateLimit → Jwt (rate limiting bloqueia antes de qualquer parse de token).
-        //
-        // O HMAC vem PRIMEIRO e tem teto próprio, por transportadora. No balde geral do
-        // RateLimitFilter o webhook seria chaveado por IP, e uma transportadora com laço de retry
-        // consumiria a cota de todas as outras que saíssem do mesmo gateway. O filtro se
-        // auto-limita a `/api/v1/webhooks/` por shouldNotFilter, então não custa nada ao resto.
-        // O rateLimitFilter é registrado PRIMEIRO de propósito: `addFilterBefore(x, Y.class)` só
-        // resolve a posição se Y já tem ordem conhecida na cadeia. Invertendo as duas linhas, a
-        // montagem falha no startup com "The Filter class RateLimitFilter does not have a
-        // registered order".
+        // Filtros instanciados aqui, e não como @Component, para não executarem duas vezes.
+        // Ordem: Hmac → RateLimit → Jwt. O HMAC tem teto por transportadora (no balde por IP uma
+        // transportadora em laço esgotaria as outras). O rateLimitFilter é registrado primeiro
+        // porque
+        // addFilterBefore exige que o filtro de referência já tenha ordem.
         .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
         .addFilterBefore(new HmacWebhookFilter(parametrosWebhook), RateLimitFilter.class)
         .addFilterAfter(new JwtAuthFilter(jwtService, consultaSessao), RateLimitFilter.class)
@@ -218,8 +162,7 @@ public class SecurityConfig {
         .headers(
             h ->
                 h
-                    // HSTS: força HTTPS por 1 ano em todos os subdomínios.
-                    // Só ativo em produção com TLS real; em dev o browser ignora HTTP.
+                    // HSTS: HTTPS por 1 ano, inclusive subdomínios (só tem efeito com TLS real).
                     .httpStrictTransportSecurity(
                         hsts -> hsts.maxAgeInSeconds(31536000).includeSubDomains(true))
                     // X-Frame-Options DENY: impede clickjacking via iframe.
@@ -229,8 +172,7 @@ public class SecurityConfig {
                     // Referrer-Policy: não vaza a URL da API nos cabeçalhos Referer externos.
                     .referrerPolicy(
                         r -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
-                    // CSP: API pura — nenhum recurso externo, nenhum frame, nenhum form.
-                    // Em produção com frontend servido pelo mesmo domínio, ajustar default-src.
+                    // CSP: API pura — nenhum recurso externo, frame ou form.
                     .contentSecurityPolicy(
                         csp ->
                             csp.policyDirectives(
@@ -240,15 +182,8 @@ public class SecurityConfig {
   }
 
   /**
-   * CORS: lista explícita. Wildcard ({@code *}) anularia a proteção same-origin em browsers.
-   *
-   * <p>O {@code trim()} não é cosmético. {@code CORS_ORIGENS="https://a.com, https://b.com"} —
-   * escrito com o espaço que qualquer pessoa põe depois da vírgula — produzia a origem literal
-   * {@code " https://b.com"}, que jamais casa com o header {@code Origin}. E a falha só aparece no
-   * console do browser: o servidor responde 200 e não loga nada.
-   *
-   * <p>Origem vazia é descartada em vez de virar entrada inútil na lista, para que uma vírgula
-   * sobrando no fim da variável não produza uma origem {@code ""}.
+   * CORS com lista explícita (wildcard anularia a same-origin). O {@code trim()} existe porque
+   * "a.com, b.com" produzia " b.com", que nunca casa. Origem vazia é descartada.
    */
   @Bean
   CorsConfigurationSource corsConfigSource() {
@@ -289,21 +224,14 @@ public class SecurityConfig {
   private void escreverProblemDetail(
       HttpServletResponse response, HttpStatus status, String detalhe, String instancia)
       throws IOException {
-    // Escreve ProblemDetail (RFC 9457) diretamente: AuthenticationEntryPoint e
-    // AccessDeniedHandler executam no filtro, antes do DispatcherServlet, onde ObjectMapper
-    // pode não estar disponível no ciclo de inicialização. Autocontido por design.
+    // ProblemDetail escrito à mão: estes handlers rodam no filtro, antes do DispatcherServlet.
     response.setStatus(status.value());
     response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-    // Obrigatório, e não cosmético: sem isto o servlet cai no default ISO-8859-1 e o corpo sai
-    // com "Autenticação" em Latin-1 dentro de um application/problem+json. JSON é UTF-8 por
-    // definição (RFC 8259 §8.1), então o cliente decodifica lixo — e 401 é o erro que o app mais
-    // recebe, porque todo access token expira em 15 min.
+    // UTF-8 explícito: sem ele o servlet usa ISO-8859-1 e "Autenticação" chega corrompido no 401.
     response.setCharacterEncoding(StandardCharsets.UTF_8.name());
     String uri = instancia.replace("\"", "");
-    // Mesmo catálogo de type do GlobalExceptionHandler. Sem isto, 401 e 403 vindos da cadeia de
-    // filtros sairiam como about:blank enquanto os do controller sairiam tipados — o cliente veria
-    // dois contratos de erro diferentes para a mesma situação, dependendo de onde ela foi
-    // detectada.
+    // Mesmo catálogo de type do GlobalExceptionHandler: 401/403 do filtro não saem como
+    // about:blank.
     response
         .getWriter()
         .write(
