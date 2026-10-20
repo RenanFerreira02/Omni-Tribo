@@ -59,30 +59,20 @@ public class Missao {
   private ComplexidadeMissao complexidade;
 
   /**
-   * Versão da calibração que produziu xpRecompensa e tokensRecompensa.
-   *
-   * <p>Congelada na criação e NUNCA recalculada. É o que permite responder, meses depois, se um
-   * crédito estava certo quando foi feito — sem ela, mudar um parâmetro reinterpreta
-   * retroativamente toda missão já aceita. Nula em missões anteriores à V16, que não vieram de
-   * fórmula alguma.
+   * Versão da calibração que produziu a recompensa. Congelada e nunca recalculada: é o que
+   * responde, meses depois, se um crédito estava certo quando foi feito. Nula antes da V16.
    */
   @Column(name = "versao_formula")
   private Integer versaoFormula;
 
-  /**
-   * Reservado para a F11. Nenhum código lê ou escreve hoje; entrou junto para que o congelamento da
-   * recompensa já nascesse completo.
-   */
+  /** Reservado: nenhum código lê ou escreve hoje. */
   @Column(name = "multiplicador_risco", precision = 4, scale = 2)
   private BigDecimal multiplicadorRisco;
 
   /**
-   * Faixa de risco congelada na criação. Nula em toda missão que não veio de entrega falida.
-   *
-   * <p>{@code String} e não enum, deliberadamente: o enum {@code FaixaRisco} vive em {@code
-   * logistica.dominio}, e a regra do ArchUnit proíbe {@code missoes} de importá-lo. É a mesma razão
-   * pela qual a porta {@code ConversaoEntregaFalida} recebe a faixa como {@code String} — sempre o
-   * {@code name()} de um enum já validado do outro lado, nunca texto livre.
+   * Faixa de risco congelada (nula fora de entrega falida). {@code String} porque o enum {@code
+   * FaixaRisco} é de {@code logistica} e o ArchUnit proíbe importá-lo — sempre o {@code name()} de
+   * um enum já validado.
    */
   @Column(name = "faixa_risco", length = 5)
   private String faixaRisco;
@@ -138,46 +128,30 @@ public class Missao {
   private Instant concluidaEm;
 
   /**
-   * Desde quando a missão está no status ATUAL. Atualizado por {@code MissaoStateMachine} a cada
-   * transição, sem exceção.
-   *
-   * <p>Existe porque nenhum marco anterior responde "há quanto tempo esta missão está parada AQUI".
-   * {@code janelaFim} é o prazo de OFERTA — vira passado assim que alguém aceita e não diz nada
-   * sobre execução; {@code aceitaEm} é zerado no DESISTIR; {@code criadaEm} é imóvel. Sem este
-   * campo, a varredura de {@code EM_ANDAMENTO} e {@code AGUARDANDO_CONFIRMACAO} teria de inferir o
-   * instante lendo a trilha {@code missao_evento}, o que faria o job depender de um JOIN por linha.
+   * Desde quando a missão está no status ATUAL, carimbado pela máquina de estados a cada transição.
+   * É o marco das varreduras por prazo: {@code janelaFim} é prazo de oferta e {@code aceitaEm} zera
+   * no DESISTIR.
    */
   @Column(name = "estado_desde", nullable = false)
   private Instant estadoDesde;
 
-  // Tokens já financiados por membros da tribo, em custódia até a conclusão pagar o
-  // executor. NÃO é recompensa: `tokensRecompensa` é quanto a missão promete pagar,
-  // `poteTokens` é quanto de fato existe para pagar. Concluir uma missão TRIBO/COLETA
-  // debita daqui em vez de cunhar token novo — é o que conserva a oferta da moeda.
+  // Quanto de fato existe para pagar (o que a missão PROMETE é tokensRecompensa). A conclusão
+  // debita
+  // daqui, sem emitir token novo.
   @Column(name = "pote_tokens", nullable = false)
   private long poteTokens;
 
   /**
-   * Nível mínimo (derivado do XP por {@code RegraNivel}) exigido para ACEITAR esta missão.
-   *
-   * <p>1 significa "sem restrição", e é o valor de toda missão criada por usuário — o DTO de
-   * criação não tem este campo, e não deve ter: quem publica não escolhe quem pode executar. Só a
-   * conversão de entrega falida grava valor maior, e o motivo é a Regra de Elegibilidade por
-   * Reputação do challenge: custódia de pacote de terceiro não fica visível para toda a base.
-   *
-   * <p>Coluna por missão, e não constante no serviço, para que a regra fique auditável junto com a
-   * missão que a aplicou — recalibrar o mínimo depois não reescreve o passado.
+   * Nível mínimo para ACEITAR. 1 = sem restrição, o valor de toda missão criada por usuário (quem
+   * publica não escolhe quem executa). Só a entrega falida grava mais: encomenda de terceiro não
+   * fica aberta a conta recém-criada. Coluna por missão para recalibrar não reescrever o passado.
    */
   @Column(name = "nivel_minimo", nullable = false)
   private int nivelMinimo = 1;
 
   /**
-   * De onde sai o token da recompensa. Derivado da categoria no construtor e CONGELADO ali — ver
-   * {@link FontePote}.
-   *
-   * <p>Não há setter público: a única transição permitida é {@link #financiadaPeloPatrocinador()},
-   * chamada na conversão de entrega falida antes de a missão ser publicada. Depois de ABERTA, mudar
-   * a fonte alteraria de onde o executor vai ser pago, com a missão já contratada.
+   * De onde sai o token da recompensa, congelado no construtor ({@link FontePote}). A única
+   * transição é {@link #financiadaPeloPatrocinador()}, antes de publicar.
    */
   @Enumerated(EnumType.STRING)
   @Column(name = "fonte_pote", nullable = false, length = 12)
@@ -190,8 +164,8 @@ public class Missao {
   protected Missao() {}
 
   /**
-   * Construtor de criação. Recebe tudo de uma vez em vez de expor um setter por campo: um setter
-   * por campo reabriria o caminho de mass assignment que este módulo existe para fechar.
+   * Construtor de criação: tudo de uma vez, sem setter por campo — setter reabriria mass
+   * assignment.
    */
   @SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
@@ -225,17 +199,14 @@ public class Missao {
     this.titulo = titulo;
     this.descricao = descricao;
     this.status = status;
-    // Recompensa chega como UM objeto, e não como três parâmetros soltos, de propósito: neste
-    // construtor de 20+ posições, xpRecompensa (int) e raioCheckinM (int) são intercambiáveis para
-    // o
-    // compilador, e uma inversão passaria silenciosa. O record torna a troca impossível.
+    // Recompensa como UM objeto: neste construtor longo, dois int seriam intercambiáveis para o
+    // compilador e uma inversão passaria em silêncio.
     this.xpRecompensa = recompensa.xp();
     this.tokensRecompensa = recompensa.tokens();
     this.complexidade = recompensa.complexidade();
     this.versaoFormula = recompensa.versaoFormula();
-    // Congelado junto com versao_formula, e pela mesma razão: sem ele, um crédito antigo deixa de
-    // ser explicável assim que o modelo de risco for re-treinado. A coluna existe desde a V16,
-    // reservada exatamente para este momento.
+    // Congelado com a versão da fórmula: crédito antigo continua explicável depois de re-treinar o
+    // risco.
     this.multiplicadorRisco = recompensa.multiplicadorRisco();
     this.valorBrl = valorBrl;
     this.origem = origem;
@@ -254,42 +225,28 @@ public class Missao {
     this.criadaEm = criadaEm;
     // A missão nasce RASCUNHO neste instante. A partir daqui quem mexe é a máquina de estados.
     this.estadoDesde = criadaEm;
-    // DERIVADA da recompensa e congelada aqui, num ponto único que todo caminho de criação
-    // atravessa. Não há CHECK de coerência no banco porque os seeds inserem depois das migrations.
+    // Derivada e congelada aqui, ponto único de toda criação. Sem CHECK no banco: seeds inserem
+    // depois.
     this.fontePote = derivarFontePote(recompensa);
   }
 
   /**
-   * De onde sairá o token desta missão (ADR 0038).
-   *
-   * <p>Toda missão criada por pessoa paga do pote financiado por OUTROS membros da tribo, ou é só
-   * XP. Nenhuma emite token na conclusão — a ENTREGA criada por humano era a última que emitia
-   * ({@link FontePote#CUNHAGEM}), e o argumento que a mantinha fora do pote ("vizinhos custeando a
-   * logística do varejista") descreve a entrega da TRANSPORTADORA, que já chega patrocinada pelo
-   * webhook. A missão de retirada nasce {@code COMUNIDADE} e passa a {@code PATROCINADOR} em {@link
-   * #financiadaPeloPatrocinador()}, na mesma transação.
-   *
-   * <p>{@code tokens == 0} é exatamente "o criador escolheu só XP": a calculadora tem piso de 1
-   * token, e zero só nasce de {@code Recompensa.semToken()} (ADR 0035).
+   * De onde sairá o token (ADR 0038): toda missão de pessoa paga do pote de OUTROS membros, ou é só
+   * XP; nenhuma nova emite. A de retirada nasce COMUNIDADE e passa a PATROCINADOR na mesma
+   * transação. {@code tokens == 0} só nasce de {@code Recompensa.semToken()} — a calculadora tem
+   * piso de 1.
    */
   private static FontePote derivarFontePote(CalculadoraDeRecompensa.Recompensa recompensa) {
     return recompensa.tokens() == 0 ? FontePote.SEM_TOKEN : FontePote.COMUNIDADE;
   }
 
   /**
-   * Recongela a recompensa depois de o PATCH mudar os insumos (ADR 0036, revisado).
+   * Recongela a recompensa depois de um PATCH nos insumos (ADR 0036). Quem protege o pote já
+   * comprometido é {@code MissaoService.recongelarRecompensaEditada}, que recusa antes. A CUNHAGEM
+   * legada mantém a fonte, ou passaria a exigir um pote que nunca teve.
    *
-   * <p>O que protege a recompensa de uma missão publicada não é o congelamento, é o POTE, já
-   * comprometido. Quem garante que ele não fica órfão, nas DUAS direções, é {@code
-   * MissaoService.recongelarRecompensaEditada}, que recusa antes de chamar este método.
-   *
-   * <p>Escreve {@code fonte_pote} junto porque trocar entre "só XP" e "com token" é o que muda a
-   * fonte. A exceção é a {@link FontePote#CUNHAGEM} LEGADA (missão publicada antes da V31): ela
-   * mantém a fonte com que foi prometida, ou passaria a exigir um pote que nunca teve e não poderia
-   * mais ser concluída.
-   *
-   * @throws IllegalStateException fora dos estados editáveis — erro de programação, não entrada de
-   *     usuário: {@code MissaoStateMachine.validarEdicao} já recusou antes, com 403 ou 409.
+   * @throws IllegalStateException fora de RASCUNHO/ABERTA — erro de programação; o serviço já
+   *     recusou.
    */
   public void recongelarRecompensa(CalculadoraDeRecompensa.Recompensa recompensa) {
     if (this.status != StatusMissao.RASCUNHO && this.status != StatusMissao.ABERTA) {
@@ -308,11 +265,8 @@ public class Missao {
   }
 
   /**
-   * Edição dos campos descritivos e logísticos (PATCH).
-   *
-   * <p>Recompensa (BRL, tokens, XP), categoria, criador, executor e status ficam deliberadamente de
-   * fora: alterar a recompensa com a missão já ABERTA mudaria o contrato sob os pés de quem está
-   * prestes a aceitar, e status/executor só mudam pela máquina de estados.
+   * Edição dos campos descritivos e logísticos (PATCH). Recompensa, categoria, criador, executor e
+   * status ficam de fora; status e executor só mudam pela máquina de estados.
    */
   @SuppressFBWarnings(
       value = "EI_EXPOSE_REP2",
@@ -381,13 +335,8 @@ public class Missao {
   }
 
   /**
-   * Muda o status E carimba desde quando ele vale — as duas coisas juntas, sempre.
-   *
-   * <p>Um {@code setStatus} que não tocasse {@code estadoDesde} deixaria o carimbo envelhecer em
-   * silêncio: a missão mudaria de estado com um marco temporal do estado ANTERIOR, e a varredura
-   * expiraria uma missão recém-transicionada achando que ela está parada há horas. Como o único
-   * chamador é {@code MissaoStateMachine}, que já recebe o instante da transição, exigi-lo na
-   * assinatura torna o esquecimento impossível.
+   * Muda o status E carimba {@code estadoDesde}, sempre juntos: um carimbo velho faria a varredura
+   * expirar uma missão que acabou de transicionar.
    */
   public void setStatus(StatusMissao status, Instant quando) {
     this.status = status;
@@ -427,12 +376,8 @@ public class Missao {
   }
 
   /**
-   * Registra a faixa de risco avaliada na criação.
-   *
-   * <p>Separado do construtor porque a faixa não faz parte de {@code CalculadoraDeRecompensa
-   * .Recompensa}: a calculadora conhece o multiplicador (que é insumo da fórmula) e não a faixa
-   * (que é rótulo de apresentação). Chamado uma única vez, na conversão de entrega falida, antes de
-   * publicar.
+   * Registra a faixa de risco (rótulo de apresentação, que não é insumo da fórmula). Uma vez, na
+   * conversão de entrega falida.
    */
   public void registrarFaixaRisco(String faixa) {
     this.faixaRisco = faixa;
@@ -443,17 +388,10 @@ public class Missao {
   }
 
   /**
-   * Marca a missão como financiada pelo patrocinador. Chamada UMA vez, na conversão de entrega
-   * falida, antes de publicar.
+   * Marca a missão como financiada pelo patrocinador, uma vez, na conversão de entrega falida.
    *
-   * <p>Mesmo molde de {@link #registrarFaixaRisco}: fica fora do construtor porque só a conversão
-   * sabe se existe patrocinador com saldo, e essa resposta só aparece depois de a recompensa estar
-   * calculada e a carteira travada.
-   *
-   * <p>A guarda não é decorativa. Aceitar esta chamada numa missão que membros da tribo já
-   * financiaram trocaria a fonte do pote deles, e o estorno passaria a procurar lançamentos do
-   * motivo errado — o dinheiro ficaria preso na missão. Por isso só passa a missão recém-criada:
-   * {@code COMUNIDADE} e com o pote ainda VAZIO.
+   * <p>Só aceita a missão recém-criada — {@code COMUNIDADE} com pote VAZIO: trocar a fonte de um
+   * pote que vizinhos já financiaram faria o estorno procurar o motivo errado e prender o dinheiro.
    */
   public void financiadaPeloPatrocinador() {
     if (this.fontePote != FontePote.COMUNIDADE || this.poteTokens != 0) {
@@ -558,12 +496,8 @@ public class Missao {
   }
 
   /**
-   * Pagamento saindo do pote na conclusão.
-   *
-   * <p>A guarda é de erro de programação, não a recusa que o usuário vê: quem chama já verificou o
-   * saldo do pote sob o lock e respondeu 422 antes de escrever qualquer coisa. Se esta exceção
-   * subir, o invariante "todo débito é precedido de verificação sob lock" deixou de valer, e um 500
-   * alto é melhor que um pote negativo silencioso.
+   * Pagamento saindo do pote. A guarda é de erro de programação: quem chama já verificou sob lock e
+   * respondeu 422. Um 500 alto é melhor que um pote negativo silencioso.
    */
   public void debitarPote(long tokens) {
     if (tokens <= 0) {
@@ -590,11 +524,7 @@ public class Missao {
   }
 
   /**
-   * Exige reputação para aceitar.
-   *
-   * <p>Fora do construtor de propósito, e ainda assim sem virar setter genérico: nenhum DTO de
-   * entrada alcança este método, então não reabre o mass assignment que o construtor de 22
-   * parâmetros fechou. Chamado só na conversão de entrega falida, antes do primeiro {@code save}.
+   * Exige reputação para aceitar. Nenhum DTO alcança este método; só a conversão de entrega falida.
    */
   void exigirNivelMinimo(int nivel) {
     if (nivel < 1) {

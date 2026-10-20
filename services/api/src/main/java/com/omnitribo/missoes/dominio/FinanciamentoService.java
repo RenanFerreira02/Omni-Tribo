@@ -16,13 +16,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Financiamento de missão comunitária: membro debita tokens da própria carteira e credita o pote da
- * missão.
- *
- * <p>É o SUMIDOURO da moeda, e é o que torna a economia não-fictícia. Sem ele, concluir uma missão
- * TRIBO cunharia tokens do nada e a oferta cresceria sem limite. Com ele, o token que o executor
- * recebe é exatamente o token que um membro da tribo pôs no pote — a soma (carteiras + potes) é
- * constante ao longo de todo o ciclo de vida da missão.
+ * Financiamento de missão comunitária: um membro debita a própria carteira e credita o pote. É o
+ * que faz o token que o executor recebe ser o mesmo que um vizinho pôs no pote — a soma (carteiras
+ * + potes) não muda no ciclo.
  */
 @Service
 public class FinanciamentoService {
@@ -49,9 +45,8 @@ public class FinanciamentoService {
 
     Instant agora = Instant.now();
 
-    // LOCK PRIMEIRO, e a missão é a primeira da ordem global: missao → carteira. Financiar e
-    // concluir disputam exatamente estas duas linhas; se o financiamento travasse a carteira antes,
-    // as duas operações na mesma missão poderiam se travar mutuamente.
+    // LOCK da missão primeiro (ordem global missao → carteira): financiar e concluir disputam as
+    // duas.
     Missao missao =
         missaoRepository
             .buscarParaAtualizar(missaoId)
@@ -59,18 +54,11 @@ public class FinanciamentoService {
 
     String chave = ChaveIdempotencia.financiamento(financiadorId, missaoId, chaveDoCliente);
 
-    // AUTORIZAÇÃO PRIMEIRO, antes até da sondagem. Sondar antes devolveria o pote e a recompensa da
-    // missão a quem não é da tribo — é a mesma razão pela qual o check-in autoriza antes de sondar.
+    // Autorização antes da sondagem: senão pote e recompensa vazariam a quem não é da tribo.
     validarAutorizacao(triboId, missao, financiadorId);
 
-    // LOCK (carteira) → SONDA → VALIDA → ESCREVE, que é a ordem canônica do projeto.
-    //
-    // A sondagem vinha DEPOIS das validações, e por isso o retry de um financiamento que completou
-    // o pote recebia 422 ("pote ficaria acima da recompensa") em vez do replay: na segunda chamada
-    // o pote já estava cheio pela primeira. O valor nunca duplicou — o débito segue barrado pela
-    // sondagem sob lock —, mas o cliente via um erro para uma operação bem-sucedida, e não tinha
-    // como distinguir isso de uma falha real. Mesmo defeito se a missão tivesse sido cancelada
-    // entre a chamada original e o retry.
+    // LOCK (carteira) → SONDA → VALIDA → ESCREVE: sondar depois das regras faria o retry de um
+    // financiamento que completou o pote receber 422 em vez do replay.
     Optional<ResultadoFinanciamento> replay = financiamentoMissao.sondar(financiadorId, chave);
     if (replay.isPresent()) {
       return new FinanciamentoResponse(
@@ -81,17 +69,15 @@ public class FinanciamentoService {
           true);
     }
 
-    // Regras de ESTADO só depois da sondagem: elas descrevem se a operação cabe AGORA, e um replay
-    // não é uma operação nova.
+    // Regras de estado depois da sondagem: um replay não é uma operação nova.
     validarEstado(missao);
     validarTeto(missao, tokens);
 
     ResultadoFinanciamento debito =
         financiamentoMissao.debitar(financiadorId, missaoId, tokens, chave, agora);
 
-    // Só credita o pote se o débito de fato aconteceu. Num replay, o pote já recebeu na primeira
-    // chamada — creditar de novo duplicaria tokens que saíram da carteira uma vez só, e a
-    // conservação quebraria exatamente no caminho que ela existe para proteger.
+    // Credita o pote só se o débito aconteceu: num replay o pote já recebeu, e creditar de novo
+    // duplicaria tokens.
     if (!debito.replay()) {
       missao.creditarPote(tokens);
       missaoRepository.save(missao);
@@ -106,23 +92,10 @@ public class FinanciamentoService {
   }
 
   /**
-   * Quem pode financiar esta missão. Roda ANTES da sondagem de idempotência.
-   *
-   * <p>Era metade de um {@code validarEscopo} único, e a separação não é cosmética: é ela que põe a
-   * autorização antes da sondagem e as regras de estado depois, replicando a ordem {@code 403 →
-   * sondagem → 409/422 → gravação} já sancionada para o check-in. Sondar antes de autorizar
-   * devolveria pote e recompensa da missão a quem não é da tribo.
-   *
-   * <p>O {@code triboId} do path não é decorativo: ele é o escopo declarado pelo cliente, e
-   * conferir que ele bate com a tribo real do financiador impede que alguém financie por uma tribo
-   * à qual não pertence só trocando a URL.
-   *
-   * <p><b>E o criador não financia a própria missão (ADR 0037).</b> "Quem cria a missão NÃO paga" é
-   * a premissa do ADR 0009 — a que nasceu de um defeito MEDIDO, R$ 1.500 criados do nada porque o
-   * criador nunca era debitado — e até 2026-09-22 ela era afirmada em quatro ADRs sem nenhuma linha
-   * a impor. As duas checagens acima conferem TRIBO e nunca compararam financiador com criador, e o
-   * ADR 0025 chegou a listar "deixar o criador financiar a própria AJUDA" como alternativa
-   * descartada por violar o 0009: descrevia como recusado um comportamento que sempre passou.
+   * Quem pode financiar — roda ANTES da sondagem (403 → sondagem → 409/422, como no check-in). O
+   * {@code triboId} do path precisa bater com a tribo real do financiador. <b>O criador não
+   * financia a própria missão</b> (ADR 0037): "quem cria não paga" (ADR 0009) passou a ser imposto
+   * aqui.
    */
   private void validarAutorizacao(UUID triboId, Missao missao, UUID financiadorId) {
     Optional<UUID> triboFinanciador = consultaAfiliacao.triboDe(financiadorId);
@@ -130,10 +103,7 @@ public class FinanciamentoService {
       throw new RegraNegocioVioladaException("Você não pertence a esta tribo.");
     }
 
-    // Antes da sondagem de idempotência, junto das demais regras de autorização — e é seguro estar
-    // aqui justamente porque não há replay legítimo a proteger: esta operação nunca deveria ter
-    // sido possível, então não existe chave gravada de um autofinanciamento anterior que mereça
-    // resposta de sucesso.
+    // Antes da sondagem com segurança: nunca houve autofinanciamento legítimo a reproduzir.
     if (financiadorId.equals(missao.getCriadorId())) {
       throw new RegraNegocioVioladaException(
           "Quem cria a missão não paga por ela. O pote é formado por outros membros da tribo.");
@@ -146,11 +116,7 @@ public class FinanciamentoService {
   }
 
   /**
-   * Se a missão aceita financiamento no estado em que está. Roda DEPOIS da sondagem.
-   *
-   * <p>Depois porque estas regras descrevem se a operação cabe AGORA, e um replay não é uma
-   * operação nova: recusar o retry de um financiamento que já aconteceu, porque a missão foi
-   * cancelada enquanto isso, entrega um erro para algo que deu certo.
+   * Se a missão aceita financiamento AGORA — depois da sondagem, porque replay não é operação nova.
    */
   private static void validarEstado(Missao missao) {
     // Testa a FONTE, e não a categoria, para não divergir de `Missao.fontePote`: uma lista de
@@ -169,43 +135,28 @@ public class FinanciamentoService {
           "Missão de retirada é financiada pelo patrocinador da transportadora.");
     }
 
-    // Missão comunitária de só XP não tem pote e não terá: a recompensa congelada é 0 (ADR 0035).
-    // Sem este ramo a recusa ainda aconteceria, mas lá em validarTeto, e sairia como aritmética sem
-    // sentido — "pote ficaria com 10 tokens, acima da recompensa de 0. Faltam apenas 0.". Pior
-    // seria deixar passar: a conclusão não paga do pote quando a recompensa é zero, então o token
-    // do financiador ficaria preso numa missão que nunca o devolve, e a reconciliação continuaria
-    // respondendo integro=true porque ledger e projeção seguem batendo.
-    //
-    // A saída para quem quer recompensar em token é editar o RASCUNHO (ADR 0036), não financiar.
+    // Só XP não tem pote (ADR 0035): financiar prenderia o token numa missão que nunca o devolve, e
+    // a
+    // reconciliação não veria. Quem quer token edita o RASCUNHO (ADR 0036).
     if (missao.getFontePote() == FontePote.SEM_TOKEN) {
       throw new RegraNegocioVioladaException(
           "Esta missão recompensa só em XP e não aceita financiamento. Para recompensar em tokens,"
               + " edite o rascunho antes de publicar.");
     }
 
-    // Financiar depois de concluída, cancelada ou expirada seria pôr token num pote que já não
-    // paga ninguém — no melhor caso vira estorno, no pior fica preso.
+    // Terminal: o pote já não paga ninguém.
     if (missao.getStatus().ehTerminal()) {
       throw new RegraNegocioVioladaException("Missão em estado terminal não aceita financiamento.");
     }
 
-    // Rascunho É financiável, e por qualquer membro da tribo — não é descuido. Publicar missão
-    // comunitária exige pote cobrindo a recompensa, então o financiamento acontece necessariamente
-    // ANTES da publicação, e restringi-lo ao criador obrigaria uma pessoa só a bancar 100% da
-    // missão, matando o co-financiamento que é o propósito da moeda comunitária.
-    //
-    // O que fecha o risco de token preso não é proibir aqui, é a transição RASCUNHO --CANCELAR-->
-    // CANCELADA, que dá ao criador uma saída que estorna o pote (ver StatusMissao).
+    // Rascunho É financiável, por qualquer membro: a publicação exige o pote antes. O risco de
+    // token
+    // preso fecha com RASCUNHO --CANCELAR--> CANCELADA, que estorna.
   }
 
   /**
-   * O pote não pode passar da recompensa.
-   *
-   * <p>A conclusão debita exatamente {@code tokensRecompensa} do pote, e {@code CONCLUIDA} é
-   * terminal — sobra no pote ficaria presa para sempre, porque o estorno só roda em CANCELADA e
-   * EXPIRADA. Recusar o excedente na entrada é mais simples e mais honesto que estornar resíduo na
-   * saída: o financiador descobre na hora que aquele token não é necessário, em vez de descobrir
-   * depois que ele sumiu.
+   * O pote não pode passar da recompensa: a conclusão debita exatamente a recompensa e CONCLUIDA é
+   * terminal, então a sobra ficaria presa. Recusar na entrada avisa o financiador na hora.
    */
   private static void validarTeto(Missao missao, long tokens) {
     long depois = missao.getPoteTokens() + tokens;

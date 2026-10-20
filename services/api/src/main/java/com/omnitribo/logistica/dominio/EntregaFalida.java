@@ -13,25 +13,17 @@ import java.util.UUID;
 import org.locationtech.jts.geom.Point;
 
 /**
- * Uma entrega que falhou e foi depositada num ponto de custódia.
+ * Uma entrega que falhou e foi depositada num ponto de custódia — o fato bruto da transportadora,
+ * do qual nasce a missão de retirada.
  *
- * <p>É o registro que dá nome ao challenge: o fato bruto reportado pela transportadora, do qual
- * nasce a missão comunitária de retirada. A tabela existe desde a V6; a V21 acrescentou o que
- * faltava para a conversão acontecer (peso, volume, endereço de destino) e a chave que torna o
- * webhook idempotente.
- *
- * <p><b>Três estados, distinguidos por duas colunas nuláveis e não por um enum.</b>
+ * <p>Três estados por duas colunas nuláveis, não por enum (os seeds aplicados não podiam ganhar a
+ * coluna):
  *
  * <ul>
- *   <li>RECEBIDA — {@code missaoId} nulo, {@code recusadaEm} nulo. Está no ponto, ocupa vaga.
- *   <li>CONVERTIDA — {@code missaoId} preenchido. Ocupa vaga até a missão concluir.
- *   <li>RECUSADA — {@code recusadaEm} preenchido. Nunca entrou no ponto, não ocupa vaga.
+ *   <li>RECEBIDA — {@code missaoId} e {@code recusadaEm} nulos; ocupa vaga.
+ *   <li>CONVERTIDA — {@code missaoId} preenchido; ocupa vaga até a missão concluir.
+ *   <li>RECUSADA — {@code recusadaEm} preenchido; não ocupa vaga.
  * </ul>
- *
- * <p>Uma coluna {@code status} seria mais legível e não sobreviveu à realidade das migrations: os
- * seeds V901/V903 já foram aplicados em bancos de dev e não podem ser editados (mudar seed aplicado
- * quebra o checksum), e como a faixa 900+ roda DEPOIS do schema, um DEFAULT não teria como
- * distinguir convertida de pendente. Ver o comentário da V21.
  */
 @Entity
 @Table(name = "entrega_falida")
@@ -64,11 +56,7 @@ public class EntregaFalida {
   @Column(name = "assinatura_verificada", nullable = false)
   private boolean assinaturaVerificada;
 
-  /**
-   * Instante em que a encomenda SAIU da custódia — carimbado na conclusão da missão, junto com o
-   * decremento da ocupação. O comentário original da V6 dizia "quando vira missão"; a V21 corrigiu
-   * o significado e o comentário da coluna.
-   */
+  /** Instante em que a encomenda SAIU da custódia, carimbado na conclusão da missão. */
   @Column(name = "convertida_em")
   private Instant convertidaEm;
 
@@ -76,8 +64,8 @@ public class EntregaFalida {
   private Instant recusadaEm;
 
   /**
-   * Por que foi recusada. Anda SEMPRE junto com {@link #recusadaEm} — {@code
-   * ck_entrega_falida_recusa_coerente} (V23) exige que os dois sejam nulos ou preenchidos juntos.
+   * Motivo da recusa — sempre junto de {@link #recusadaEm} ({@code
+   * ck_entrega_falida_recusa_coerente}).
    */
   @Enumerated(EnumType.STRING)
   @Column(name = "motivo_recusa", length = 20)
@@ -110,11 +98,7 @@ public class EntregaFalida {
   @Column(name = "destino_uf", length = 2)
   private String destinoUf;
 
-  // ─────────────────────── Características que a transportadora informa ───────────────────────
-  //
-  // Opcionais no webhook: transportadora já integrada continua enviando o corpo antigo. O que
-  // faltar é imputado no cálculo do risco — hora e dia da semana caem para o derivado de
-  // recebido_em, clima para a média do treino.
+  // ─── Características informadas pela transportadora (opcionais; o que faltar é imputado) ───
 
   @Column(name = "janela_hora_inicio")
   private Short janelaHoraInicio;
@@ -126,12 +110,7 @@ public class EntregaFalida {
   @Column(name = "tentativas_anteriores")
   private Short tentativasAnteriores;
 
-  // ─────────────────────────────── O que o modelo previu ───────────────────────────────
-  //
-  // Gravado para que a validação futura contra dados reais — o próximo passo declarado no ADR 0022
-  // —
-  // tenha contra o que comparar. Sem isto, cada score seria calculado, usado para creditar token, e
-  // descartado.
+  // ─── O que o modelo previu — gravado para a validação futura contra dados reais (ADR 0022) ───
 
   @Column(name = "risco_probabilidade", precision = 5, scale = 4)
   private BigDecimal riscoProbabilidade;
@@ -155,8 +134,7 @@ public class EntregaFalida {
     this.motivo = dados.motivo();
     this.pontoCustodiaId = dados.pontoCustodiaId();
     this.recebidoEm = recebidoEm;
-    // A assinatura HMAC já foi conferida no filtro de borda — nenhuma requisição chega aqui sem
-    // ela. A coluna existe desde a V6 e é a evidência gravada de que a verificação aconteceu.
+    // O HMAC já foi conferido no filtro de borda; a coluna é a evidência gravada.
     this.assinaturaVerificada = true;
     this.pesoKg = dados.pesoKg();
     this.volumeL = dados.volumeL();
@@ -173,12 +151,8 @@ public class EntregaFalida {
   }
 
   /**
-   * Congela o que o modelo previu para esta entrega.
-   *
-   * <p>Chamado UMA vez, na conversão, antes de a missão nascer — o mesmo multiplicador gravado aqui
-   * é o que vai para {@code missao.multiplicador_risco}. Guardar nos dois lugares não é duplicação
-   * ociosa: a missão precisa dele para explicar o crédito, e a entrega precisa dele junto das
-   * características que o produziram, que é o que permitirá auditar o modelo depois.
+   * Congela o que o modelo previu, uma vez, na conversão. O mesmo multiplicador vai para a missão;
+   * aqui ele fica junto das características que o produziram, para auditar o modelo depois.
    */
   public void congelarRisco(
       BigDecimal probabilidade, FaixaRisco faixa, BigDecimal multiplicador, int versaoModelo) {
@@ -225,15 +199,8 @@ public class EntregaFalida {
   }
 
   /**
-   * Marca a recusa, com o motivo.
-   *
-   * <p>O fato é gravado mesmo assim: a transportadora precisa saber onde o pacote dela parou, e um
-   * ponto cronicamente lotado é exatamente o dado que justifica abrir outro ponto no bairro.
-   * Recusada não ocupa vaga — {@code MigracaoTest} confere isso.
-   *
-   * <p>O motivo passou a ser obrigatório na V23, quando SEM_PATROCINIO se juntou a PONTO_LOTADO.
-   * Gravar recusa sem motivo deixaria a transportadora sem saber se reenviar adianta, e violaria
-   * {@code ck_entrega_falida_recusa_coerente}.
+   * Marca a recusa, com motivo obrigatório. O fato é gravado: a transportadora precisa saber onde o
+   * pacote parou. Recusada não ocupa vaga.
    */
   public void recusar(Instant quando, MotivoRecusa motivo) {
     if (this.missaoId != null) {

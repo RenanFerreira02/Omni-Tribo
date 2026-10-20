@@ -1,6 +1,7 @@
 package com.omnitribo.identidade.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -292,6 +293,52 @@ class PatrocinadorAdminTest extends TesteIntegracaoMvcBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"tokens\":100}"))
         .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  @DisplayName("listagem traz o patrocinador cadastrado e NÃO traz saldo")
+  void listagemNaoExpoeSaldo() throws Exception {
+    cadastrar("suite-lambda", "Lambda");
+
+    // Sem saldo de propósito: a listagem é a tela de gestão de contratos, e saldo de terceiro é
+    // estado financeiro que não precisa sair na mesma resposta (ADR 0024).
+    mockMvc
+        .perform(get(URL).header("Authorization", bearer(ADMIN)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[?(@.transportadoraSlug == 'suite-lambda')].nome").value("Lambda"))
+        .andExpect(jsonPath("$[*].saldoTokens").doesNotExist())
+        .andExpect(jsonPath("$[*].saldo").doesNotExist());
+  }
+
+  @Test
+  @DisplayName("encerrar desativa sem apagar, e o patrocinador encerrado não recebe aporte")
+  void encerrarDesativaSemApagar() throws Exception {
+    UUID patrocinadorId = UUID.fromString(campo(cadastrar("suite-mu", "Mu"), "id"));
+
+    mockMvc
+        .perform(delete(URL + "/" + patrocinadorId).header("Authorization", bearer(ALICE)))
+        .andExpect(status().isForbidden());
+
+    mockMvc
+        .perform(delete(URL + "/" + patrocinadorId).header("Authorization", bearer(ADMIN)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.ativo").value(false));
+
+    // A linha FICA: o ledger e as missões patrocinadas apontam para a carteira dele, e apagar
+    // transformaria histórico em referência pendurada.
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT ativo FROM patrocinador WHERE id = ?", Boolean.class, patrocinadorId))
+        .isFalse();
+
+    mockMvc
+        .perform(
+            post(URL + "/" + patrocinadorId + "/aportes")
+                .header("Authorization", bearer(ADMIN))
+                .header("Idempotency-Key", "aporte-mu-0001")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"tokens\":100}"))
+        .andExpect(status().isUnprocessableEntity());
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────────────────────

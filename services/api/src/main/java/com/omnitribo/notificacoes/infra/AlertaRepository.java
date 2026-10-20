@@ -14,18 +14,9 @@ import org.springframework.data.repository.query.Param;
 public interface AlertaRepository extends JpaRepository<Alerta, UUID> {
 
   /**
-   * Caixa de entrada, sempre do MAIS RECENTE para o mais antigo e sempre filtrada pelo dono.
-   *
-   * <p>O {@code usuarioId} nunca vem do cliente — o controller o tira do JWT. Um filtro vindo da
-   * query string transformaria este método na caixa de entrada alheia.
-   */
-  /**
-   * Caixa de entrada: MAIS URGENTE primeiro, depois mais recente.
-   *
-   * <p>Prioridade antes da data porque a lista é o que o usuário lê de cima para baixo, e uma
-   * entrega difícil que chegou há três horas continua precisando de alguém mais que uma trivial de
-   * dez minutos atrás. Suportada por {@code idx_alerta_usuario_prioridade} (V22) — sem o índice
-   * casando com esta ordenação, a paginação viraria sort em memória sobre a caixa inteira.
+   * Caixa de entrada do dono (o {@code usuarioId} vem sempre do JWT): MAIS URGENTE primeiro, depois
+   * mais recente — uma entrega difícil de três horas atrás ainda precisa de alguém. Suportada por
+   * {@code idx_alerta_usuario_prioridade} (V22).
    */
   Page<Alerta> findByUsuarioIdOrderByPrioridadeDescCriadoEmDesc(UUID usuarioId, Pageable pageable);
 
@@ -34,62 +25,28 @@ public interface AlertaRepository extends JpaRepository<Alerta, UUID> {
 
   long countByUsuarioIdAndLidoFalse(UUID usuarioId);
 
-  /**
-   * Busca escopada pelo dono, e não {@code findById} seguido de comparação.
-   *
-   * <p>A diferença aparece na resposta: assim o alerta de outra pessoa some no filtro e vira 404,
-   * em vez de ser encontrado e recusado com 403 — que confirmaria a existência do id.
-   */
+  /** Busca escopada pelo dono: alerta alheio vira 404, não 403 (403 confirmaria que existe). */
   Optional<Alerta> findByIdAndUsuarioId(UUID id, UUID usuarioId);
 
   /**
-   * Quantos alertas este usuário recebeu desde o instante dado. Alimenta o teto por hora.
-   *
-   * <p>Índice {@code idx_alerta_usuario_recente (usuario_id, criado_em DESC)} criado pela V21: os
-   * índices anteriores eram {@code (usuario_id)} e {@code (usuario_id, lido)} parcial, e nenhum
-   * ordena por tempo — cada notificação enviada varreria todo o histórico do destinatário.
+   * Alertas recebidos desde o instante dado, para o teto por hora ({@code
+   * idx_alerta_usuario_recente}).
    */
   long countByUsuarioIdAndCriadoEmAfter(UUID usuarioId, Instant desde);
 
   /**
-   * Já existe este alerta para este usuário e esta missão?
-   *
-   * <p>A entrega pela outbox pode REPETIR: um evento redespachado depois de uma falha parcial chega
-   * de novo aqui. Sem esta checagem o usuário receberia o alerta duplicado E o duplicado consumiria
-   * o teto por hora, o que faria uma falha transitória de infraestrutura silenciar notificações
-   * legítimas.
-   *
-   * <p>A deduplicação é em Java, e não por UNIQUE, porque a chave desta é {@code (usuario_id, tipo,
-   * missao_id)} e {@code missao_id} é nulo em todo aviso sem missão associada — em PostgreSQL um
-   * UNIQUE é NULLS DISTINCT por padrão, então ele não restringiria nenhuma dessas linhas. (A V29
-   * criou {@code uk_alerta_operacional}, mas ele é PARCIAL e cobre só o alerta global de {@code
-   * usuario_id} nulo; a caixa de entrada por usuário continua sem UNIQUE.)
+   * Este alerta já existe para este usuário e esta missão? A entrega da outbox pode REPETIR, e o
+   * duplicado consumiria o teto por hora. Em Java e não por UNIQUE: {@code missao_id} é nulo em
+   * muitos alertas, e UNIQUE é NULLS DISTINCT.
    */
   boolean existsByUsuarioIdAndTipoAndMissaoId(UUID usuarioId, String tipo, UUID missaoId);
 
   /**
-   * Grava o alerta operacional GLOBAL no máximo uma vez por {@code (tipo, referencia, janela)}.
-   *
-   * <p>É a correção da pendência medida em o teste de carga de 2026-08-25 §6: uma rajada de
-   * webhooks contra um ponto de custódia cheio gravava uma linha por evento — 631 delas em menos de
-   * 3 minutos, todas com a mesma frase sobre o mesmo ponto. O teto {@code alertasPorHora} não
-   * alcança isto e está certo em não alcançar: ele conta {@code WHERE usuario_id = ?}, e estes
-   * alertas têm {@code usuario_id} nulo de propósito. Ver ADR 0033.
-   *
-   * <p><b>Por que SQL nativo, e não a sondagem-sob-lock do resto do projeto.</b> A ordem canônica
-   * de {@code services/api/CLAUDE.md} — travar, sondar, validar, escrever — existe onde há uma
-   * linha para travar. Aqui não há: o conflito é entre dois INSERTs da MESMA linha inexistente, e
-   * dois drenadores podem estar no mesmo instante (o {@code buscarPendentesParaPublicar} usa {@code
-   * SKIP LOCKED}, então lotes disjuntos correm em paralelo). {@code ON CONFLICT DO NOTHING} resolve
-   * no índice, dentro do próprio INSERT. E não viola a regra vizinha — "nada captura {@code
-   * DataIntegrityViolationException} para tratar replay" —, porque nenhuma exceção é lançada: a
-   * linha repetida simplesmente não entra.
-   *
-   * <p><b>O {@code WHERE} depois do {@code ON CONFLICT} não é decoração e não pode ser
-   * encurtado.</b> Ele repete, palavra por palavra, o predicado de {@code uk_alerta_operacional}.
-   * Sem isso o PostgreSQL não consegue inferir qual índice arbitra e responde {@code "there is no
-   * unique or exclusion constraint matching the ON CONFLICT specification"} — verificado contra o
-   * banco antes de escrever esta query, não deduzido da documentação.
+   * Grava o alerta operacional GLOBAL no máximo uma vez por {@code (tipo, referencia, janela)} (ADR
+   * 0033). {@code ON CONFLICT DO NOTHING} decide no índice, porque o conflito é entre INSERTs de
+   * uma linha que ainda não existe — não há linha para travar. O {@code WHERE} depois do {@code ON
+   * CONFLICT} repete o predicado do índice parcial {@code uk_alerta_operacional}: sem ele o
+   * PostgreSQL não infere o índice e a query falha.
    *
    * @return 1 se gravou, 0 se já havia alerta deste tipo para esta referência nesta janela.
    */

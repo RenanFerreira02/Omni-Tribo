@@ -58,8 +58,4 @@ final class ProtecaoDeChamadasExternas {
   <T> T executar(Supplier<T> chamada) {
     return disjuntor.executar(() -> limite.executar(() -> repeticao.invoke(chamada)));
   }
-
-  DisjuntorDeChamadasExternas disjuntor() {
-    return disjuntor;
-  }
 }

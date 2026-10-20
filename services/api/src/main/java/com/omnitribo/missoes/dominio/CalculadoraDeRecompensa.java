@@ -4,46 +4,21 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 
 /**
- * Deriva a recompensa de uma missão a partir das suas características.
+ * Deriva a recompensa de uma missão a partir das suas características (ADR 0009).
  *
- * <h2>Por que existe</h2>
- *
- * <p>Até o ADR 0009 a recompensa vinha do CLIENTE: {@code CriarMissaoRequest} tinha {@code
- * xpRecompensa} e {@code tokensRecompensa}, e o único controle era um {@code @Max}. Medido contra a
- * API: uma missão AJUDA sem peso, sem volume e sem destino foi criada com <b>5.000 XP e 1.000
- * tokens</b> — o teto. Um teto sem fórmula significa que toda missão pode valer o teto, e a única
- * variável é a vontade de quem cria. Naquele momento ENTREGA e AJUDA ainda cunhavam token (lacuna
- * do §4.4), então isso era emissão sem contrapartida: 656 → 2.656 tokens em dois ciclos. Hoje as
- * duas pagam do pote — ENTREGA pelo patrocinador (ADR 0024) e AJUDA pela tribo (ADR 0025) —, e só
- * ENTREGA criada por humano ainda cunha.
- *
- * <p>Isto não fecha a cunhagem — fecha o <b>arbítrio sobre o tamanho dela</b>.
- *
- * <h2>Função pura, e o que isso compra</h2>
- *
- * <p>Sem Spring, sem repositório, sem relógio: mesmas entradas, mesma saída, sempre. É o que
- * permite testar monotonicidade e faixa varrendo milhares de combinações em milissegundos, e é o
- * que torna a fórmula versionável — uma função que consulta o banco não pode ser reexecutada no
- * passado para auditar um crédito antigo. Mesmo molde de {@link RegraNivel} e de {@code
- * AvaliacaoAntifraude}.
- *
- * <p>A distância chega pronta, em metros, medida pelo PostGIS — nunca calculada aqui. É a mesma
- * convenção de {@code AvaliacaoAntifraude}, cujo javadoc registra "distância medida pelo PostGIS,
- * nunca informada pelo cliente". Quem mede é {@code ConsultasGeoespaciais.distanciaMetros}.
- *
- * <h2>A fórmula</h2>
+ * <p>Função pura — sem Spring, banco nem relógio: mesmas entradas, mesma saída. É o que torna a
+ * fórmula testável em massa e versionável. A distância chega pronta, medida pelo PostGIS.
  *
  * <pre>
- *   tokens = min(teto, base(categoria) × mult(complexidade)
+ *   tokens = min(teto, base(categoria) × mult(complexidade) × mult(risco)
  *                      + km × tokensPorKm
  *                      + kg × tokensPorKg
  *                      + (litros / 100) × tokensPorCemLitros)
  *   xp     = min(tetoXp, tokens × xpPorToken)
  * </pre>
  *
- * <p>Base multiplicada e adicionais somados, e não tudo multiplicado: multiplicar a distância pela
- * complexidade faria uma entrega pesada e longa explodir de forma não linear, e a soma mantém cada
- * fator legível para quem for contestar o valor.
+ * <p>Base multiplicada e adicionais somados: multiplicar tudo faria a entrega pesada e longa
+ * explodir de forma não linear, e a soma mantém cada fator legível para quem contestar o valor.
  */
 public final class CalculadoraDeRecompensa {
 
@@ -55,21 +30,11 @@ public final class CalculadoraDeRecompensa {
   /**
    * Insumos da fórmula.
    *
-   * @param complexidadeDeclarada usada apenas quando peso e volume são ambos nulos; ignorada em
-   *     favor da derivação quando há dado. O verificador de request recusa envio redundante, então
-   *     um valor aqui com peso e volume presentes não deveria chegar — mas se chegar, a derivação
-   *     vence, porque dado objetivo ganha de declaração.
-   * @param distanciaM distância origem→destino em metros, medida pelo PostGIS. Nula quando a missão
-   *     não tem destino, o que é sempre o caso em TRIBO.
-   * @param valorOfertadoBrl valor que um TERCEIRO (hoje, a transportadora no webhook de entrega
-   *     falida) declara estar disposto a custear. Nulo em toda missão criada por usuário — o app
-   *     não tem esse campo e nunca terá, porque quem cria a missão não paga (ADR 0009).
-   *     <p>Entra como INSUMO e nada mais: aumenta a recompensa em TOKEN, e jamais é gravado em
-   *     {@code missao.valor_brl}, que {@code ck_missao_economia} trava em zero. A diferença importa
-   *     — o executor continua recebendo XP e token, não reais, e a conversão do real ofertado em
-   *     patrocínio do pote acontece fora do ciclo da missão.
-   *     <p>Existe porque uma entrega difícil vale mais para quem a paga, e a transportadora é a
-   *     única parte que sabe quanto: peso, volume e distância descrevem o esforço, não a urgência.
+   * @param complexidadeDeclarada usada só sem peso e volume; com eles, a derivação vence.
+   * @param distanciaM origem→destino em metros, medida pelo PostGIS; nula sem destino.
+   * @param valorOfertadoBrl o que a TRANSPORTADORA declara custear na entrega falida; nulo em
+   *     missão de usuário (quem cria não paga). É só INSUMO: aumenta a recompensa em TOKEN e nunca
+   *     vai para {@code valor_brl}.
    */
   public record Insumos(
       CategoriaMissao categoria,
@@ -93,15 +58,11 @@ public final class CalculadoraDeRecompensa {
   }
 
   /**
-   * Resultado, com a complexidade EFETIVA — derivada ou declarada.
+   * Resultado, com a complexidade EFETIVA — o app explica o valor e o servidor persiste o que
+   * mostrou.
    *
-   * <p>Devolver a complexidade, e não só os números, é o que permite ao app explicar o valor ao
-   * usuário e ao servidor persistir a mesma coisa que mostrou na prévia.
-   *
-   * @param multiplicadorRisco o fator EFETIVAMENTE aplicado, depois do clamp. Viaja no resultado
-   *     porque é congelado em {@code missao.multiplicador_risco} junto com {@code versao_formula} —
-   *     sem ele, um crédito antigo não teria como ser explicado depois de o modelo mudar. Sempre
-   *     preenchido: 1,00 quando não houve avaliação de risco.
+   * @param multiplicadorRisco o fator aplicado depois do clamp (1,00 sem avaliação), congelado na
+   *     missão para o crédito continuar explicável.
    */
   public record Recompensa(
       int xp,
@@ -111,17 +72,8 @@ public final class CalculadoraDeRecompensa {
       BigDecimal multiplicadorRisco) {
 
     /**
-     * A mesma recompensa, sem a parte em token — para a missão comunitária que paga só reputação
-     * (ADR 0035).
-     *
-     * <p><b>Zera DEPOIS de calcular, nunca antes.</b> O XP é derivado dos tokens ({@code xp =
-     * tokens * xpPorToken}), então zerar os tokens na entrada zeraria os dois e a missão não
-     * valeria nada. Aqui o XP já está calculado sobre o valor cheio: o esforço continua sendo
-     * reconhecido na mesma escala das demais missões, e o que o criador abre mão é só da moeda.
-     *
-     * <p>{@code versaoFormula} e {@code complexidade} são preservados de propósito. A pergunta
-     * "este XP estava certo quando foi concedido?" continua tendo resposta, e ela é a mesma
-     * calibração que teria produzido os tokens.
+     * A mesma recompensa sem a parte em token, para a missão só-XP (ADR 0035). Zera DEPOIS de
+     * calcular: o XP deriva dos tokens, e zerar antes zeraria os dois. Versão e complexidade ficam.
      */
     public Recompensa semToken() {
       return new Recompensa(xp, 0L, complexidade, versaoFormula, multiplicadorRisco);
@@ -135,8 +87,7 @@ public final class CalculadoraDeRecompensa {
     Long base = p.baseTokens().get(insumos.categoria());
     BigDecimal multiplicador = p.multiplicadorComplexidade().get(complexidade);
     if (base == null || multiplicador == null) {
-      // Configuração incompleta é erro de operação, não entrada inválida: falhar alto aqui é melhor
-      // que produzir zero e criar uma missão sem recompensa que ninguém aceitaria.
+      // Configuração incompleta é erro de operação: falhar alto é melhor que missão sem recompensa.
       throw new IllegalStateException(
           "Parâmetros de recompensa sem entrada para categoria "
               + insumos.categoria()
@@ -145,14 +96,8 @@ public final class CalculadoraDeRecompensa {
               + ".");
     }
 
-    // O risco multiplica a BASE, junto da complexidade — nunca o total.
-    //
-    // Multiplicar o total contradiria a decisão de projeto registrada no javadoc desta classe
-    // ("base
-    // multiplicada, adicionais somados"), e teria efeito perverso: uma entrega longa e pesada num
-    // endereço arriscado veria os três adicionais escalados juntos, e a recompensa explodiria de
-    // forma não linear justamente no caso extremo. Na base, o risco reprecifica a DIFICULDADE
-    // intrínseca da missão, que é o que ele mede.
+    // O risco multiplica a BASE, nunca o total: no total ele escalaria distância, peso e volume e a
+    // recompensa explodiria justamente no caso extremo (ADR 0022).
     BigDecimal risco = multiplicadorDeRiscoEfetivo(insumos.multiplicadorRisco(), p);
     BigDecimal total = new BigDecimal(base).multiply(multiplicador).multiply(risco);
     total = total.add(adicionalDistancia(insumos.distanciaM(), p));
@@ -160,11 +105,9 @@ public final class CalculadoraDeRecompensa {
     total = total.add(adicionalVolume(insumos.volumeL(), p));
     total = total.add(adicionalValorOfertado(insumos.valorOfertadoBrl(), p));
 
-    // HALF_UP e não truncamento: truncar tornaria a fórmula não monotônica em passos pequenos —
-    // dois pesos diferentes cairiam no mesmo inteiro e um aumento de insumo não aumentaria nada.
+    // HALF_UP, não truncamento: truncar tornaria a fórmula não monotônica em passos pequenos.
     long tokens = Math.min(total.setScale(0, RoundingMode.HALF_UP).longValue(), p.tetoTokens());
-    // Piso de 1: missão que não recompensa nada não é missão. Só acontece com base zerada na
-    // configuração, mas o piso evita que um erro de calibração produza trabalho de graça.
+    // Piso de 1: um erro de calibração não pode produzir trabalho de graça.
     tokens = Math.max(tokens, 1L);
 
     int xp = (int) Math.min((long) tokens * p.xpPorToken(), p.tetoXp());
@@ -173,16 +116,9 @@ public final class CalculadoraDeRecompensa {
   }
 
   /**
-   * Multiplicador de risco efetivamente aplicado, sempre dentro do teto.
-   *
-   * <p>Ausente vira 1,00, o neutro: missão criada por usuário não passa por avaliação de risco, e
-   * tratar isso como "risco desconhecido = risco alto" pagaria mais por ignorância.
-   *
-   * <p><b>O clamp é a segunda barreira, não a primeira.</b> {@code PrevisorDeRisco} já limita o
-   * valor na origem; repetir aqui é deliberado, porque esta classe é a última função pura antes do
-   * congelamento em banco e não pode confiar em quem a chamou. Um multiplicador fora de faixa vindo
-   * de um chamador futuro — ou de um parâmetro mal calibrado — cunharia token além do previsto, e a
-   * cunhagem não tem como ser desfeita depois de creditada.
+   * Multiplicador de risco aplicado, no intervalo [1,00; teto]. Ausente vira 1,00 — risco
+   * desconhecido não paga mais. Segunda barreira depois do {@code PrevisorDeRisco}: esta é a última
+   * função pura antes do congelamento, e não confia em quem a chamou.
    */
   private static BigDecimal multiplicadorDeRiscoEfetivo(
       BigDecimal informado, ParametrosRecompensa p) {
@@ -199,12 +135,8 @@ public final class CalculadoraDeRecompensa {
   }
 
   /**
-   * Complexidade efetiva: derivada quando há peso E volume, declarada quando não há.
-   *
-   * <p>A assimetria é deliberada. Onde existe dado objetivo, o criador não opina — senão a
-   * complexidade viraria o mesmo arbítrio que a recompensa livre era, só com três degraus. Onde não
-   * existe (mutirão, ajuda sem carga), declarar é a única opção honesta, e o teto por missão limita
-   * o dano.
+   * Complexidade efetiva: derivada com peso E volume, declarada sem eles. Onde há dado objetivo o
+   * criador não opina; onde não há, declarar é a única opção honesta e o teto limita o dano.
    */
   public static ComplexidadeMissao complexidadeEfetiva(Insumos insumos, ParametrosRecompensa p) {
     if (insumos.pesoKg() != null && insumos.volumeL() != null) {
@@ -216,10 +148,8 @@ public final class CalculadoraDeRecompensa {
   }
 
   /**
-   * Deriva a complexidade de peso e volume.
-   *
-   * <p>É o MAIOR dos dois que decide: uma caixa de isopor de 2 m³ pesa pouco e continua não cabendo
-   * numa moto. Usar a média deixaria o volume ser diluído pelo peso baixo.
+   * Deriva de peso e volume — vale o MAIOR dos dois: isopor de 2 m³ pesa pouco e não cabe numa
+   * moto.
    */
   public static ComplexidadeMissao derivarComplexidade(
       BigDecimal pesoKg, BigDecimal volumeL, ParametrosRecompensa p) {
@@ -255,15 +185,8 @@ public final class CalculadoraDeRecompensa {
   }
 
   /**
-   * Converte o valor ofertado por terceiro em tokens adicionais.
-   *
-   * <p>Não é câmbio. A taxa é de CALIBRAÇÃO, deliberadamente baixa, e existe para ordenar missões
-   * por urgência — não para estabelecer quanto vale um token em reais. O ADR 0009 §6 recusa fixar
-   * essa cotação em qualquer lugar do produto, porque token conversível é dinheiro, com KYC junto.
-   *
-   * <p>Negativo é tratado como zero em vez de reduzir a recompensa: um valor ofertado negativo é
-   * dado ruim da transportadora, e deixá-lo subtrair permitiria a um parceiro rebaixar a recompensa
-   * da comunidade abaixo do que o esforço já justifica.
+   * Valor ofertado por terceiro em tokens adicionais. Não é câmbio: a taxa é de calibração, para
+   * ordenar por urgência (ADR 0009 §6). Negativo vira zero — dado ruim não rebaixa a comunidade.
    */
   private static BigDecimal adicionalValorOfertado(
       BigDecimal valorOfertadoBrl, ParametrosRecompensa p) {

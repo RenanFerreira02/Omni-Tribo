@@ -7,36 +7,12 @@ import java.util.HexFormat;
 import java.util.UUID;
 
 /**
- * Deriva a chave gravada em {@code lancamento.chave_idempotencia}.
+ * Deriva a chave gravada em {@code lancamento.chave_idempotencia} (ADR 0008).
  *
- * <p>O valor armazenado NUNCA é a chave que o cliente enviou. {@code uk_lancamento_idempotencia} é
- * uma UNIQUE de coluna única e de namespace GLOBAL — vale para todas as carteiras e todos os tipos
- * de operação ao mesmo tempo. Guardar a chave crua faria o {@code Idempotency-Key: 1} de um cliente
- * colidir com o {@code 1} de todos os outros, e o segundo chamador não receberia erro: receberia o
- * REPLAY DA TRANSAÇÃO DE UM ESTRANHO. Isso é vazamento entre usuários e perda silenciosa de uma
- * operação na mesma linha de código. Hashear ator + operação + chave do cliente torna a colisão
- * impossível por construção, sem precisar de UNIQUE composta.
- *
- * <p>Mesma decisão e mesmo raciocínio de {@code V12__checkin_idempotencia.sql} na fase de
- * geolocalização, que guarda {@code sha256(usuario_id|missao_id|chave_do_cliente)}.
- *
- * <p>O que entra no material, e o que fica de fora de propósito:
- *
- * <ul>
- *   <li>O ATOR entra — é o que separa o namespace de um usuário do de outro.
- *   <li>A OPERAÇÃO entra — sem ela, a mesma chave de cliente num saque e numa transferência
- *       colidiriam, e o saque viraria um no-op respondendo 200 sem ter movido nada.
- *   <li>VALOR e DESTINATÁRIO ficam FORA. É a semântica correta de idempotência: retry com a mesma
- *       chave é replay da operação original, não uma operação nova, independentemente do que o
- *       corpo diga. Também fecha o buraco de "reenviar a mesma chave com valor maior cria uma
- *       segunda transferência".
- * </ul>
- *
- * <p>As chaves cruas do seed ({@code seed-idem-alice-e1-tk}) convivem sem risco: um hex de 64
- * caracteres nunca é igual a uma delas, então nenhuma migration de dados é necessária.
- *
- * <p>Utilitário estático sem Spring, no mesmo molde de {@link Coordenadas} e {@code
- * MissaoStateMachine}: existe em um lugar só para que nenhum call site reinvente a derivação.
+ * <p>Nunca a chave crua do cliente: a UNIQUE é GLOBAL, e o {@code Idempotency-Key: 1} de um cliente
+ * receberia o REPLAY da transação de um estranho. O hash de ator + operação + chave torna a colisão
+ * impossível. VALOR e DESTINATÁRIO ficam fora de propósito: retry com a mesma chave é replay da
+ * operação original, nunca uma operação nova com valor maior.
  */
 public final class ChaveIdempotencia {
 
@@ -44,25 +20,13 @@ public final class ChaveIdempotencia {
 
   private ChaveIdempotencia() {}
 
-  /**
-   * Conclusão de missão. Sem chave de cliente, de propósito.
-   *
-   * <p>{@code POST /missoes/{id}/confirmar} não tem header {@code Idempotency-Key}, e a
-   * idempotência precisa valer inclusive para um cliente que não envia nenhum. A chave natural é a
-   * própria missão: "a mesma missão concluída duas vezes" é o mesmo evento, não dois. Como {@code
-   * CONCLUIDA} é estado terminal, idempotente-por-missão é exatamente a semântica desejada.
-   */
+  /** Conclusão: sem chave de cliente — a mesma missão concluída duas vezes é o mesmo evento. */
   public static String conclusaoMissao(UUID missaoId, UUID executorId) {
     return derivar("conclusao", missaoId.toString(), executorId.toString());
   }
 
   /**
-   * Perna de débito da transferência P2P.
-   *
-   * <p>Uma transferência é UMA operação lógica que precisa de DUAS linhas no ledger, e a UNIQUE é
-   * de coluna única — duas linhas não podem carregar a mesma chave. As duas pernas derivam do MESMO
-   * material do cliente com prefixos de operação diferentes: ficam distintas para o banco e
-   * rastreavelmente ligadas para quem investiga.
+   * Perna de débito da transferência: duas linhas no ledger, mesmo material com prefixos distintos.
    */
   public static String transferenciaEnviada(UUID remetenteId, String chaveDoCliente) {
     return derivar("transferencia-enviada", remetenteId.toString(), chaveDoCliente);
@@ -74,13 +38,9 @@ public final class ChaveIdempotencia {
   }
 
   /**
-   * Resgate de benefício — a operação que QUEIMA token.
-   *
-   * <p>Com chave de cliente, e num sumidouro isso importa tanto quanto no aporte que emite: um
-   * retry de rede que queimasse duas vezes tiraria da pessoa um saldo que ela gastou uma vez só, e
-   * a reconciliação continuaria verde, porque os dois lançamentos são legítimos vistos de perto. O
-   * benefício NÃO entra no material derivado: resgatar o mesmo café duas vezes de propósito são
-   * duas operações, e é o cliente que decide isso mandando chaves diferentes.
+   * Resgate, que QUEIMA token: um retry que queimasse duas vezes não apareceria na reconciliação. O
+   * benefício não entra no material — resgatar duas vezes de propósito é o cliente mandar duas
+   * chaves.
    */
   public static String resgate(UUID usuarioId, String chaveDoCliente) {
     return derivar("resgate", usuarioId.toString(), chaveDoCliente);
@@ -90,52 +50,28 @@ public final class ChaveIdempotencia {
     return derivar("saque", usuarioId.toString(), chaveDoCliente);
   }
 
-  /**
-   * Financiamento de missão. {@code missaoId} entra no material porque é identidade do recurso, não
-   * parâmetro da operação: financiar a missão A e a missão B são operações diferentes, ainda que o
-   * cliente reutilize a mesma chave por engano.
-   */
+  /** Financiamento: a missão entra no material porque é identidade do recurso, não parâmetro. */
   public static String financiamento(UUID financiadorId, UUID missaoId, String chaveDoCliente) {
     return derivar("financiamento", financiadorId.toString(), missaoId.toString(), chaveDoCliente);
   }
 
   /**
-   * Financiamento do pote pelo PATROCINADOR, na conversão de uma entrega falida.
-   *
-   * <p>Sem chave de cliente, e sem precisar de uma: o webhook não manda {@code Idempotency-Key} —
-   * ele é idempotente por {@code (transportadora, codigo_rastreio)}, no próprio {@code
-   * entrega_falida}. Um reenvio é interceptado pela sondagem de {@code EntregaFalidaService} sob o
-   * lock do ponto de custódia e nunca chega a criar missão nem a debitar nada.
-   *
-   * <p>A chave natural é, portanto, o par missão + patrocinador: a missão é criada nesta transação
-   * e o UUID dela é novo por construção, então a chave é única sem depender de nada externo. Ela
-   * existe para satisfazer {@code uk_lancamento_idempotencia} e para tornar o lançamento rastreável
-   * — não para deduplicar um retry que já foi barrado antes.
+   * Financiamento pelo PATROCINADOR, na conversão: o webhook é idempotente por (transportadora,
+   * rastreio), então a chave natural é missão + patrocinador — existe para a UNIQUE e o rastreio.
    */
   public static String financiamentoPatrocinador(UUID patrocinadorId, UUID missaoId) {
     return derivar("financiamento-patrocinador", patrocinadorId.toString(), missaoId.toString());
   }
 
   /**
-   * Aporte de token na carteira de um patrocinador.
-   *
-   * <p>COM chave de cliente, ao contrário do financiamento acima, e a diferença importa: o aporte é
-   * o único ponto de EMISSÃO de token do sistema, e um retry de rede que cunhasse duas vezes
-   * aumentaria a oferta da moeda sem que ninguém percebesse — a reconciliação continuaria batendo,
-   * porque ledger e projeção estariam ambos errados na mesma direção. Por isso o endpoint exige
-   * {@code Idempotency-Key} e a chave entra no material derivado.
+   * Aporte, a única EMISSÃO de token: COM chave de cliente, porque um retry que emitisse duas vezes
+   * não apareceria na reconciliação.
    */
   public static String aportePatrocinador(UUID patrocinadorUsuarioId, String chaveDoCliente) {
     return derivar("aporte-patrocinador", patrocinadorUsuarioId.toString(), chaveDoCliente);
   }
 
-  /**
-   * Estorno do pote para um financiador, no cancelamento ou expiração da missão.
-   *
-   * <p>Sem chave de cliente: o estorno é disparado pelo sistema (inclusive pelo job de expiração),
-   * e a chave natural é o par missão + carteira estornada. Isso torna o estorno idempotente mesmo
-   * se o lote de expiração reprocessar a mesma missão.
-   */
+  /** Estorno do pote: missão + carteira, idempotente mesmo se o job reprocessar a missão. */
   public static String estornoFinanciamento(UUID missaoId, UUID carteiraFinanciadorId) {
     return derivar("estorno-financiamento", missaoId.toString(), carteiraFinanciadorId.toString());
   }

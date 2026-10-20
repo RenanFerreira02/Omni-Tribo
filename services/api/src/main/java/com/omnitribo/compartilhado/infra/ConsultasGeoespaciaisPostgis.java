@@ -9,35 +9,17 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
 /**
- * Implementação PostGIS da porta {@link ConsultasGeoespaciais}. ÚNICO arquivo do sistema que chama
- * {@code ST_*}.
- *
- * <p>Não é um repositório do Spring Data: {@code @Query(nativeQuery=true)} exige uma interface
- * ligada a uma {@code @Entity}, e a única entidade visível daqui seria {@code Outbox}. Amarrar a
- * busca geoespacial a Outbox para satisfazer a letra da convenção do CLAUDE.md seria pior que a
- * convenção. Usa {@link JdbcClient}, que participa da transação corrente via DataSourceUtils. A
- * parte da regra que de fato protege alguma coisa — parâmetros nomeados, zero concatenação — está
- * integralmente preservada. Ver ADR 0007.
- *
- * <p>Os {@code CAST(:param AS ...)} não são decoração: um parâmetro nulo sem tipo chega ao
- * PostgreSQL como {@code bytea} e a consulta estoura com "function ... does not exist". O cast tipa
- * o parâmetro mesmo quando o valor é nulo — o caso de {@code :categoria}, que é filtro opcional.
+ * Implementação PostGIS de {@link ConsultasGeoespaciais} — ÚNICO arquivo que chama {@code ST_*}
+ * (ADR 0007). {@link JdbcClient} com parâmetros nomeados e zero concatenação. {@code CAST(:x AS
+ * ...)} porque parâmetro nulo sem tipo chega como bytea e a consulta estoura.
  */
 @Component
 public class ConsultasGeoespaciaisPostgis implements ConsultasGeoespaciais {
 
   /**
-   * Missões abertas dentro do raio, da mais próxima para a mais distante.
-   *
-   * <p>{@code ST_DWithin} sobre coluna {@code geography} recebe o raio em METROS e usa o índice
-   * GiST {@code idx_missao_origem} (V8); {@code ST_Distance} devolve METROS. Nenhuma conversão de
-   * unidade acontece em Java. A prova de que o índice é de fato escolhido pelo planner está em
-   * IndiceGeoespacialTest, que roda o EXPLAIN ANALYZE sobre volume realista.
-   *
-   * <p>Os {@code CAST(:param AS ...)} não são decoração: é a mesma defesa já documentada em
-   * MissaoRepository.buscarComFiltros. Um parâmetro nulo sem tipo chega ao PostgreSQL como bytea e
-   * a consulta estoura com "function ... does not exist". O cast tipa o parâmetro mesmo quando o
-   * valor é nulo — o caso de {@code :categoria}, que é filtro opcional.
+   * Missões abertas no raio, da mais próxima para a mais distante. {@code ST_DWithin}/{@code
+   * ST_Distance} sobre geography trabalham em METROS e usam o GiST {@code idx_missao_origem}
+   * (provado por {@code IndiceGeoespacialTest}).
    */
   static final String SQL_MISSOES_NO_RAIO =
       """
@@ -60,13 +42,7 @@ public class ConsultasGeoespaciaisPostgis implements ConsultasGeoespaciais {
       """;
 
   /**
-   * Pontos de custódia ATIVOS dentro do raio, do mais próximo para o mais distante.
-   *
-   * <p>Usa {@code idx_ponto_custodia_ponto}, o índice GiST criado na V8 — a tabela tinha índice
-   * geoespacial desde a F3 e nenhuma consulta que o usasse.
-   *
-   * <p>{@code ativo} entra no WHERE e não é opcional: um ponto desativado no mapa levaria o
-   * executor a uma loja que não recebe mais encomenda.
+   * Pontos de custódia ATIVOS no raio, pelo GiST da V8 — ponto inativo levaria a uma loja fechada.
    */
   static final String SQL_PARCEIROS_NO_RAIO =
       """
@@ -107,17 +83,8 @@ public class ConsultasGeoespaciaisPostgis implements ConsultasGeoespaciais {
       """;
 
   /**
-   * Centro geográfico de uma tribo, DERIVADO em vez de armazenado.
-   *
-   * <p>A tabela {@code tribo} tem nome e bairro, nunca uma coordenada. Guardar uma exigiria
-   * migration, alguém para preenchê-la e uma decisão sobre o que fazer quando a tribo crescer para
-   * outro lado do bairro. O centroide das missões e dos pontos de custódia da tribo responde à
-   * pergunta que a tela faz — "para onde aponto o mapa quando não sei onde o usuário está?" — e se
-   * atualiza sozinho conforme a tribo se move.
-   *
-   * <p>{@code ST_Collect} sobre zero linhas devolve NULL, o {@code WHERE} externo filtra, e o
-   * método devolve vazio: tribo recém-criada, sem missão nem ponto, não tem centro nenhum — e
-   * inventar um seria pior do que o chamador cair no default configurado.
+   * Centro DERIVADO de uma tribo: centroide das missões e pontos dela, sem coluna a manter. Sem
+   * missão nem ponto não há centro, e o chamador usa o default.
    */
   static final String SQL_CENTRO_DA_TRIBO =
       """
@@ -136,27 +103,9 @@ public class ConsultasGeoespaciaisPostgis implements ConsultasGeoespaciais {
       """;
 
   /**
-   * Tribos com PRESENÇA dentro do raio — isto é, com pelo menos uma âncora (ponto de custódia ou
-   * origem de missão) a até {@code raio} metros do alvo.
-   *
-   * <p>É o que permite responder "quem está perto deste ponto de custódia?" sem o usuário ter
-   * coordenada: a tabela {@code usuario} não tem, e nenhuma coluna geográfica do schema descreve
-   * onde uma PESSOA está agora. Ver ADR 0020.
-   *
-   * <p><b>Distância MÍNIMA, e não distância ao centroide.</b> A primeira versão usava o mesmo
-   * centroide de {@link #SQL_CENTRO_DA_TRIBO}, e um teste a reprovou com um caso que o seed já
-   * continha: a Tribo Pinheiros possui o locker da Consolação, ~3,8 km a leste, e o centroide
-   * resultante fica a mais de 3 km da própria loja da tribo — de modo que uma encomenda no Leroy
-   * Merlin Pinheiros NÃO notificava ninguém de Pinheiros, e notificava a Vila Madalena. O centroide
-   * responde "onde é o meio da tribo", que é a pergunta certa para centralizar um mapa (e por isso
-   * {@code centroDaTribo} continua existindo) e a errada para "esta tribo alcança este lugar".
-   *
-   * <p>Bairro real é espalhado e às vezes côncavo; o centro geométrico de uma região em U pode cair
-   * fora dela. Distância mínima não tem essa patologia e ainda usa os índices GiST, porque o {@code
-   * ST_DWithin} filtra ANTES do agrupamento.
-   *
-   * <p>{@code ST_DWithin} sobre {@code geography} recebe METROS, e {@code ST_Distance} devolve
-   * METROS: nenhuma conversão de unidade acontece em Java.
+   * Tribos com pelo menos uma âncora (ponto ou origem de missão) no raio (ADR 0020). Distância
+   * MÍNIMA, não ao centroide: o centroide de um bairro espalhado pode cair longe da própria loja. O
+   * {@code ST_DWithin} filtra antes do agrupamento, então o índice é usado.
    */
   static final String SQL_TRIBOS_NO_RAIO =
       """
@@ -259,10 +208,7 @@ public class ConsultasGeoespaciaisPostgis implements ConsultasGeoespaciais {
         .list();
   }
 
-  /**
-   * Vazio quando a tribo ainda não tem missão nem ponto de custódia. Ver {@link
-   * #SQL_CENTRO_DA_TRIBO}.
-   */
+  /** Vazio quando a tribo não tem missão nem ponto. */
   @Override
   public Optional<Centro> centroDaTribo(UUID triboId) {
     return jdbc.sql(SQL_CENTRO_DA_TRIBO)
@@ -272,16 +218,8 @@ public class ConsultasGeoespaciaisPostgis implements ConsultasGeoespaciais {
   }
 
   /**
-   * Distância esférica em metros entre dois pares lat/lon.
-   *
-   * <p>Recebe quatro escalares e NÃO tem cláusula FROM — de propósito, não por preguiça. Quem chama
-   * já segura {@code SELECT ... FOR UPDATE} sobre a linha da missão e já tem a origem carregada;
-   * reler {@code missao} aqui seria uma segunda leitura da mesma linha travada, feita por uma
-   * classe de {@code compartilhado} que não pode conhecer a tabela de nenhum módulo.
-   *
-   * <p>(Este método já foi documentado como rodando sob {@code REQUIRES_NEW}. Não roda, e nada no
-   * caminho de valor roda — a propagação foi removida depois de o deadlock de pool derrubar até o
-   * login. O desenho por valores continua certo, pelas duas razões acima.)
+   * Distância em metros entre dois pares lat/lon, sem FROM: quem chama já tem a origem e segura o
+   * lock da missão — reler a linha seria uma segunda leitura de tabela que esta classe nem conhece.
    */
   @Override
   public double distanciaMetros(
