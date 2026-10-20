@@ -383,6 +383,73 @@ class AuthControllerTest extends TesteIntegracaoMvcBase {
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
+  // ── Logout: o refresh daquele aparelho deixa de valer — e só o de quem chama ──────────
+
+  @Test
+  void logout_revogaORefreshEnviado_eEleDeixaDeRotacionar() throws Exception {
+    LoginResponse sessao = realizarLogin();
+
+    mockMvc
+        .perform(
+            post("/api/v1/auth/logout")
+                .header("Authorization", "Bearer " + sessao.accessToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + sessao.refreshToken() + "\"}"))
+        .andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(
+            post("/api/v1/auth/refresh")
+                .with(vindoDe(ipTeste))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + sessao.refreshToken() + "\"}"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void logout_semJwt_retorna401() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/auth/logout")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"qualquer\"}"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void logout_comRefreshDeOutroUsuario_naoORevoga() throws Exception {
+    // IDOR: o usuarioId vem do JWT, e o serviço só revoga refresh que pertence a ele. Bob mandar o
+    // refresh da Alice responde 204 sem efeito — e a sessão dela continua rotacionando.
+    LoginResponse alice = realizarLogin();
+    MvcResult loginBob =
+        mockMvc
+            .perform(
+                post("/api/v1/auth/login")
+                    .with(vindoDe(ipTeste))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(json("email", "bob@omnitribo.dev", "senha", SENHA_ALICE)))
+            .andExpect(status().isOk())
+            .andReturn();
+    LoginResponse bob =
+        JSON.readValue(loginBob.getResponse().getContentAsString(), LoginResponse.class);
+
+    mockMvc
+        .perform(
+            post("/api/v1/auth/logout")
+                .header("Authorization", "Bearer " + bob.accessToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + alice.refreshToken() + "\"}"))
+        .andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(
+            post("/api/v1/auth/refresh")
+                .with(vindoDe(ipTeste))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + alice.refreshToken() + "\"}"))
+        .andExpect(status().isOk());
+  }
+
   private LoginResponse realizarLogin() throws Exception {
     MvcResult result =
         mockMvc

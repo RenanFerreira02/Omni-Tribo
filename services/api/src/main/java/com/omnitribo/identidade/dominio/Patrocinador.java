@@ -72,10 +72,6 @@ public class Patrocinador {
     this.ativo = false;
   }
 
-  public void reativar() {
-    this.ativo = true;
-  }
-
   public UUID getId() {
     return id;
   }
