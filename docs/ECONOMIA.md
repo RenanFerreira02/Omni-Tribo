@@ -31,10 +31,10 @@ Congelada na criação:
 
 | Fonte | Quem | Publicar exige | Na conclusão |
 |---|---|---|---|
-| `COMUNIDADE` | TRIBO, COLETA, AJUDA | pote financiado por **outros** membros cobrindo a recompensa | paga do pote |
-| `SEM_TOKEN` | TRIBO/AJUDA "só XP" | nada | só XP, nenhum lançamento |
+| `COMUNIDADE` | toda missão criada por pessoa com token (ENTREGA, COLETA, TRIBO, AJUDA) | pote financiado por **outros** membros cobrindo a recompensa | paga do pote |
+| `SEM_TOKEN` | ENTREGA, TRIBO ou AJUDA "só XP" (COLETA não pode) | nada | só XP, nenhum lançamento |
 | `PATROCINADOR` | missão de retirada do webhook | — (nasce com o pote cheio) | paga do pote |
-| `CUNHAGEM` | ENTREGA criada por humano | nada | **emite** o token |
+| `CUNHAGEM` | **legado** (publicada antes da V31); nenhuma missão nova | nada | emite o token |
 
 Cancelar ou expirar **estorna** o pote aos financiadores. Isso acontece em dois pontos:
 `MissaoService.aplicar` e `ExpiracaoMissoesService.expirarUma`. O estorno enxerga os dois motivos
@@ -42,15 +42,16 @@ Cancelar ou expirar **estorna** o pote aos financiadores. Isso acontece em dois 
 
 ## A invariante
 
-`SUM(carteira.saldo_tokens) + SUM(missao.pote_tokens)` só muda em três pontas:
+`SUM(carteira.saldo_tokens) + SUM(missao.pote_tokens)` só muda em **duas** pontas:
 
 | Ponta | Efeito |
 |---|---|
-| `APORTE_PATROCINADOR` (ADMIN, auditado, idempotente) | sobe |
-| conclusão de ENTREGA com `fonte_pote = CUNHAGEM` | sobe (implícito) |
+| `APORTE_PATROCINADOR` (ADMIN, auditado, idempotente) | sobe (emite) |
 | `RESGATE` | desce (queima) |
 
-Todo o resto só move token de lugar.
+Todo o resto só move token de lugar. A terceira ponta — a conclusão de ENTREGA criada por pessoa,
+que emitia — fechou no ADR 0038; ela sobrevive só nas missões `CUNHAGEM` legadas, publicadas antes
+da V31, e some quando a última terminar. `ConservacaoTokensTest` exige Δ = 0 nas quatro categorias.
 
 ## Dois instrumentos, duas perguntas
 

@@ -181,3 +181,15 @@ missão publicada, a conclusão falharia (422).
 ### 0037 — "Quem cria não paga" vira regra imposta
 `FinanciamentoService.validarAutorizacao` recusa `financiador == criador` com 422. *A premissa
 estava em quatro ADRs e nenhuma linha a impunha.*
+
+### 0038 — A ENTREGA criada por pessoa deixa de emitir token
+Era a última emissão implícita: publicava sem pote (`CUNHAGEM`), e a conclusão criava a recompensa
+do nada, com `integro=true` (Δ=+22 medido num ciclo). Agora ela segue TRIBO e AJUDA: **pote
+financiado por outro membro da tribo**, ou **só XP** (`SEM_TOKEN`, o padrão no app). *O argumento
+"vizinhos custeando a logística do varejista" descreve a entrega da transportadora, que já chega
+patrocinada pelo webhook — não um vizinho pedindo outro para levar uma encomenda.* COLETA continua
+exigindo token. A missão de retirada nasce `COMUNIDADE` e vira `PATROCINADOR` na mesma transação.
+A V31 converte RASCUNHO legado para `COMUNIDADE`; missão já publicada em `CUNHAGEM` mantém a
+promessa (e `recongelarRecompensa` preserva essa fonte). O seed V907 dá às entregas abertas do seed
+o pote do patrocinador, com o lançamento correspondente. A invariante fica com duas pontas: aporte
+e resgate. Descartado: proibir a ENTREGA criada por pessoa (tiraria do app a categoria da tese).

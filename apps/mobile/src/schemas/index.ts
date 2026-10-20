@@ -138,14 +138,13 @@ export const criarMissaoSchema = z
       });
     }
 
-    // Espelha a regra (4) do CriacaoMissaoVerificador. Entrega e coleta movem objeto físico e têm
-    // custo real de execução — pagá-las só em reputação seria trabalho de carga sem contrapartida.
-    // Barrar aqui é conveniência; quem recusa de verdade é o servidor, com 400 neste mesmo campo.
-    if (!dados.recompensaEmToken && movimentaObjeto) {
+    // Espelha a regra (4) do CriacaoMissaoVerificador (ADR 0038): só COLETA exige token. Barrar
+    // aqui é conveniência; quem recusa de verdade é o servidor, com 400 neste mesmo campo.
+    if (!dados.recompensaEmToken && dados.categoria === 'COLETA') {
       ctx.addIssue({
         code: 'custom',
         path: ['recompensaEmToken'],
-        message: 'Só mutirões e pedidos de ajuda podem valer apenas XP.',
+        message: 'Coleta sempre recompensa em tokens.',
       });
     }
   });

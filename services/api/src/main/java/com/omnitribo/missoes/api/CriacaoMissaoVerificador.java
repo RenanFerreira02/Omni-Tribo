@@ -92,13 +92,13 @@ public class CriacaoMissaoVerificador
       valido = false;
     }
 
-    // (4) "Só XP" é exclusivo de TRIBO e AJUDA (ADR 0035). ENTREGA e COLETA movem objeto físico e
-    // têm custo real de execução — uma delas sem token seria trabalho de carga pago em reputação.
-    // Recusado, e não ignorado, pela razão da regra (3) logo acima: ignorar faria o app acreditar
-    // que declarou algo sem efeito, e a tela mostraria uma recompensa que não bate com a escolha.
-    if (!req.recompensaEmTokenEfetiva() && carregaCoisa) {
-      violacao(
-          contexto, "recompensaEmToken", "Só missões TRIBO e AJUDA podem recompensar apenas em XP");
+    // (4) "Só XP" vale para TRIBO, AJUDA e ENTREGA (ADR 0035 e 0038). A ENTREGA criada por pessoa
+    // é um favor entre vizinhos — levar a encomenda de alguém —, e sem esta opção ela precisaria de
+    // pote como qualquer missão comunitária. COLETA continua exigindo token: é a categoria do
+    // reciclável, cujo pote a tribo forma justamente para remunerar o trabalho de carga. Recusado,
+    // e não ignorado: ignorar faria a tela mostrar uma recompensa que não bate com a escolha.
+    if (!req.recompensaEmTokenEfetiva() && req.categoria() == CategoriaMissao.COLETA) {
+      violacao(contexto, "recompensaEmToken", "Missões COLETA não podem recompensar apenas em XP");
       valido = false;
     }
 

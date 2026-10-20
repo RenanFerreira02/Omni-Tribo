@@ -8,6 +8,7 @@ import com.omnitribo.JwtTestConfig;
 import com.omnitribo.TesteIntegracaoMvcBase;
 import com.omnitribo.identidade.dominio.Auditoria;
 import com.omnitribo.identidade.infra.AuditoriaRepository;
+import com.omnitribo.missoes.PoteDeTeste;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -35,6 +36,7 @@ class AuditoriaMissaoTest extends TesteIntegracaoMvcBase {
 
   @Autowired MockMvc mockMvc;
   @Autowired AuditoriaRepository auditoriaRepository;
+  @Autowired org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
   @Test
   void criarEPublicar_gravamTrilhaComAtorIpEEntidadeId() throws Exception {
@@ -43,6 +45,7 @@ class AuditoriaMissaoTest extends TesteIntegracaoMvcBase {
 
     UUID missaoId = criarMissao(ip);
 
+    PoteDeTeste.cobrir(jdbcTemplate, missaoId);
     mockMvc
         .perform(
             post(BASE + "/{id}/publicar", missaoId)
@@ -68,6 +71,7 @@ class AuditoriaMissaoTest extends TesteIntegracaoMvcBase {
   @Test
   void escritaNegada_naoGeraLinhaDeAuditoria() throws Exception {
     UUID missaoId = criarMissao("203.0.113.9");
+    PoteDeTeste.cobrir(jdbcTemplate, missaoId);
     mockMvc
         .perform(post(BASE + "/{id}/publicar", missaoId).header("Authorization", bearer(ALICE_ID)))
         .andExpect(status().isOk());

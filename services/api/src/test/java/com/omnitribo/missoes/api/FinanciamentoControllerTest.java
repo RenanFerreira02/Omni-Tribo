@@ -1072,7 +1072,7 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     assertThat(tokensEmCirculacao(jdbcTemplate)).isEqualTo(circulacaoInicial);
   }
 
-  /** Só TRIBO e AJUDA. ENTREGA e COLETA movem objeto e têm custo real — 400 no campo. */
+  /** COLETA é a única categoria que exige token (ADR 0038) — 400 no campo. */
   @Test
   @DisplayName("COLETA não pode recompensar só em XP — 400 apontando o campo")
   void coletaSoXpEh400() throws Exception {
@@ -1255,38 +1255,50 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
   }
 
   /**
-   * O furo que o ADR 0036 revisado fecha, medido de ponta a ponta.
-   *
-   * <p>Publicar uma ENTREGA com destino distante congelava a recompensa alta; aproximar o destino
-   * depois deixava o valor intacto. Em {@code CUNHAGEM} o token é EMITIDO na conclusão, então a
-   * diferença era emissão sem contrapartida — o mesmo defeito que o ADR 0024 fechou pelo outro
-   * lado.
+   * ADR 0038: a ENTREGA criada por pessoa deixou de cunhar. Ela segue a regra de TRIBO e AJUDA —
+   * pote financiado por outro membro da tribo antes de publicar —, e a conclusão paga desse pote.
    */
   @Test
-  @DisplayName("aproximar o destino de uma ENTREGA publicada BAIXA a recompensa congelada")
-  void patchDeDistanciaEmMissaoPublicadaRecalcula() throws Exception {
-    missaoAjudaId = criarMissaoEntregaComDestino(-23.5505, -46.6333);
-    long antes = tokensDe(missaoAjudaId);
+  @DisplayName(
+      "ENTREGA criada por pessoa exige pote para publicar e aceita financiamento de vizinho")
+  void entregaDePessoaPagaDoPoteComoAsDemais() throws Exception {
+    missaoAjudaId = criarMissaoEntregaComDestino(-23.5505, -46.6333, true);
+    long tokens = tokensDe(missaoAjudaId);
+    assertThat(fonteDe(missaoAjudaId)).isEqualTo("COMUNIDADE");
 
     mockMvc
         .perform(
             post(MISSOES + "/{id}/publicar", missaoAjudaId)
                 .header("Authorization", bearer(criador)))
-        .andExpect(status().isOk());
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(jsonPath("$.type").value("https://omnitribo.dev/problemas/pote-insuficiente"));
 
-    // Destino colado na origem: a parcela de distância da fórmula desaparece.
+    mockMvc
+        .perform(financiarMissao(financiador, missaoAjudaId, tokens, "entrega-de-pessoa"))
+        .andExpect(status().isCreated());
+
     mockMvc
         .perform(
-            patch(MISSOES + "/{id}", missaoAjudaId)
-                .header("Authorization", bearer(criador))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"destinoLat\": -23.5630, \"destinoLon\": -46.6990}"))
+            post(MISSOES + "/{id}/publicar", missaoAjudaId)
+                .header("Authorization", bearer(criador)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("ABERTA"));
+  }
 
-    assertThat(tokensDe(missaoAjudaId))
-        .as("o trabalho encolheu e o preço acompanhou — antes ele não acompanhava")
-        .isLessThan(antes);
+  /** A outra saída da ENTREGA de pessoa: favor entre vizinhos que vale reputação, sem pote. */
+  @Test
+  @DisplayName("ENTREGA só XP nasce SEM_TOKEN e publica na hora")
+  void entregaSoXpPublicaSemPote() throws Exception {
+    missaoAjudaId = criarMissaoEntregaComDestino(-23.5505, -46.6333, false);
+    assertThat(fonteDe(missaoAjudaId)).isEqualTo("SEM_TOKEN");
+    assertThat(tokensDe(missaoAjudaId)).isZero();
+
+    mockMvc
+        .perform(
+            post(MISSOES + "/{id}/publicar", missaoAjudaId)
+                .header("Authorization", bearer(criador)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("ABERTA"));
   }
 
   /**
@@ -1353,7 +1365,8 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
     assertThat(poteDe(missaoId)).isEqualTo(recompensa);
   }
 
-  private UUID criarMissaoEntregaComDestino(double destinoLat, double destinoLon) throws Exception {
+  private UUID criarMissaoEntregaComDestino(double destinoLat, double destinoLon, boolean comToken)
+      throws Exception {
     Instant inicio = Instant.now().truncatedTo(ChronoUnit.SECONDS);
     String corpo =
         """
@@ -1374,11 +1387,12 @@ class FinanciamentoControllerTest extends TesteIntegracaoMvcBase {
           "cidade": "São Paulo",
           "uf": "SP",
           "raioCheckinM": 50,
+          "recompensaEmToken": %s,
           "janelaInicio": "%s",
           "janelaFim": "%s"
         }
         """
-            .formatted(destinoLat, destinoLon, inicio, inicio.plus(2, ChronoUnit.DAYS));
+            .formatted(destinoLat, destinoLon, comToken, inicio, inicio.plus(2, ChronoUnit.DAYS));
 
     MvcResult criacao =
         mockMvc

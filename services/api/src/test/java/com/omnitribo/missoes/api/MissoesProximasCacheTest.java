@@ -13,6 +13,7 @@ import com.omnitribo.JwtTestConfig;
 import com.omnitribo.TesteIntegracaoMvcBase;
 import com.omnitribo.compartilhado.api.ConsultasGeoespaciais;
 import com.omnitribo.compartilhado.dominio.Geohash;
+import com.omnitribo.missoes.PoteDeTeste;
 import com.omnitribo.missoes.infra.CacheMissoesProximas;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -231,6 +232,7 @@ class MissoesProximasCacheTest extends TesteIntegracaoMvcBase {
             JSON.readTree(resultado.getResponse().getContentAsString()).get("id").asText());
     criadas.add(id);
 
+    PoteDeTeste.cobrir(jdbcTemplate, id);
     mockMvc
         .perform(post(BASE + "/{id}/publicar", id).header("Authorization", bearer(ALICE_ID)))
         .andExpect(status().isOk());
