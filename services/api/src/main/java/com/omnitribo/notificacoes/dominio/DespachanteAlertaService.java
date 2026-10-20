@@ -263,9 +263,9 @@ public class DespachanteAlertaService implements DespachoAlerta {
    * dado que justifica negociar mais capacidade ou abrir outro ponto no bairro.
    *
    * <p><b>Era uma linha por EVENTO, e isso apagava o dado em vez de registrá-lo.</b> O teste de
-   * carga de 2026-08-25 gravou 631 linhas idênticas sobre o mesmo ponto em menos de 3 minutos
-   * (o teste de carga de 2026-08-25 §6): uma transportadora reenviando contra um ponto cheio
-   * é amplificação de escrita sem teto, disparada por evento externo que o sistema não controla.
+   * carga de 2026-08-25 gravou 631 linhas idênticas sobre o mesmo ponto em menos de 3 minutos (o
+   * teste de carga de 2026-08-25 §6): uma transportadora reenviando contra um ponto cheio é
+   * amplificação de escrita sem teto, disparada por evento externo que o sistema não controla.
    *
    * <p><b>Por que a frequência não se perde ao deduplicar.</b> Ela nunca esteve só aqui: {@code
    * entrega_falida} grava TODA recusa, com ponto, instante e motivo. O número é derivável de lá e é

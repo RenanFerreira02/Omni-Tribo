@@ -15,8 +15,8 @@ import java.time.Instant;
  * milissegundos num teste unitário, e a decisão fica separada da persistência. O que entra já foi
  * medido no servidor — a distância vem do PostGIS, nunca do cliente.
  *
- * <p>O que estas regras NÃO conseguem pegar está documentado em
- * docs/ARQUITETURA.md (seção Antifraude), e não é pouco.
+ * <p>O que estas regras NÃO conseguem pegar está documentado em docs/ARQUITETURA.md (seção
+ * Antifraude), e não é pouco.
  */
 public final class AvaliacaoAntifraude {
 
