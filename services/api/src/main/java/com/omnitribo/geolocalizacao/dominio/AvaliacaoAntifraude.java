@@ -16,7 +16,7 @@ import java.time.Instant;
  * medido no servidor — a distância vem do PostGIS, nunca do cliente.
  *
  * <p>O que estas regras NÃO conseguem pegar está documentado em
- * docs/seguranca/antifraude-geolocalizacao.md, e não é pouco.
+ * docs/ARQUITETURA.md (seção Antifraude), e não é pouco.
  */
 public final class AvaliacaoAntifraude {
 

@@ -32,7 +32,7 @@ public class ConsultasGeoespaciaisPostgis implements ConsultasGeoespaciais {
    * <p>{@code ST_DWithin} sobre coluna {@code geography} recebe o raio em METROS e usa o índice
    * GiST {@code idx_missao_origem} (V8); {@code ST_Distance} devolve METROS. Nenhuma conversão de
    * unidade acontece em Java. A prova de que o índice é de fato escolhido pelo planner está em
-   * docs/evidencias/f6-explain-analyze.md, gerada por IndiceGeoespacialTest.
+   * IndiceGeoespacialTest, que roda o EXPLAIN ANALYZE sobre volume realista.
    *
    * <p>Os {@code CAST(:param AS ...)} não são decoração: é a mesma defesa já documentada em
    * MissaoRepository.buscarComFiltros. Um parâmetro nulo sem tipo chega ao PostgreSQL como bytea e

@@ -189,7 +189,7 @@ class ModeloRiscoTreinoTest {
    * <p>É a resposta com tabela — não retórica — para "como você sabe que o modelo aprendeu o
    * mecanismo em vez de decorar o dado?". Só as características com efeito FORTE e bem identificado
    * entram: as fracas e as colineares não são recuperáveis neste tamanho de amostra, e isso está
-   * medido e documentado em {@code docs/qualidade/modelo-previsao.md} em vez de escondido
+   * medido e documentado em {@code docs/MODELO-RISCO.md} em vez de escondido
    * afrouxando a tolerância até tudo passar.
    */
   @Test

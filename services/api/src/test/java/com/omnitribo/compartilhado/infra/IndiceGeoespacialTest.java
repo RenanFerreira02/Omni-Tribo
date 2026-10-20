@@ -18,8 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>Por que o teste é grande: em 12 linhas o PostgreSQL faz seq scan, e faz certo. Um EXPLAIN
  * sobre tabela minúscula não prova nada sobre o comportamento em produção. E {@code SET
  * enable_seqscan = off} prova menos ainda — prova que o índice PODE ser usado, não que o planner o
- * ESCOLHE, que é a única coisa que interessa. As duas recusas estão registradas em
- * docs/evidencias/f6-explain-analyze.md.
+ * ESCOLHE, que é a única coisa que interessa.
  *
  * <p>Todas as 200 mil linhas sintéticas nascem ABERTA de propósito: isso torna idx_missao_status
  * inútil (praticamente toda linha casa) e deixa idx_missao_origem como único caminho seletivo. Com

@@ -47,7 +47,7 @@ public final class GeradorDatasetEntregas {
   /**
    * As correlações injetadas, em ESCALA BRUTA (unidade natural de cada característica).
    *
-   * <p>É a lista que {@code docs/qualidade/modelo-previsao.md} publica e que o modelo tem de
+   * <p>É a lista que {@code docs/MODELO-RISCO.md} publica e que o modelo tem de
    * redescobrir. Cada número tem uma história operacional, e é a história — não o número — que se
    * defende oralmente.
    */

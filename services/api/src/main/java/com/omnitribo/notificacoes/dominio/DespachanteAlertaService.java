@@ -264,7 +264,7 @@ public class DespachanteAlertaService implements DespachoAlerta {
    *
    * <p><b>Era uma linha por EVENTO, e isso apagava o dado em vez de registrá-lo.</b> O teste de
    * carga de 2026-08-25 gravou 631 linhas idênticas sobre o mesmo ponto em menos de 3 minutos
-   * ({@code docs/evidencias/f21-carga.md} §6): uma transportadora reenviando contra um ponto cheio
+   * (o teste de carga de 2026-08-25 §6): uma transportadora reenviando contra um ponto cheio
    * é amplificação de escrita sem teto, disparada por evento externo que o sistema não controla.
    *
    * <p><b>Por que a frequência não se perde ao deduplicar.</b> Ela nunca esteve só aqui: {@code

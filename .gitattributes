@@ -1,0 +1,12 @@
+# Checkout no Windows com core.autocrlf=true convertia os scripts para CRLF, e o bash recusa
+# `set -euo pipefail\r`. Scripts e SQL saem sempre com LF; o resto segue a normalização padrão.
+* text=auto
+*.sh text eol=lf
+mvnw text eol=lf
+Makefile text eol=lf
+*.sql text eol=lf
+*.cmd text eol=crlf
+*.png binary
+*.jpg binary
+*.pdf binary
+*.jar binary

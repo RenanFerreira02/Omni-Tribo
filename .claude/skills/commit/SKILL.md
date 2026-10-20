@@ -1,6 +1,6 @@
 ---
 name: commit
-description: Aplica o checklist pré-commit do CONTRIBUTING.md e monta a mensagem Conventional Commit. Uso /commit ou /commit só o módulo carteira
+description: Aplica o checklist pré-commit e monta a mensagem Conventional Commit. Uso /commit ou /commit só o módulo carteira
 disable-model-invocation: true
 allowed-tools: Bash, Read, Grep
 ---
@@ -52,7 +52,7 @@ Formato: `<tipo>(<escopo>): <descrição curta em português>`
 
 Tipos aceitos: `feat` · `fix` · `test` · `refactor` · `docs` · `chore` · `ci`
 Escopo: o módulo tocado — `missoes`, `carteira`, `identidade`, `geolocalizacao`, `logistica`,
-`notificacoes`, `compartilhado` — ou `adr`, `infra`, `ci` quando não for código de módulo.
+`notificacoes`, `compartilhado` — ou `mobile`, `infra`, `ci`, `docs` quando não for código de módulo.
 
 O corpo, quando houver, explica o **porquê**, não o quê: o diff já mostra o quê. Mudança de
 segurança, concorrência ou transação sempre leva corpo — esse código precisa ser defensável
@@ -61,7 +61,7 @@ oralmente numa banca.
 ## 5. Commitar
 
 Confira a branch antes: `git rev-parse --abbrev-ref HEAD`. **Nunca commite direto em `main`.** Padrão
-de branch é `feat/fN-nome-curto`; se estiver em `main`, crie a branch antes.
+de branch é `<tipo>/nome-curto`; se estiver em `main`, crie a branch antes.
 
 Mostre a mensagem final e espere aprovação antes de rodar `git commit`. Não faça `push` a menos que
 eu peça.
