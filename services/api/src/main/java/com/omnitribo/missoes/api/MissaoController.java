@@ -2,6 +2,7 @@ package com.omnitribo.missoes.api;
 
 import com.omnitribo.compartilhado.api.PaginaResponse;
 import com.omnitribo.geolocalizacao.api.CheckinRejeitadoException;
+import com.omnitribo.geolocalizacao.api.ParametrosCheckin;
 import com.omnitribo.identidade.api.AutenticadoPrincipal;
 import com.omnitribo.missoes.dominio.AtorMissao;
 import com.omnitribo.missoes.dominio.MissaoService;
@@ -38,8 +39,11 @@ public class MissaoController {
 
   private final MissaoService missaoService;
 
-  public MissaoController(MissaoService missaoService) {
+  private final ParametrosCheckin parametrosCheckin;
+
+  public MissaoController(MissaoService missaoService, ParametrosCheckin parametrosCheckin) {
     this.missaoService = missaoService;
+    this.parametrosCheckin = parametrosCheckin;
   }
 
   @GetMapping
@@ -349,7 +353,8 @@ public class MissaoController {
           resultado.motivoRejeicao(),
           resultado.distanciaM(),
           resultado.missao().raioCheckinM(),
-          resultado.acuraciaM());
+          resultado.acuraciaM(),
+          parametrosCheckin.acuraciaMaximaM());
     }
     return resultado.missao();
   }

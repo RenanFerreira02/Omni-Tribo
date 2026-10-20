@@ -1,6 +1,5 @@
 package com.omnitribo.geolocalizacao.dominio;
 
-import com.omnitribo.geolocalizacao.api.LimitesCheckin;
 import com.omnitribo.geolocalizacao.api.MotivoRejeicaoCheckin;
 import com.omnitribo.geolocalizacao.api.ResultadoCheckin.Veredito;
 import java.math.BigDecimal;
@@ -20,10 +19,8 @@ import java.time.Instant;
  */
 public final class AvaliacaoAntifraude {
 
-  // O teto de acurácia mora em LimitesCheckin, em api/, porque o controller de `missoes` precisa
-  // dele para explicar a recusa ao usuário e não pode importar `geolocalizacao.dominio`. Referido
-  // direto de lá: um alias aqui daria dois nomes ao mesmo número, e o dia em que um fosse alterado
-  // sem o outro a mensagem de erro passaria a citar um limite diferente do aplicado.
+  // O teto de acurácia entra como PARÂMETRO (ParametrosCheckin, ADR 0040), e o mesmo valor é o que
+  // o controller publica na recusa: a mensagem nunca cita um limite diferente do aplicado.
 
   /** Acima disto a cinemática é implausível para deslocamento urbano entre dois check-ins. */
   public static final BigDecimal VELOCIDADE_SUSPEITA_KMH = new BigDecimal("120");
@@ -83,11 +80,13 @@ public final class AvaliacaoAntifraude {
    * CONFIRMAR} de {@code AGUARDANDO_CONFIRMACAO}.
    *
    * @param distanciaM distância medida pelo PostGIS, em metros — nunca informada pelo cliente
+   * @param acuraciaMaximaM teto de precisão vigente ({@code ParametrosCheckin}; padrão 50 m)
    * @param pontoAnterior coordenada do check-in imediatamente anterior deste usuário, ou null
    */
   public static Avaliacao avaliar(
       BigDecimal distanciaM,
       BigDecimal acuraciaM,
+      BigDecimal acuraciaMaximaM,
       boolean mocked,
       int raioCheckinM,
       BigDecimal latAnterior,
@@ -105,17 +104,17 @@ public final class AvaliacaoAntifraude {
           Veredito.REJEITADO, MotivoRejeicaoCheckin.LOCALIZACAO_SIMULADA, MOTIVO_MOCK, velocidade);
     }
 
-    if (acuraciaM.compareTo(LimitesCheckin.ACURACIA_MAXIMA_M) > 0) {
+    if (acuraciaM.compareTo(acuraciaMaximaM) > 0) {
       return new Avaliacao(
           Veredito.REJEITADO,
           MotivoRejeicaoCheckin.ACURACIA_INSUFICIENTE,
-          MOTIVO_ACURACIA.formatted(
-              emMetros(acuraciaM), LimitesCheckin.ACURACIA_MAXIMA_M.toPlainString()),
+          MOTIVO_ACURACIA.formatted(emMetros(acuraciaM), acuraciaMaximaM.toPlainString()),
           velocidade);
     }
 
     // Estrito, sem tolerância pela acurácia informada. Somar a acurácia ao raio daria ao atacante
-    // um parâmetro para alargar o próprio alvo: basta declarar um fix ruim. O corte em 50 m acima
+    // um parâmetro para alargar o próprio alvo: basta declarar um fix ruim. O teto de acurácia
+    // acima
     // já protege o usuário legítimo de baixa qualidade de sinal.
     if (distanciaM.compareTo(new BigDecimal(raioCheckinM)) > 0) {
       return new Avaliacao(

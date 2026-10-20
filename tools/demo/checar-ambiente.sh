@@ -111,21 +111,22 @@ fi
 # toca o banco. Medido no estado quebrado: 3 tabelas em `public`, `POST /auth/login` devolvendo 000,
 # e o script dizendo "Tudo pronto".
 #
-# As 7 migrations de seed (V900-V906) só existem se o Flyway rodou contra ESTE volume. É o sinal
-# mais barato que separa "banco de pé" de "banco que serve a demonstração".
+# As migrations de seed (V900+) só existem se o Flyway rodou contra ESTE volume. O número esperado
+# sai do diretório db/seed, e não de uma constante: a constante "7" ficou errada no primeiro seed novo.
 # ---------------------------------------------------------------------------------------------
+ESPERADOS="$(ls services/api/src/main/resources/db/seed/V9*.sql 2>/dev/null | wc -l | tr -d ' ')"
 if [ "${BANCO_NO_AR:-0}" -eq 1 ]; then
   SEEDS="$(bash tools/demo/compose.sh exec -T db \
     sh -c 'psql -h 127.0.0.1 -U $POSTGRES_USER -d $POSTGRES_DB -tAc \
       "SELECT count(*) FROM flyway_schema_history WHERE version::numeric >= 900"' 2>/dev/null \
     | tr -d '[:space:]')"
-  if [ "$SEEDS" = "7" ]; then
-    ok "schema e seed aplicados (7 migrations V900-V906)"
+  if [ "$SEEDS" = "$ESPERADOS" ]; then
+    ok "schema e seed aplicados ($ESPERADOS migrations de seed)"
   elif [ -z "$SEEDS" ]; then
     falha "o banco não tem schema — o Flyway nunca rodou contra este volume" \
           "(re)inicie o backend: ele migra no boot. Se ele JÁ estava de pé quando você rodou 'make demo', reinicie-o — ele está ligado a um banco vazio"
   else
-    falha "só $SEEDS das 7 migrations de seed foram aplicadas" \
+    falha "só $SEEDS das $ESPERADOS migrations de seed foram aplicadas" \
           "make demo   (e reinicie o backend depois)"
   fi
 fi
@@ -157,7 +158,7 @@ if printf '%s' "$PING" | grep -q '"pong"'; then
   ok "API responde em localhost:8080/api/v1/ping"
 else
   falha "a API não respondeu em localhost:8080 (backend fora do ar)" \
-        "cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev"
+        "cd services/api && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev,feira"
 fi
 
 # ---------------------------------------------------------------------------------------------
@@ -169,20 +170,39 @@ fi
 # A distinção do diagnóstico importa: se a #5 já falhou, não há o que a 8080 sirva, e culpar o
 # firewall mandaria você mexer no lugar errado.
 # ---------------------------------------------------------------------------------------------
-IP_LAN="$(ip -4 -o addr show scope global 2>/dev/null \
+# O IP pela ROTA PADRÃO, e não pela primeira interface: com o G15 no hotspot do celular é o Wi-Fi
+# que leva à internet, e é por ele que o celular enxerga o PC. A primeira interface listada podia
+# ser uma placa cabeada desconectada ou uma VPN.
+IP_LAN="$(ip -4 route get 1.1.1.1 2>/dev/null \
+  | awk '{for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1)}' | head -1)"
+[ -n "$IP_LAN" ] || IP_LAN="$(ip -4 -o addr show scope global 2>/dev/null \
   | awk '$2 !~ /^(docker|br-|veth|podman|cni-)/ {print $4}' | cut -d/ -f1 | head -1)"
 
+porta_aberta() { timeout 3 bash -c "exec 3<>/dev/tcp/$IP_LAN/$1" 2>/dev/null; }
+
 if [ -z "$IP_LAN" ]; then
-  falha "nenhum IP de LAN encontrado (só loopback e interfaces de contêiner)" \
-        "conecte-se ao Wi-Fi; sem rede o celular não alcança o backend de jeito nenhum"
-elif timeout 3 bash -c "exec 3<>/dev/tcp/$IP_LAN/8080" 2>/dev/null; then
-  ok "porta 8080 alcançável em $IP_LAN — é o endereço que o celular usa"
+  falha "nenhum IP de rede encontrado (só loopback e interfaces de contêiner)" \
+        "conecte o PC ao hotspot do celular; sem rede o celular não alcança o backend"
+elif porta_aberta 8080; then
+  ok "porta 8080 (API) alcançável em $IP_LAN — é o endereço que o celular usa"
 elif [ "$API_NO_AR" -eq 0 ]; then
   falha "8080 inalcançável em $IP_LAN, porque o backend está fora do ar (ver acima)" \
         "suba o backend e rode este script de novo — só então isto distingue firewall"
 else
   falha "a API responde em localhost mas NÃO em $IP_LAN:8080 — é firewall" \
-        "sudo firewall-cmd --add-port=8080/tcp   (permanente: --permanent && firewall-cmd --reload)"
+        "sudo firewall-cmd --add-port=8080/tcp --add-port=8081/tcp"
+fi
+
+# A 8081 é o Metro: sem ela o Expo Go nem baixa o app.
+if [ -n "$IP_LAN" ] && timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/8081" 2>/dev/null; then
+  if porta_aberta 8081; then
+    ok "porta 8081 (Metro) alcançável em $IP_LAN"
+  else
+    falha "o Metro responde em localhost mas NÃO em $IP_LAN:8081 — é firewall" \
+          "sudo firewall-cmd --add-port=8080/tcp --add-port=8081/tcp"
+  fi
+else
+  aviso "Metro (8081) ainda não está de pé — rode 'npm start' em apps/mobile"
 fi
 
 # ---------------------------------------------------------------------------------------------
@@ -191,7 +211,7 @@ fi
 # Impresso mesmo quando tudo passa: é o valor que muda de rede para rede, e é por isso que nenhum
 # documento deste repositório o fixa.
 # ---------------------------------------------------------------------------------------------
-printf '\n  %sIP desta máquina na LAN:  %s%s\n' "$N" "${IP_LAN:-<nenhum>}" "$Z"
+printf '\n  %sIP desta máquina na rede:  %s%s\n' "$N" "${IP_LAN:-<nenhum>}" "$Z"
 if [ -n "$IP_LAN" ]; then
   printf '  Na maioria dos casos o app acerta sozinho (deriva do host do Metro).\n'
   printf '  Se não acertar, force:\n'

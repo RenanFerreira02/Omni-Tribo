@@ -3,6 +3,7 @@ package com.omnitribo.geolocalizacao.dominio;
 import com.omnitribo.compartilhado.api.ConsultasGeoespaciais;
 import com.omnitribo.compartilhado.dominio.Coordenadas;
 import com.omnitribo.geolocalizacao.api.ComandoCheckin;
+import com.omnitribo.geolocalizacao.api.ParametrosCheckin;
 import com.omnitribo.geolocalizacao.api.RegistroCheckin;
 import com.omnitribo.geolocalizacao.api.ResultadoCheckin;
 import com.omnitribo.geolocalizacao.infra.CheckinRepository;
@@ -40,11 +41,15 @@ public class RegistroCheckinService implements RegistroCheckin {
 
   private final CheckinRepository checkinRepository;
   private final ConsultasGeoespaciais consultasGeoespaciais;
+  private final ParametrosCheckin parametros;
 
   public RegistroCheckinService(
-      CheckinRepository checkinRepository, ConsultasGeoespaciais consultasGeoespaciais) {
+      CheckinRepository checkinRepository,
+      ConsultasGeoespaciais consultasGeoespaciais,
+      ParametrosCheckin parametros) {
     this.checkinRepository = checkinRepository;
     this.consultasGeoespaciais = consultasGeoespaciais;
+    this.parametros = parametros;
   }
 
   /**
@@ -93,6 +98,7 @@ public class RegistroCheckinService implements RegistroCheckin {
         AvaliacaoAntifraude.avaliar(
             distanciaM,
             comando.acuraciaM(),
+            parametros.acuraciaMaximaM(),
             comando.mocked(),
             comando.raioCheckinM(),
             latAnterior,

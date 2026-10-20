@@ -206,3 +206,14 @@ Carto Voyager**, sem chave, sozinho e sem tentar de novo. A WebView declara a or
 `OverlayView` com o mesmo HTML do Leaflet (alvo de 44 px, forma e glifo). Descartado: development
 build com `react-native-maps` (abandona o QR do Expo Go a quatro dias da feira) e tiles do Google
 dentro do Leaflet (viola os termos de uso).
+
+### 0040 — Teto de acurácia do check-in vira configuração, com padrão intacto
+`app.geolocalizacao.acuracia-maxima-m` (`ParametrosCheckin`), padrão **50 m**, igual à antiga
+constante `LimitesCheckin.ACURACIA_MAXIMA_M`. Só o profile de demonstração `feira` o afrouxa (150 m),
+junto do raio da missão de retirada (300 m), porque dentro de pavilhão o GPS do aparelho costuma
+reportar precisão pior que 50 m e o estande não pode depender de achar uma janela. A validação
+continua toda no servidor, e a recusa publica no ProblemDetail o teto que de fato valeu — o app
+explica o número certo. *Era constante "porque mudar o teto muda o que presença significa": continua
+valendo para todo profile de produto, e a mudança fica visível num YAML de nome `feira`.*
+Descartado: somar a acurácia ao raio (daria ao atacante um parâmetro para alargar o alvo) e afrouxar
+no profile `dev` (os testes passariam a medir uma régua que ninguém usa).

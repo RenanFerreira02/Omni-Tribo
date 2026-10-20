@@ -1,3 +1,4 @@
+import { useLocalSearchParams } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -8,7 +9,7 @@ import { BarraProgresso } from '@/components/BarraProgresso';
 import { Card } from '@/components/Card';
 import { TituloTela } from '@/components/TituloTela';
 import { Esqueleto } from '@/components/Esqueleto';
-import { useImpacto } from '@/features/impacto/hooks';
+import { INTERVALO_TELAO_MS, useImpacto } from '@/features/impacto/hooks';
 import { cores, espaco, textoAcessivel, tipografia, traco } from '@/theme';
 
 /**
@@ -28,7 +29,10 @@ import { cores, espaco, textoAcessivel, tipografia, traco } from '@/theme';
  * existe para evitar do lado das missões.
  */
 export default function TelaImpacto() {
-  const impacto = useImpacto();
+  // `?telao=1` liga a atualização automática — é a tela grande do estande. Sem o parâmetro, nada muda.
+  const { telao } = useLocalSearchParams<{ telao?: string }>();
+  const aoVivo = telao === '1';
+  const impacto = useImpacto({ aoVivo });
 
   return (
     <SafeAreaView style={estilos.tela} edges={['bottom']}>
@@ -38,6 +42,11 @@ export default function TelaImpacto() {
           Apurado no servidor a cada consulta, sobre os dados de produção. Não há cache: dois
           pedidos seguidos podem diferir.
         </Text>
+        {aoVivo ? (
+          <Text style={estilos.legenda} testID="impacto-ao-vivo">
+            Ao vivo · atualiza a cada {INTERVALO_TELAO_MS / 1000} s
+          </Text>
+        ) : null}
 
         {impacto.isPending ? <Carregando /> : null}
 
