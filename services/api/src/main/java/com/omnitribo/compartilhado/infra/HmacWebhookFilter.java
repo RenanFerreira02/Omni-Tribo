@@ -31,40 +31,15 @@ import org.springframework.http.MediaType;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Autentica o webhook de transportadora por HMAC-SHA256 sobre o CORPO BRUTO.
+ * Autentica o webhook de transportadora por HMAC-SHA256 sobre o CORPO BRUTO (ADR 0021) — é o que
+ * permite {@code /api/v1/webhooks/**} estar no {@code permitAll}.
  *
- * <p>Este filtro é a única razão pela qual {@code /api/v1/webhooks/**} pode voltar ao {@code
- * permitAll} do {@link SecurityConfig}. O comentário que guardava aquela lista era explícito: o
- * webhook "nasce autenticado e a isenção é reintroduzida JUNTO com o HMAC, não antes". Remover este
- * filtro sem remover a isenção deixa a rota anônima e gravável por qualquer um.
+ * <p>Bytes do fio, não o objeto reserializado: qualquer diferença de serialização viraria 401
+ * intermitente. Por isso o corpo é bufferizado e repassado intacto ({@link CorpoBufferizado}).
  *
- * <h2>Por que o corpo BRUTO</h2>
- *
- * <p>A assinatura cobre os bytes que chegaram no fio, não o objeto desserializado. Assinar o objeto
- * reserializado compararia o resultado de uma normalização nossa — ordem de chaves, espaços,
- * precisão de número, escapes Unicode — com uma assinatura que a transportadora calculou sobre o
- * texto dela. Qualquer divergência de serialização vira 401 intermitente, e a "correção" natural é
- * afrouxar a comparação, que é como uma verificação de integridade deixa de verificar.
- *
- * <p>Por isso a requisição é bufferizada aqui e repassada adiante por {@link CorpoBufferizado}: ler
- * o {@code InputStream} e devolvê-lo intacto ao controller é a única forma de fazer os dois.
- *
- * <h2>O que é assinado</h2>
- *
- * <p>{@code HMAC-SHA256(segredo, timestamp + "." + corpo)}. O carimbo de tempo entra DENTRO do
- * material assinado, não ao lado: fora dele o atacante trocaria o cabeçalho por um instante atual e
- * reenviaria o corpo com a assinatura original, e a janela de 5 minutos não protegeria nada.
- *
- * <p>A comparação é {@link MessageDigest#isEqual}, em tempo constante. Comparar com {@code equals}
- * de String sai no primeiro byte diferente, e a diferença de tempo é medível pela rede — dá para
- * reconstruir a assinatura byte a byte sem nunca conhecer o segredo.
- *
- * <h2>Por que toda falha é o mesmo 401</h2>
- *
- * <p>Segredo desconhecido, assinatura errada, carimbo fora da janela e cabeçalho ausente respondem
- * exatamente igual, com {@link TipoProblema#NAO_AUTENTICADO}. É a mesma doutrina de {@code
- * ConsultaSessao} e do 401 de login: distinguir as causas conta a quem não tem o segredo qual etapa
- * ele já venceu. "Timestamp velho" avisaria que a assinatura estava certa.
+ * <p>Assina {@code timestamp + "." + corpo}: com o carimbo fora do material, o atacante trocaria o
+ * cabeçalho e reenviaria. Comparação em tempo constante ({@link MessageDigest#isEqual}). Toda falha
+ * é o mesmo 401 — distinguir causas diria a quem não tem o segredo qual etapa ele venceu.
  */
 public class HmacWebhookFilter extends OncePerRequestFilter {
 
@@ -102,15 +77,13 @@ public class HmacWebhookFilter extends OncePerRequestFilter {
     String slug = request.getHeader(CABECALHO_TRANSPORTADORA);
     Optional<String> segredo = parametros.segredoDe(slug);
 
-    // Transportadora desconhecida sai ANTES de qualquer HMAC: sem isso, um slug inventado custaria
-    // um SHA-256 por requisição e a rota anônima viraria amplificador de CPU.
+    // Transportadora desconhecida sai antes do HMAC: senão um slug inventado custaria um SHA-256.
     if (segredo.isEmpty()) {
       recusar(request, response, "transportadora não integrada");
       return;
     }
 
-    // Teto por transportadora. Quem passou daqui é identificado, então o balde é por slug e não por
-    // IP — uma transportadora com problema de retry não derruba a integração das outras.
+    // Teto por transportadora: uma em laço de retry não derruba as outras.
     if (!balde(slug).tryConsume(1)) {
       responder429(request, response);
       return;
@@ -131,9 +104,8 @@ public class HmacWebhookFilter extends OncePerRequestFilter {
       return;
     }
 
-    // O slug VERIFICADO é publicado como atributo. O controller lê daqui e nunca de
-    // request.getHeader(...): o cabeçalho é a alegação, a assinatura é a prova, e ler a alegação
-    // sem a prova deixaria a transportadora A gravar encomendas em nome da B.
+    // O slug VERIFICADO vira atributo; o controller nunca lê o cabeçalho cru — senão A gravaria em
+    // nome de B.
     request.setAttribute(AtributosWebhook.TRANSPORTADORA, slug.toLowerCase(java.util.Locale.ROOT));
     chain.doFilter(new CorpoBufferizado(request, corpo), response);
   }
@@ -182,9 +154,7 @@ public class HmacWebhookFilter extends OncePerRequestFilter {
     return MessageDigest.isEqual(esperada, recebida);
   }
 
-  /**
-   * {@code HMAC-SHA256(segredo, timestamp + "." + corpo)}. Público para o mock e para os testes.
-   */
+  /** {@code HMAC-SHA256(segredo, timestamp + "." + corpo)}. Público para o mock e os testes. */
   public static byte[] calcular(String segredo, String timestamp, byte[] corpo) {
     try {
       Mac mac = Mac.getInstance(ALGORITMO);
@@ -194,17 +164,14 @@ public class HmacWebhookFilter extends OncePerRequestFilter {
       mac.update(corpo);
       return mac.doFinal();
     } catch (java.security.GeneralSecurityException e) {
-      // HmacSHA256 é obrigatório em toda JVM (JCA standard names); chegar aqui é defeito de
-      // ambiente, não requisição ruim.
+      // HmacSHA256 existe em toda JVM; chegar aqui é defeito de ambiente.
       throw new IllegalStateException("HMAC-SHA256 indisponível na JVM", e);
     }
   }
 
   private void recusar(HttpServletRequest request, HttpServletResponse response, String motivo)
       throws IOException {
-    // O motivo vai para o LOG, nunca para o corpo — é o que separa diagnosticar de dar oráculo.
-    // Sem payload e sem cabeçalho: a regra do CLAUDE.md proíbe logar corpo de requisição, e aqui o
-    // corpo é dado de terceiro sob custódia.
+    // O motivo vai para o LOG, nunca para o corpo. Sem payload: é dado de terceiro.
     log.warn(
         "Webhook recusado em {}: {} (origem {})",
         request.getRequestURI(),
@@ -233,12 +200,7 @@ public class HmacWebhookFilter extends OncePerRequestFilter {
         60L);
   }
 
-  /**
-   * ProblemDetail escrito à mão: este filtro roda antes do DispatcherServlet, então o {@code
-   * GlobalExceptionHandler} não o alcança. O {@code setCharacterEncoding} é obrigatório — sem ele o
-   * servlet cai em ISO-8859-1 e "requisições" sai em Latin-1 dentro de um JSON, que é UTF-8 por
-   * definição (RFC 8259 §8.1).
-   */
+  /** ProblemDetail à mão (antes do DispatcherServlet), com UTF-8 explícito. */
   private void escrever(
       HttpServletResponse response,
       HttpStatus status,
@@ -267,11 +229,8 @@ public class HmacWebhookFilter extends OncePerRequestFilter {
   }
 
   /**
-   * Devolve o corpo já lido, quantas vezes for preciso.
-   *
-   * <p>{@code ContentCachingRequestWrapper} não serve aqui: ele guarda o que foi lido para inspeção
-   * POSTERIOR, e quem consome o stream primeiro deixa o controller com EOF. Como a verificação
-   * precisa acontecer ANTES de qualquer desserialização, o corpo é bufferizado e reapresentado.
+   * Devolve o corpo já lido quantas vezes for preciso. {@code ContentCachingRequestWrapper} não
+   * serve: guarda o lido para depois, e quem consome primeiro deixaria o controller com EOF.
    */
   private static final class CorpoBufferizado extends HttpServletRequestWrapper {
 

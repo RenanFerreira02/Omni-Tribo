@@ -8,35 +8,21 @@ import java.time.Duration;
 import java.time.Instant;
 
 /**
- * Regras antifraude do check-in, como funções puras.
- *
- * <p>Sem Spring e sem banco, pelo mesmo motivo de MissaoStateMachine: a matriz de regras roda em
- * milissegundos num teste unitário, e a decisão fica separada da persistência. O que entra já foi
- * medido no servidor — a distância vem do PostGIS, nunca do cliente.
- *
- * <p>O que estas regras NÃO conseguem pegar está documentado em docs/ARQUITETURA.md (seção
- * Antifraude), e não é pouco.
+ * Regras antifraude do check-in, como funções puras: rodam em milissegundos num teste e ficam
+ * separadas da persistência. A distância já chega medida pelo PostGIS, nunca pelo cliente. O que
+ * elas NÃO pegam está em docs/ARQUITETURA.md (Antifraude).
  */
 public final class AvaliacaoAntifraude {
 
-  // O teto de acurácia entra como PARÂMETRO (ParametrosCheckin, ADR 0040), e o mesmo valor é o que
-  // o controller publica na recusa: a mensagem nunca cita um limite diferente do aplicado.
+  // O teto de acurácia entra como PARÂMETRO (ADR 0040); a recusa cita o mesmo valor aplicado.
 
   /** Acima disto a cinemática é implausível para deslocamento urbano entre dois check-ins. */
   public static final BigDecimal VELOCIDADE_SUSPEITA_KMH = new BigDecimal("120");
 
   /**
-   * Teto do que cabe em {@code velocidade_implicita_kmh}, que é {@code NUMERIC(10,2)} — oito
-   * dígitos inteiros.
-   *
-   * <p>Existe porque o caso extremo é alcançável de verdade: dois check-ins em continentes
-   * diferentes com poucos milissegundos entre eles dão dezenas de bilhões de km/h e estouravam a
-   * coluna, derrubando o check-in com 500 em vez de sinalizá-lo. A ironia é que era justamente a
-   * tentativa de fraude mais gritante que quebrava.
-   *
-   * <p>Saturar em vez de alargar a coluna porque este número é SINAL, não medida: qualquer valor
-   * acima de {@link #VELOCIDADE_SUSPEITA_KMH} leva à mesma decisão, e distinguir 100 milhões de 32
-   * bilhões de km/h não muda nada para quem for revisar a suspeita.
+   * Teto do que cabe em {@code velocidade_implicita_kmh} ({@code NUMERIC(10,2)}). Check-ins em
+   * continentes diferentes com milissegundos de intervalo estouravam a coluna com 500. Satura em
+   * vez de alargar: acima do limiar de suspeita, todo valor leva à mesma decisão.
    */
   static final BigDecimal VELOCIDADE_MAXIMA_REGISTRAVEL_KMH = new BigDecimal("99999999.99");
 
@@ -49,11 +35,8 @@ public final class AvaliacaoAntifraude {
   private AvaliacaoAntifraude() {}
 
   /**
-   * Veredito de um check-in.
-   *
-   * <p>A causa da rejeição viaja DUAS vezes, de propósito: {@code codigoRejeicao} é a forma estável
-   * que escolhe o {@code type} da resposta e vai para a coluna homônima; {@code motivoRejeicao} é o
-   * texto para humano, que muda com a copy. Ver ADR 0010. Os dois são nulos quando aceito.
+   * Veredito. A causa viaja duas vezes: {@code codigoRejeicao} é estável e escolhe o {@code type}
+   * (ADR 0010); {@code motivoRejeicao} é texto para humano. Ambos nulos quando aceito.
    */
   public record Avaliacao(
       Veredito veredito,
@@ -67,21 +50,12 @@ public final class AvaliacaoAntifraude {
   }
 
   /**
-   * Aplica as regras na ordem: mock → acurácia → distância → cinemática.
+   * Aplica as regras na ordem mock → acurácia → distância → cinemática — da causa mais específica à
+   * mais genérica, para o usuário ver o motivo que de fato resolve. A cinemática só MARCA (falso
+   * positivo em rodovia, trem, voo); a defesa contra o caso real é a confirmação.
    *
-   * <p>A ordem é fixa e faz parte do contrato, porque define qual motivo o usuário vê quando mais
-   * de uma regra falha ao mesmo tempo. Vai da causa mais específica para a mais genérica: quem
-   * envia mock location precisa saber que foi isso, e não que "está longe" — a segunda mensagem o
-   * levaria a caminhar até o local com o mock ainda ligado e falhar de novo.
-   *
-   * <p>A cinemática é a única que não rejeita. Velocidade implausível MARCA e deixa passar, porque
-   * o falso positivo é real e frequente (rodovia, trem, voo) e porque a defesa efetiva contra o
-   * caso verdadeiro é a confirmação humana do criador — que existe e é a transição {@code
-   * CONFIRMAR} de {@code AGUARDANDO_CONFIRMACAO}.
-   *
-   * @param distanciaM distância medida pelo PostGIS, em metros — nunca informada pelo cliente
-   * @param acuraciaMaximaM teto de precisão vigente ({@code ParametrosCheckin}; padrão 50 m)
-   * @param pontoAnterior coordenada do check-in imediatamente anterior deste usuário, ou null
+   * @param distanciaM medida pelo PostGIS, em metros
+   * @param acuraciaMaximaM teto vigente ({@code ParametrosCheckin}; padrão 50 m)
    */
   public static Avaliacao avaliar(
       BigDecimal distanciaM,
@@ -112,10 +86,8 @@ public final class AvaliacaoAntifraude {
           velocidade);
     }
 
-    // Estrito, sem tolerância pela acurácia informada. Somar a acurácia ao raio daria ao atacante
-    // um parâmetro para alargar o próprio alvo: basta declarar um fix ruim. O teto de acurácia
-    // acima
-    // já protege o usuário legítimo de baixa qualidade de sinal.
+    // Estrito: somar a acurácia ao raio daria ao atacante um jeito de alargar o alvo declarando um
+    // fix ruim.
     if (distanciaM.compareTo(new BigDecimal(raioCheckinM)) > 0) {
       return new Avaliacao(
           Veredito.REJEITADO,
@@ -132,15 +104,9 @@ public final class AvaliacaoAntifraude {
   }
 
   /**
-   * Velocidade média implícita entre o check-in anterior e este.
-   *
-   * <p>Devolve null quando não há anterior — no primeiro check-in do usuário não há contra o que
-   * comparar, e essa é uma cegueira estrutural: a primeira falsificação de uma conta nova nunca
-   * dispara esta regra.
-   *
-   * <p>Também devolve null quando o intervalo é zero ou negativo, em vez de dividir por zero. Dois
-   * check-ins no mesmo instante não são deslocamento mensurável; a idempotência já cobre o caso de
-   * requisição duplicada.
+   * Velocidade média desde o check-in anterior. Null sem anterior (o primeiro check-in de uma conta
+   * é ponto cego estrutural) e com intervalo zero ou negativo (requisição duplicada, que a
+   * idempotência já cobre).
    */
   static BigDecimal velocidadeImplicitaKmh(
       BigDecimal latAnterior,
@@ -156,16 +122,11 @@ public final class AvaliacaoAntifraude {
       return null;
     }
 
-    // Milissegundos, NÃO Duration.toSeconds(). toSeconds() trunca, e o truncamento tinha o efeito
-    // exatamente invertido do que esta regra existe para produzir: dois check-ins separados por
-    // menos de um segundo davam zero, caíam no guard abaixo e saíam sem velocidade nenhuma. Ou
-    // seja, o deslocamento MAIS implausível que existe — teleporte sub-segundo, típico de script —
-    // era o único que não gerava suspeita, enquanto o usuário lento de verdade gerava.
+    // Milissegundos, não toSeconds(): truncar fazia o teleporte sub-segundo — o mais suspeito de
+    // todos — sair sem velocidade nenhuma.
     long millis = Duration.between(instanteAnterior, agora).toMillis();
     if (millis <= 0) {
-      // Intervalo zero ou negativo não é deslocamento mensurável. Não vale tratar como "velocidade
-      // infinita": timestamptz tem precisão de microssegundo, então zero exato só acontece em
-      // requisição duplicada — e para essa a chave de idempotência responde antes de chegar aqui.
+      // Intervalo zero só acontece em requisição duplicada (timestamptz tem microssegundos).
       return null;
     }
 
