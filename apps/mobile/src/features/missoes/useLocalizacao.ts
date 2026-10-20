@@ -18,7 +18,7 @@ type Estado = 'inicial' | 'carregando' | 'concedida' | 'negada' | 'erro';
  * bastante, não filtra por acurácia. Tudo isso é validado no servidor, e valor calculado no cliente
  * é ignorado por princípio. Aqui só se lê o sensor e se repassa o que ele disse — inclusive
  * `mocked`, que é auto-reportado e vale exatamente o que um cliente hostil quiser que valha. É por
- * isso que ele é um sinal, não uma defesa (ver docs/seguranca/antifraude-geolocalizacao.md).
+ * isso que ele é um sinal, não uma defesa (ver docs/ARQUITETURA.md (seção Antifraude)).
  */
 /**
  * <b>O padrão é NÃO pedir ao montar, e a inversão foi deliberada.</b>

@@ -30,7 +30,7 @@ public record RegistrarCheckinRequest(
             description =
                 "Flag de localização simulada reportada pelo dispositivo (expo-location no"
                     + " Android). Ausente equivale a false. Um cliente comprometido pode omiti-la"
-                    + " ou mentir — ver docs/seguranca/antifraude-geolocalizacao.md.")
+                    + " ou mentir — ver docs/ARQUITETURA.md (seção Antifraude).")
         Boolean mocked) {
 
   /**

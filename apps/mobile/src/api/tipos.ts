@@ -25,7 +25,7 @@ export type ComplexidadeMissao = 'LEVE' | 'MEDIA' | 'PESADA';
  * Faixa de risco de falha da entrega, estimada pelo modelo do servidor.
  *
  * Três faixas e não a probabilidade crua: "62%" convida a uma precisão que o modelo não tem — ele
- * foi treinado em dados sintéticos (ver docs/qualidade/modelo-previsao.md) e a incerteza da
+ * foi treinado em dados sintéticos (ver docs/MODELO-RISCO.md) e a incerteza da
  * estimativa é da ordem de pontos percentuais. A faixa comunica a ordem de grandeza sem prometer
  * exatidão que não existe.
  */

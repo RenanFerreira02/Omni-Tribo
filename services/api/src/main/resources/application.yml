@@ -348,7 +348,7 @@ app:
     # CalculadoraDeRecompensaTest.douradoV1. Para republicar: bash tools/dataset/gerar.sh
     #
     # HONESTIDADE: estes coeficientes foram aprendidos de dados SINTÉTICOS, com correlações que nós
-    # mesmos injetamos e documentamos em docs/qualidade/modelo-previsao.md. Isto demonstra um
+    # mesmos injetamos e documentamos em docs/MODELO-RISCO.md. Isto demonstra um
     # mecanismo; não é um modelo validado contra a operação real. Ver ADR 0022.
     risco:
       # MUDOU QUALQUER NÚMERO ABAIXO? SUBA A VERSÃO. O multiplicador derivado daqui é CONGELADO em

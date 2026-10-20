@@ -30,7 +30,7 @@
   `coral` 3,20:1, contra o mínimo de 4,5:1. Onze dos vinte e dois pares texto/fundo do app
   reprovavam. `textoAcessivel` traz as mesmas cores escurecidas até o limiar, preservando o matiz.
   Verde como texto é `verdeEscuro`, que já atendia. Um `color: cores.ambar` novo é regressão.
-- **Acessibilidade é LINT, não boa vontade** (F18). `eslint-plugin-react-native-a11y` roda no
+- **Acessibilidade é LINT, não boa vontade**. `eslint-plugin-react-native-a11y` roda no
   `npm run lint`, que o CI do mobile já executa. Onze regras ligadas uma a uma em `eslint.config.js`,
   com o comentário de cada decisão. **Nenhuma exceção inline sem justificativa** — e hoje não há
   nenhuma: o único falso positivo (o fundo da `FolhaInferior`) foi resolvido declarando
@@ -147,12 +147,12 @@
   tem guarda de sessão — o grupo entre parênteses não entra na URL.
 - **Path param interpolado passa por `seg()`** (`src/api/caminho.ts`). Axios não escapa segmento de
   path, e um id com `/` remonta a requisição contra outro endpoint com o Bearer junto.
-- **`src/testes/perfilador.tsx` (F15) mede CUSTO DE RENDER**, via `<Profiler>` do React, e
+- **`src/testes/perfilador.tsx` mede CUSTO DE RENDER**, via `<Profiler>` do React, e
   `app/__tests__/renderizacao.test.tsx` o usa. O que ele pegou: os **50 pontos de custódia do rodapé
   do radar montam fora da virtualização**. Cuidado ao ler esses testes — dois dos três comparam
   proporção (50 nós contra 5), que é propriedade do React e não deste app; o que de fato prende
   comportamento é a contagem de nós montados.
-- **O painel de impacto mostra a premissa em TRÊS colunas** (`app/(app)/impacto.tsx`, F17b): base,
+- **O painel de impacto mostra a premissa em TRÊS colunas** (`app/(app)/impacto.tsx`): base,
   −50% e +50%, lado a lado. O **rótulo** de cada premissa é derivado no cliente (`× 0,5` e `× 1,5`),
   mas os **três totais vêm prontos da API** (`menos50Brl`, `baseBrl`, `mais50Brl`) e **não podem ser
   recalculados aqui** — é a mesma regra de nunca duplicar a fórmula do servidor. O teste que prende

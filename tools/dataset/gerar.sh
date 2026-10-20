@@ -16,7 +16,7 @@
 #   2. colar tools/dataset/coeficientes.yml em app.logistica.risco no application.yml
 #   3. SUBIR app.logistica.risco.versao
 #   4. atualizar o digest em DatasetSinteticoTest, se o dataset mudou
-#   5. atualizar docs/qualidade/modelo-previsao.md com os números novos
+#   5. atualizar docs/MODELO-RISCO.md com os números novos
 #
 # Uso:  bash tools/dataset/gerar.sh
 #

@@ -47,7 +47,7 @@ public class PrevisaoFalhaController {
               + "Não escreve nada e não tem efeito colateral: a mesma entrada devolve sempre a "
               + "mesma saída.\n\n"
               + "**Os coeficientes foram aprendidos de dados SINTÉTICOS**, com correlações "
-              + "documentadas em docs/qualidade/modelo-previsao.md. Validação contra dados reais da "
+              + "documentadas em docs/MODELO-RISCO.md. Validação contra dados reais da "
               + "operação é o próximo passo — ver ADR 0022.")
   @ApiResponses({
     @ApiResponse(responseCode = "200", description = "Risco estimado, com os fatores principais"),

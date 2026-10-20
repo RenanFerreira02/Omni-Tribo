@@ -70,7 +70,7 @@ public interface AlertaRepository extends JpaRepository<Alerta, UUID> {
   /**
    * Grava o alerta operacional GLOBAL no máximo uma vez por {@code (tipo, referencia, janela)}.
    *
-   * <p>É a correção da pendência medida em {@code docs/evidencias/f21-carga.md} §6: uma rajada de
+   * <p>É a correção da pendência medida em o teste de carga de 2026-08-25 §6: uma rajada de
    * webhooks contra um ponto de custódia cheio gravava uma linha por evento — 631 delas em menos de
    * 3 minutos, todas com a mesma frase sobre o mesmo ponto. O teto {@code alertasPorHora} não
    * alcança isto e está certo em não alcançar: ele conta {@code WHERE usuario_id = ?}, e estes
