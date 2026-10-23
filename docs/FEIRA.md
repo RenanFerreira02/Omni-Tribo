@@ -40,6 +40,19 @@ No celular, leia o QR do terminal 2 com o Expo Go.
 para `http://localhost:8081/impacto?telao=1`. A tela atualiza sozinha a cada 5 s. **Não recarregue a
 página**: na web a sessão vive só na aba, e recarregar desloga (decisão de segurança, 0013).
 
+**Vitrine (segundo monitor):** um loop de 8 telas, cerca de 90 s, que roda sozinho e offline entre
+um visitante e outro. Abra noutra janela, no segundo monitor:
+
+```bash
+firefox --kiosk tools/feira/vitrine.html     # ou: google-chrome --kiosk --new-window file://$PWD/tools/feira/vitrine.html
+```
+
+- **P** pausa e retoma; qualquer outra tecla ou clique é ignorado. Para sair do kiosk: Alt+F4.
+- Desligue o apagamento de tela do Fedora (Configurações → Energia → Apagar tela: Nunca). A página
+  também pede ao navegador para manter a tela acesa, mas não dependa só disso.
+- Os números das telas (testes, multiplicador) estão escritos no próprio arquivo: mudou o projeto,
+  confira lá.
+
 ## Roteiro por visitante (~2 min)
 
 | Tempo | No celular | O que dizer |
