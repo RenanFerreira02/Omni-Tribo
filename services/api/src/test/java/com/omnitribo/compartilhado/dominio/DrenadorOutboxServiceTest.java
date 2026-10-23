@@ -8,6 +8,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -27,6 +28,20 @@ class DrenadorOutboxServiceTest extends TesteIntegracaoBase {
 
   private UUID usuarioId;
   private UUID eventoId;
+
+  /**
+   * O PostGIS é compartilhado pela suíte inteira, e outras classes (webhook, conclusão…) deixam
+   * linhas pendentes na outbox. Como {@code drenarLote} conta o lote GLOBAL, essas sobras entrariam
+   * nas assertions exatas daqui (e um "esperado 0, veio 2" no CI). Drenar antes do arrange zera o
+   * que está elegível; o laço termina porque toda linha processada é publicada ou recebe backoff e
+   * sai do predicado.
+   */
+  @BeforeEach
+  void drenarSobrasDeOutrasClasses() {
+    while (drenadorOutboxService.drenarLote(100) > 0) {
+      // repete até não haver evento elegível
+    }
+  }
 
   @AfterEach
   void limpar() {
