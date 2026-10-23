@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Omni-Tribo · Vitrine</title>
+<!--
+  Vitrine do estande (FIAP NEXT): loop automático para o segundo monitor, sem clique.
+  Um arquivo só e nada externo: tem que rodar no hotspot instável e até sem rede.
+  P pausa/retoma. Qualquer outra tecla ou clique é ignorado, para um toque sem querer não travar.
+  Os números vêm de README, docs/ECONOMIA.md e docs/MODELO-RISCO.md — mudou lá, mude aqui.
+-->
+<style>
+  :root {
+    /* Cores do app (apps/mobile/src/theme/tokens.ts). */
+    --verde: #1D9E75;
+    --verde-escuro: #0F6E56;
+    --verde-claro: #E1F5EE;
+    --ambar: #BA7517;
+    --ambar-claro: #FFF1E6;
+    --coral: #D85A30;
+    --coral-claro: #FFE4DA;
+    --tinta: #1A2520;
+    --tinta70: #4A5853;
+    --tinta50: #7A8782;
+    --linha: #D7DDDA;
+    --papel: #F7F9F8;
+    --branco: #FFFFFF;
+    /* Escala pela menor dimensão: o mesmo layout em 1920x1080 e 1366x768. */
+    --u: min(1vw, 1.778vh);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: var(--papel); color: var(--tinta);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Cantarell, "Noto Sans", sans-serif;
+    cursor: none; user-select: none;
+  }
+
+  .tela {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: calc(3 * var(--u));
+    padding: calc(6 * var(--u)) calc(8 * var(--u)) calc(9 * var(--u));
+    text-align: center;
+    opacity: 0; visibility: hidden;
+    transition: opacity .8s ease, visibility 0s linear .8s;
+  }
+  .tela.ativa { opacity: 1; visibility: visible; transition: opacity .8s ease; }
+
+  h1 {
+    font-size: calc(6.4 * var(--u)); line-height: 1.08; font-weight: 800;
+    letter-spacing: -0.02em; max-width: 22ch;
+  }
+  .apoio {
+    font-size: calc(2.6 * var(--u)); line-height: 1.35; color: var(--tinta70);
+    max-width: 44ch; font-weight: 500;
+  }
+  .nota { font-size: calc(1.7 * var(--u)); color: var(--tinta50); font-style: italic; }
+  .destaque { color: var(--verde); }
+  .marca {
+    display: inline-flex; align-items: center; gap: calc(1.4 * var(--u));
+    font-size: calc(3.2 * var(--u)); font-weight: 800; color: var(--verde-escuro);
+  }
+  .marca svg { width: calc(5.5 * var(--u)); height: calc(5.5 * var(--u)); }
+
+  /* Tela 2: a tese, em fundo verde. */
+  .tela.tese { background: var(--verde); color: var(--branco); }
+  .tela.tese h1 { font-size: calc(5.8 * var(--u)); max-width: 20ch; }
+  .tela.tese .marca { color: var(--verde-claro); }
+
+  /* Ilustrações: entram junto com a tela (a classe .ativa religa a animação). */
+  .ilustra { width: calc(26 * var(--u)); height: calc(18 * var(--u)); }
+  .ativa .sobe { animation: sobe .9s cubic-bezier(.2,.8,.2,1) both; }
+  .ativa .sobe.d1 { animation-delay: .25s; }
+  .ativa .sobe.d2 { animation-delay: .5s; }
+  @keyframes sobe { from { opacity: 0; transform: translateY(calc(3 * var(--u))); } to { opacity: 1; transform: none; } }
+
+  .ativa .balanca { animation: balanca 2.4s ease-in-out .6s infinite; transform-origin: 50% 90%; }
+  @keyframes balanca { 0%,100% { transform: rotate(0); } 25% { transform: rotate(-4deg); } 75% { transform: rotate(4deg); } }
+
+  /* Tela 3: os quatro passos acendem em sequência. */
+  .passos { display: grid; grid-template-columns: repeat(4, 1fr); gap: calc(2 * var(--u)); width: 100%; max-width: calc(150 * var(--u)); }
+  .passo {
+    background: var(--branco); border: 2px solid var(--linha); border-radius: calc(2 * var(--u));
+    padding: calc(2.4 * var(--u)) calc(1.6 * var(--u));
+    display: flex; flex-direction: column; align-items: center; gap: calc(1.4 * var(--u));
+    opacity: .25; transform: scale(.96);
+  }
+  .passo svg { width: calc(9 * var(--u)); height: calc(9 * var(--u)); }
+  .passo .n {
+    width: calc(4 * var(--u)); height: calc(4 * var(--u)); border-radius: 50%;
+    background: var(--verde); color: var(--branco); font-weight: 800;
+    font-size: calc(2.2 * var(--u)); display: grid; place-items: center;
+  }
+  .passo p { font-size: calc(2.2 * var(--u)); line-height: 1.3; font-weight: 600; }
+  .ativa .passo { animation: acende .7s ease both; }
+  .ativa .passo:nth-child(1) { animation-delay: .6s; }
+  .ativa .passo:nth-child(2) { animation-delay: 2.6s; }
+  .ativa .passo:nth-child(3) { animation-delay: 4.6s; }
+  .ativa .passo:nth-child(4) { animation-delay: 6.6s; }
+  @keyframes acende { to { opacity: 1; transform: none; border-color: var(--verde); } }
+
+  /* Tela 4: benefícios. */
+  .beneficios { display: flex; gap: calc(4 * var(--u)); }
+  .beneficio { display: flex; flex-direction: column; align-items: center; gap: calc(1 * var(--u)); font-size: calc(2.2 * var(--u)); font-weight: 600; color: var(--tinta70); }
+  .beneficio svg { width: calc(10 * var(--u)); height: calc(10 * var(--u)); }
+
+  /* Tela 5: barra do multiplicador de 1,00× a 1,50×. */
+  .regua { width: calc(90 * var(--u)); }
+  .trilho { height: calc(4 * var(--u)); border-radius: 999px; background: var(--ambar-claro); overflow: hidden; border: 2px solid var(--ambar); }
+  .enche { height: 100%; width: 0; background: linear-gradient(90deg, var(--verde), var(--ambar)); }
+  .ativa .enche { animation: enche 3.2s cubic-bezier(.3,.7,.2,1) .8s both; }
+  @keyframes enche { to { width: 100%; } }
+  .marcas { display: flex; justify-content: space-between; margin-top: calc(1.2 * var(--u)); font-size: calc(2.4 * var(--u)); font-weight: 800; }
+  .marcas span:first-child { color: var(--verde-escuro); }
+  .marcas span:last-child { color: var(--ambar); }
+
+  /* Tela 6: três garantias. */
+  .garantias { display: flex; gap: calc(3 * var(--u)); }
+  .garantia {
+    background: var(--branco); border: 2px solid var(--linha); border-radius: calc(2 * var(--u));
+    padding: calc(2.4 * var(--u)); width: calc(30 * var(--u));
+    display: flex; flex-direction: column; align-items: center; gap: calc(1.2 * var(--u));
+    font-size: calc(2.2 * var(--u)); font-weight: 600; line-height: 1.3;
+  }
+  .garantia svg { width: calc(8 * var(--u)); height: calc(8 * var(--u)); }
+
+  /* Tela 7: contador. */
+  .contador { font-size: calc(16 * var(--u)); font-weight: 900; line-height: 1; color: var(--verde); font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+  .pilha { display: flex; gap: calc(1.6 * var(--u)); flex-wrap: wrap; justify-content: center; }
+  .pilha span { background: var(--verde-claro); color: var(--verde-escuro); border-radius: 999px; padding: calc(.8 * var(--u)) calc(2 * var(--u)); font-size: calc(2.1 * var(--u)); font-weight: 700; }
+
+  /* Tela 8: chamada. */
+  .tela.chamada h1 { font-size: calc(9 * var(--u)); color: var(--verde-escuro); }
+  .ativa .pulsa { animation: pulsa 1.8s ease-in-out infinite; }
+  @keyframes pulsa { 0%,100% { transform: scale(1); } 50% { transform: scale(1.04); } }
+  .rodape { font-size: calc(1.9 * var(--u)); color: var(--tinta50); font-weight: 600; }
+
+  /* Progresso: pontos por tela e a barra da tela atual. */
+  .progresso {
+    position: fixed; left: 50%; bottom: calc(3 * var(--u)); transform: translateX(-50%);
+    display: flex; gap: calc(1 * var(--u)); z-index: 2;
+  }
+  .ponto { width: calc(5 * var(--u)); height: calc(.7 * var(--u)); border-radius: 999px; background: var(--linha); overflow: hidden; }
+  .ponto i { display: block; height: 100%; width: 0; background: var(--verde); }
+  .ponto.feito i { width: 100%; }
+  .tese-visivel .ponto { background: rgba(255,255,255,.35); }
+  .tese-visivel .ponto i { background: var(--branco); }
+
+  .pausado {
+    position: fixed; top: calc(2 * var(--u)); right: calc(2 * var(--u));
+    background: var(--tinta); color: var(--branco); border-radius: 999px;
+    padding: calc(.6 * var(--u)) calc(1.6 * var(--u)); font-size: calc(1.6 * var(--u)); font-weight: 700;
+    display: none; z-index: 3;
+  }
+  body.em-pausa .pausado { display: block; }
+  body.em-pausa .tela * { animation-play-state: paused !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: 0s !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Símbolo reaproveitado: três vizinhos ligados (a tribo). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="logo" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="currentColor" opacity=".14"/>
+      <path d="M32 16 L18 42 L46 42 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+      <circle cx="32" cy="16" r="7" fill="currentColor"/>
+      <circle cx="18" cy="42" r="7" fill="currentColor"/>
+      <circle cx="46" cy="42" r="7" fill="currentColor"/>
+    </symbol>
+  </defs>
+</svg>
+
+<!-- 1. Gancho -->
+<section class="tela" data-segundos="10">
+  <svg class="ilustra sobe balanca" viewBox="0 0 260 180" aria-hidden="true">
+    <path d="M60 70 L130 40 L200 70 L200 150 L130 175 L60 150 Z" fill="#E8C9A0" stroke="#9C6213" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M60 70 L130 100 L200 70 M130 100 L130 175" fill="none" stroke="#9C6213" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M95 55 L165 85" stroke="#9C6213" stroke-width="10" opacity=".35"/>
+    <g transform="rotate(-12 150 125)">
+      <rect x="80" y="105" width="150" height="40" rx="6" fill="#FFE4DA" stroke="#D85A30" stroke-width="4"/>
+      <text x="155" y="132" text-anchor="middle" font-size="16" font-weight="800" fill="#AF4927" font-family="system-ui, sans-serif">NÃO ENTREGUE</text>
+    </g>
+  </svg>
+  <h1 class="sobe d1">Ninguém em casa.</h1>
+  <p class="apoio sobe d2">A encomenda volta para o depósito. E a segunda tentativa custa caro.</p>
+</section>
+
+<!-- 2. Tese -->
+<section class="tela tese" data-segundos="10">
+  <span class="marca sobe"><svg aria-hidden="true"><use href="#logo"/></svg>Omni-Tribo</span>
+  <h1 class="sobe d1">Uma entrega que falhou vira missão comunitária remunerada.</h1>
+</section>
+
+<!-- 3. Como funciona -->
+<section class="tela" data-segundos="14">
+  <h1 class="sobe" style="font-size:calc(4.6 * var(--u))">Como funciona</h1>
+  <div class="passos">
+    <div class="passo">
+      <span class="n">1</span>
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="4" y="22" width="34" height="24" rx="3" fill="#E1F5EE" stroke="#0F6E56" stroke-width="3"/><path d="M38 28 H50 L58 37 V46 H38 Z" fill="#E1F5EE" stroke="#0F6E56" stroke-width="3" stroke-linejoin="round"/><circle cx="16" cy="48" r="5" fill="#0F6E56"/><circle cx="48" cy="48" r="5" fill="#0F6E56"/><circle cx="50" cy="14" r="9" fill="#D85A30"/><path d="M50 9 V15 M50 18.5 V19" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>
+      <p>A transportadora avisa a falha</p>
+    </div>
+    <div class="passo">
+      <span class="n">2</span>
+      <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M8 26 L32 10 L56 26 V56 H8 Z" fill="#FFF1E6" stroke="#BA7517" stroke-width="3" stroke-linejoin="round"/><rect x="22" y="34" width="20" height="16" rx="2" fill="#E8C9A0" stroke="#9C6213" stroke-width="3"/><path d="M22 40 H42" stroke="#9C6213" stroke-width="3"/></svg>
+      <p>O pacote fica num ponto do bairro</p>
+    </div>
+    <div class="passo">
+      <span class="n">3</span>
+      <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 6 C20 6 12 15 12 26 C12 40 32 58 32 58 C32 58 52 40 52 26 C52 15 44 6 32 6 Z" fill="#E1F5EE" stroke="#1D9E75" stroke-width="3"/><circle cx="32" cy="26" r="8" fill="#1D9E75"/></svg>
+      <p>Um vizinho aceita e faz check-in por GPS</p>
+    </div>
+    <div class="passo">
+      <span class="n">4</span>
+      <svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="26" fill="#E1F5EE" stroke="#1D9E75" stroke-width="3"/><path d="M20 33 L29 42 L45 23" fill="none" stroke="#1D9E75" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <p>A transportadora confirma: <span class="destaque">XP + tokens</span></p>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Benefícios -->
+<section class="tela" data-segundos="10">
+  <div class="beneficios">
+    <div class="beneficio sobe">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M12 24 H46 V40 C46 50 38 56 29 56 C20 56 12 50 12 40 Z" fill="#FFF1E6" stroke="#BA7517" stroke-width="3"/><path d="M46 28 H51 C55 28 57 31 57 34 C57 38 54 40 50 40 H46" fill="none" stroke="#BA7517" stroke-width="3"/><path d="M22 8 C20 12 24 14 22 18 M32 8 C30 12 34 14 32 18" fill="none" stroke="#7A8782" stroke-width="3" stroke-linecap="round"/></svg>
+      Café
+    </div>
+    <div class="beneficio sobe d1">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="16" cy="42" r="11" fill="none" stroke="#0F6E56" stroke-width="3"/><circle cx="48" cy="42" r="11" fill="none" stroke="#0F6E56" stroke-width="3"/><path d="M16 42 L26 24 H42 L48 42 M26 24 L32 42 L42 24 M24 18 H30" fill="none" stroke="#0F6E56" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/></svg>
+      Remendo de bicicleta
+    </div>
+    <div class="beneficio sobe d2">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M8 22 L14 10 H50 L56 22 Z" fill="#FFE4DA" stroke="#D85A30" stroke-width="3" stroke-linejoin="round"/><rect x="12" y="22" width="40" height="32" fill="#fff" stroke="#D85A30" stroke-width="3"/><circle cx="26" cy="38" r="5" fill="#D85A30"/><circle cx="40" cy="40" r="4" fill="#1D9E75"/><circle cx="33" cy="32" r="3" fill="#BA7517"/></svg>
+      Desconto na feira
+    </div>
+  </div>
+  <h1 class="sobe d1">Tokens viram <span class="destaque">benefício no bairro.</span></h1>
+  <p class="apoio sobe d2">Sem dinheiro real: o token vale no comércio local e sai de circulação quando é trocado.</p>
+</section>
+
+<!-- 5. Risco -->
+<section class="tela" data-segundos="11">
+  <h1 class="sobe">Entrega difícil <span style="color:var(--ambar)">paga mais.</span></h1>
+  <p class="apoio sobe d1">Um modelo estima a chance de a entrega falhar de novo e aumenta a recompensa em até 50%.</p>
+  <div class="regua sobe d2">
+    <div class="trilho"><div class="enche"></div></div>
+    <div class="marcas"><span>1,00×</span><span>1,50×</span></div>
+  </div>
+  <p class="nota sobe d2">Modelo treinado com dados sintéticos.</p>
+</section>
+
+<!-- 6. Confiável -->
+<section class="tela" data-segundos="11">
+  <h1 class="sobe">Confiável por construção.</h1>
+  <div class="garantias">
+    <div class="garantia sobe d1">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 6 C20 6 12 15 12 26 C12 40 32 58 32 58 C32 58 52 40 52 26 C52 15 44 6 32 6 Z" fill="#E1F5EE" stroke="#1D9E75" stroke-width="3"/><circle cx="32" cy="26" r="8" fill="#1D9E75"/></svg>
+      GPS validado no servidor
+    </div>
+    <div class="garantia sobe d1">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 6 L54 14 V30 C54 44 44 54 32 58 C20 54 10 44 10 30 V14 Z" fill="#E1F5EE" stroke="#0F6E56" stroke-width="3" stroke-linejoin="round"/><path d="M22 32 L29 39 L43 24" fill="none" stroke="#0F6E56" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Antifraude no check-in
+    </div>
+    <div class="garantia sobe d2">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="12" y="6" width="40" height="52" rx="4" fill="#FFF1E6" stroke="#BA7517" stroke-width="3"/><path d="M20 18 H44 M20 28 H44 M20 38 H36" stroke="#BA7517" stroke-width="3" stroke-linecap="round"/><circle cx="44" cy="46" r="8" fill="#1D9E75"/><path d="M40 46 L43 49 L48 43" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Todo token emitido ou queimado é auditado
+    </div>
+  </div>
+</section>
+
+<!-- 7. Bastidores -->
+<section class="tela" data-segundos="11" data-contar="1065">
+  <div class="contador sobe" id="contador">0</div>
+  <h1 class="sobe d1" style="font-size:calc(5 * var(--u))">testes automatizados</h1>
+  <div class="pilha sobe d2">
+    <span>801 na API</span><span>264 no app</span><span>Spring Boot + PostGIS</span><span>App Expo</span>
+  </div>
+</section>
+
+<!-- 8. Chamada -->
+<section class="tela chamada" data-segundos="11">
+  <span class="marca sobe"><svg aria-hidden="true"><use href="#logo"/></svg>Omni-Tribo</span>
+  <h1 class="pulsa">Peça uma demo.</h1>
+  <p class="apoio sobe d1">Uma entrega falha aqui, e alguém resolve ao vivo.</p>
+  <p class="rodape sobe d2">FIAP NEXT · RM 555833 · Enterprise Challenge Leroy Merlin</p>
+</section>
+
+<div class="progresso" id="progresso" aria-hidden="true"></div>
+<div class="pausado">Pausado · P continua</div>
+
+<script>
+(function () {
+  'use strict';
+  var telas = Array.prototype.slice.call(document.querySelectorAll('.tela'));
+  var progresso = document.getElementById('progresso');
+  var contador = document.getElementById('contador');
+  var reduzMovimento = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var pontos = telas.map(function () {
+    var p = document.createElement('span');
+    p.className = 'ponto';
+    p.appendChild(document.createElement('i'));
+    progresso.appendChild(p);
+    return p;
+  });
+
+  var atual = -1;
+  var restanteMs = 0;
+  var ultimoTick = 0;
+  var pausado = false;
+
+  function duracaoMs(i) { return Number(telas[i].dataset.segundos || 10) * 1000; }
+
+  function contar(alvo) {
+    if (reduzMovimento) { contador.textContent = alvo.toLocaleString('pt-BR'); return; }
+    var inicio = performance.now();
+    var dur = 2200;
+    function passo(agora) {
+      var t = Math.min(1, (agora - inicio) / dur);
+      var e = 1 - Math.pow(1 - t, 3);
+      contador.textContent = Math.round(alvo * e).toLocaleString('pt-BR');
+      if (t < 1 && telas[atual].dataset.contar) requestAnimationFrame(passo);
+    }
+    contador.textContent = '0';
+    setTimeout(function () { requestAnimationFrame(passo); }, 500);
+  }
+
+  function mostrar(i) {
+    if (atual >= 0) telas[atual].classList.remove('ativa');
+    atual = i;
+    // Força o reflow para a animação recomeçar a cada volta do loop.
+    void telas[i].offsetWidth;
+    telas[i].classList.add('ativa');
+    document.body.classList.toggle('tese-visivel', telas[i].classList.contains('tese'));
+    pontos.forEach(function (p, k) {
+      p.classList.toggle('feito', k < i);
+      p.firstChild.style.width = k < i ? '100%' : '0';
+    });
+    restanteMs = duracaoMs(i);
+    if (telas[i].dataset.contar) contar(Number(telas[i].dataset.contar));
+  }
+
+  // Um relógio só, por requestAnimationFrame: pausar congela tela e barra juntas.
+  function tick(agora) {
+    var dt = ultimoTick ? agora - ultimoTick : 0;
+    ultimoTick = agora;
+    // Aba em segundo plano devolve um dt enorme; limitado para não pular telas.
+    if (!pausado) restanteMs -= Math.min(dt, 250);
+    var feito = 1 - restanteMs / duracaoMs(atual);
+    pontos[atual].firstChild.style.width = Math.max(0, Math.min(1, feito)) * 100 + '%';
+    if (restanteMs <= 0) mostrar((atual + 1) % telas.length);
+    requestAnimationFrame(tick);
+  }
+
+  function alternarPausa() {
+    pausado = !pausado;
+    document.body.classList.toggle('em-pausa', pausado);
+  }
+
+  // Só P responde. O resto é engolido: Espaço, setas e clique não rolam nem navegam.
+  window.addEventListener('keydown', function (ev) {
+    if (ev.key === 'p' || ev.key === 'P') { alternarPausa(); ev.preventDefault(); return; }
+    if (ev.key === 'F11' || ev.key === 'Escape') return; // tela cheia continua com o navegador
+    ev.preventDefault();
+  });
+  ['wheel', 'touchmove', 'contextmenu', 'mousedown'].forEach(function (tipo) {
+    window.addEventListener(tipo, function (ev) { ev.preventDefault(); }, { passive: false });
+  });
+
+  // Pede para a tela não apagar. Se o navegador negar, a orientação no docs/FEIRA.md cobre.
+  var trava = null;
+  function pedirTrava() {
+    if (!('wakeLock' in navigator)) return;
+    navigator.wakeLock.request('screen').then(function (t) {
+      trava = t;
+      // O navegador solta a trava quando a aba some; a volta pede de novo.
+      t.addEventListener('release', function () { trava = null; });
+    }).catch(function () {});
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && !trava) pedirTrava();
+  });
+  pedirTrava();
+
+  mostrar(0);
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
